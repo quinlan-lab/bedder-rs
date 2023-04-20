@@ -3,7 +3,7 @@ use std::collections::{BinaryHeap, HashMap};
 
 use crate::position::{Position, Positioned, PositionedIterator};
 
-pub struct IntersectionIterator<'a, 'b, I: PositionedIterator<'a, 'b> + 'a> {
+pub struct IntersectionIterator<'a, 'b, I: PositionedIterator<'b>> {
     base_iterator: I,
     other_iterators: Vec<I>,
     min_heap: BinaryHeap<ReverseOrderPosition<'a>>,
@@ -60,7 +60,9 @@ impl<'a> Ord for ReverseOrderPosition<'a> {
     }
 }
 
-impl<'a, 'b, I: PositionedIterator<'a, 'b> + 'a> IntersectionIterator<'a, 'b, I> {
+//pub struct IntersectionIterator<'a, 'b, I: PositionedIterator<'b>> {
+
+impl<'a, 'b, I: PositionedIterator<'b> + 'a> IntersectionIterator<'a, 'b, I> {
     pub fn new(
         base_iterator: I,
         other_iterators: Vec<I>,
@@ -74,30 +76,39 @@ impl<'a, 'b, I: PositionedIterator<'a, 'b> + 'a> IntersectionIterator<'a, 'b, I>
             chromosome_order,
             phantom: std::marker::PhantomData,
         };
-        &ii.init_heap();
+        ii.init_heap();
         ii
     }
 
-    fn init_heap(&'a mut self) {
+    fn init_heap(&mut self) {
+        if let Some(positioned) = self.base_iterator.next() {
+            self.min_heap.push(ReverseOrderPosition {
+                position: positioned.position(),
+                chromosome_order: self.chromosome_order,
+                file_index: 0,
+            });
+        }
+
         for (i, iter) in self.other_iterators.iter_mut().enumerate() {
             if let Some(positioned) = iter.next() {
                 self.min_heap.push(ReverseOrderPosition {
                     position: positioned.position(),
                     chromosome_order: self.chromosome_order,
-                    file_index: i,
+                    file_index: i + 1, // Adjust the file_index accordingly
                 });
             }
         }
     }
 }
 
-impl<'a, 'b, I: PositionedIterator<'a, 'b>> Iterator for IntersectionIterator<'a, 'b, I> {
-    type Item = Intersection<'a>;
+impl<'a: 'b, 'b, I: PositionedIterator<'b>> Iterator for IntersectionIterator<'a, 'b, I> {
+    type Item = Intersection<'b>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let base_interval = self.base_iterator.next()?.position();
 
         let mut overlapping_positions: Vec<Position> = Vec::new();
+        let other_iterators = self.other_iterators.as_mut_slice();
         while let Some(ReverseOrderPosition {
             position,
             file_index,
@@ -111,7 +122,10 @@ impl<'a, 'b, I: PositionedIterator<'a, 'b>> Iterator for IntersectionIterator<'a
                 let ReverseOrderPosition {
                     position: overlap, ..
                 } = self.min_heap.pop().unwrap();
-                let n = (&self.other_iterators[file_index]).next();
+                let f = other_iterators
+                    .get_mut(file_index)
+                    .expect("expected interval iterator at file index");
+                let n = f.next();
                 if n.is_some() {
                     self.min_heap.push(ReverseOrderPosition {
                         position: n.unwrap().position(),

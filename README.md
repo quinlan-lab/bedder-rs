@@ -12,8 +12,11 @@ The API will look like something this:
 ```rust
 
 pub trait Positioned<'a> {
+    // we may instead make this 3 separate fn's for chrom, start, stop, but this may be more efficient
     fn position(&self) -> Position<'a>;
-    fn get(&self, name: &str) -> Value; // Value an enum TBD. this will allow getting info fields of VCF or integer fields of bams.
+
+    // Value an enum TBD. this will allow getting info fields of VCF or integer fields of bams.
+    fn get(&self, name: &str) -> Value;
 }
 
 #[derive(Debug)]
@@ -23,6 +26,7 @@ pub struct Position<'a> {
     pub stop: u64,
 }
 
+// something that generates Positioned things (BED/VCF/BAM/GFF/etc.)
 pub trait PositionedIterator<'a> {
     type Item: Positioned<'a>;
 

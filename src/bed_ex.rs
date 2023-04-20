@@ -36,10 +36,10 @@ impl<'a> BedFile<'a> {
     }
 }
 
-impl<'a, 'b> PositionedIterator<'a, 'b> for BedFile<'a> {
+impl<'a> PositionedIterator<'a> for BedFile<'a> {
     type Item = BedInterval<'a>;
 
-    fn next(&'b mut self) -> Option<Self::Item> {
+    fn next(&'a mut self) -> Option<Self::Item> {
         // read a line from fh
 
         let mut line = String::new();
