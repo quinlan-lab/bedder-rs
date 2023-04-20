@@ -19,8 +19,8 @@ impl<'a> Position<'a> {
     }
 }
 
-pub trait PositionedIterator<'a> {
+pub trait PositionedIterator<'a, 'b> {
     type Item: Positioned<'a>;
 
-    fn next(&'a mut self) -> Option<Self::Item>;
+    fn next(&'b mut self) -> Option<Self::Item>;
 }
