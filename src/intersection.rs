@@ -1,23 +1,23 @@
+use smartstring::alias::String;
 use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashMap};
 
 use crate::position::{Position, Positioned, PositionedIterator};
 
-pub struct IntersectionIterator<'a, 'b, I: PositionedIterator<'b>> {
+pub struct IntersectionIterator<'a, I: PositionedIterator> {
     base_iterator: I,
     other_iterators: Vec<I>,
     min_heap: BinaryHeap<ReverseOrderPosition<'a>>,
     chromosome_order: &'a HashMap<String, usize>,
-    phantom: std::marker::PhantomData<&'b ()>,
 }
 
-pub struct Intersection<'a> {
-    base_interval: Position<'a>,
-    overlapping_positions: Vec<Position<'a>>,
+pub struct Intersection<P: Positioned> {
+    base_interval: P,
+    overlapping_positions: Vec<P>,
 }
 
 struct ReverseOrderPosition<'a> {
-    position: Position<'a>,
+    position: Position,
     chromosome_order: &'a HashMap<String, usize>,
     file_index: usize,
 }
@@ -42,11 +42,11 @@ impl<'a> Ord for ReverseOrderPosition<'a> {
     fn cmp(&self, other: &Self) -> Ordering {
         let order = self
             .chromosome_order
-            .get(self.position.chromosome)
+            .get(&self.position.chromosome)
             .unwrap()
             .cmp(
                 self.chromosome_order
-                    .get(other.position.chromosome)
+                    .get(&other.position.chromosome)
                     .unwrap(),
             );
 
@@ -62,7 +62,7 @@ impl<'a> Ord for ReverseOrderPosition<'a> {
 
 //pub struct IntersectionIterator<'a, 'b, I: PositionedIterator<'b>> {
 
-impl<'a, 'b, I: PositionedIterator<'b> + 'a> IntersectionIterator<'a, 'b, I> {
+impl<'a, I: PositionedIterator<Item = P>, P: Positioned> IntersectionIterator<'a, I> {
     pub fn new(
         base_iterator: I,
         other_iterators: Vec<I>,
@@ -74,7 +74,6 @@ impl<'a, 'b, I: PositionedIterator<'b> + 'a> IntersectionIterator<'a, 'b, I> {
             other_iterators,
             min_heap,
             chromosome_order,
-            phantom: std::marker::PhantomData,
         };
         ii.init_heap();
         ii
@@ -101,11 +100,13 @@ impl<'a, 'b, I: PositionedIterator<'b> + 'a> IntersectionIterator<'a, 'b, I> {
     }
 }
 
-impl<'a: 'b, 'b, I: PositionedIterator<'b>> Iterator for IntersectionIterator<'a, 'b, I> {
-    type Item = Intersection<'b>;
+impl<'a, I: PositionedIterator<Item = P>, P: Positioned> Iterator for IntersectionIterator<'a, I> {
+    //impl<'a: 'b, 'b, I: PositionedIterator<'b>> Iterator for IntersectionIterator<'a, 'b, I> {
+    type Item = Intersection<P>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let base_interval = self.base_iterator.next()?.position();
+        let base_interval = self.base_iterator.next()?;
+        let base_position = base_interval.position();
 
         let mut overlapping_positions: Vec<Position> = Vec::new();
         let other_iterators = self.other_iterators.as_mut_slice();
@@ -115,8 +116,8 @@ impl<'a: 'b, 'b, I: PositionedIterator<'b>> Iterator for IntersectionIterator<'a
             ..
         }) = &self.min_heap.peek()
         {
-            if position.chromosome == base_interval.chromosome
-                && position.start <= base_interval.stop
+            if position.chromosome == base_position.chromosome
+                && position.start <= base_position.stop
             {
                 let file_index = *file_index;
                 let ReverseOrderPosition {
@@ -134,7 +135,7 @@ impl<'a: 'b, 'b, I: PositionedIterator<'b>> Iterator for IntersectionIterator<'a
                     });
                 }
 
-                if overlap.stop >= base_interval.start {
+                if overlap.stop >= base_position.start {
                     overlapping_positions.push(overlap);
                 }
             } else {

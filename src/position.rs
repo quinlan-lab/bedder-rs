@@ -1,3 +1,4 @@
+use smartstring::alias::String;
 pub enum Value {
     Int(i64),
     Float(f64),
@@ -7,8 +8,8 @@ pub enum Value {
     Strings(Vec<String>),
 }
 
-pub trait Positioned<'a> {
-    fn position(&self) -> Position<'a>;
+pub trait Positioned {
+    fn position(&self) -> Position;
 
     // extract a value from the Positioned object with a string key
     //fn value(&self, String) -> Value<'a>
@@ -21,14 +22,14 @@ pub trait Positioned<'a> {
 }
 
 #[derive(Debug)]
-pub struct Position<'a> {
-    pub chromosome: &'a str,
+pub struct Position {
+    pub chromosome: String,
     pub start: u64,
     pub stop: u64,
 }
 
-impl<'a> Position<'a> {
-    pub fn new(chromosome: &'a str, start: u64, stop: u64) -> Self {
+impl Position {
+    pub fn new(chromosome: String, start: u64, stop: u64) -> Self {
         Position {
             chromosome,
             start,
@@ -37,8 +38,8 @@ impl<'a> Position<'a> {
     }
 }
 
-pub trait PositionedIterator<'a> {
-    type Item: Positioned<'a>;
+pub trait PositionedIterator {
+    type Item: Positioned;
 
-    fn next(&'a mut self) -> Option<Self::Item>;
+    fn next(&mut self) -> Option<Self::Item>;
 }
