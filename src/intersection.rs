@@ -123,16 +123,19 @@ impl<'a, I: PositionedIterator<Item = P>, P: Positioned> Iterator for Intersecti
                 let ReverseOrderPosition {
                     position: overlap, ..
                 } = self.min_heap.pop().unwrap();
+                // NOTE: can't pop here. we leave it on the heap unless the stop is before this interval.
                 let f = other_iterators
                     .get_mut(file_index)
                     .expect("expected interval iterator at file index");
-                let n = f.next();
-                if n.is_some() {
-                    self.min_heap.push(ReverseOrderPosition {
-                        position: n.unwrap().position(),
-                        chromosome_order: self.chromosome_order,
-                        file_index: file_index,
-                    });
+                match f.next() {
+                    Some(p) => {
+                        self.min_heap.push(ReverseOrderPosition {
+                            position: p.position(),
+                            chromosome_order: self.chromosome_order,
+                            file_index: file_index,
+                        });
+                    }
+                    _ => eprintln!("end of file"),
                 }
 
                 if overlap.stop >= base_position.start {
