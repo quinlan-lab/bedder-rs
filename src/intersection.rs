@@ -1,6 +1,7 @@
 use smartstring::alias::String;
 use std::cmp::Ordering;
 use std::collections::{vec_deque::VecDeque, BinaryHeap, HashMap};
+use std::rc::Rc;
 
 use crate::position::{Positioned, PositionedIterator};
 
@@ -13,12 +14,12 @@ pub struct IntersectionIterator<'a, I: PositionedIterator, P: Positioned> {
     // and each interval from others may overlap many base intervals, we must keep a cache (Q)
     // we always add intervals in order with push_back and therefore remove with pop_front.
     // As soon as the front interval in cache is stricly less than the query interval, then we can pop it.
-    dequeue: VecDeque<P>,
+    dequeue: VecDeque<Rc<&'a P>>,
 }
 
 pub struct Intersection<P: Positioned> {
     base_interval: P,
-    overlapping_positions: Vec<P>,
+    overlapping_positions: Vec<Rc<P>>,
 }
 
 struct ReverseOrderPosition<'a, P: Positioned> {
@@ -106,8 +107,8 @@ impl<'a, I: PositionedIterator<Item = P>, P: Positioned> IntersectionIterator<'a
 #[inline]
 /// if a is strictly less than b. either on earlier chrom, or stops before the start of b.
 fn lt<'a>(
-    a: &dyn Positioned,
-    b: &dyn Positioned,
+    a: Rc<dyn Positioned>,
+    b: Rc<dyn Positioned>,
     chromosome_order: &'a HashMap<String, usize>,
 ) -> bool {
     if a.chrom() != b.chrom() {
@@ -123,15 +124,14 @@ impl<'a, I: PositionedIterator<Item = P>, P: Positioned> Iterator
     type Item = Intersection<P>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let base_interval = self.base_iterator.next()?;
+        let base_interval = Rc::new(self.base_iterator.next()?);
+        let x = Rc::new(self.dequeue[0]);
 
         // drop intervals from Q that are strictly before the base interval.
-        while self.dequeue.len() > 0 && lt(&self.dequeue[0], &base_interval, &self.chromosome_order)
-        {
+        while self.dequeue.len() > 0 && lt(x, base_interval, &self.chromosome_order) {
             _ = self.dequeue.pop_front();
         }
 
-        let mut overlapping_positions: Vec<P> = Vec::new();
         let other_iterators = self.other_iterators.as_mut_slice();
 
         // now pull through the min-heap until base_interval is strictly less than other interval
@@ -157,14 +157,16 @@ impl<'a, I: PositionedIterator<Item = P>, P: Positioned> Iterator
                 _ => eprintln!("end of file"),
             }
             // and we must always add the position to the Q
-            self.dequeue.push_back(*overlap.clone());
+            let r = Rc::new(overlap);
+            self.dequeue.push_back(r);
 
             // if this position is after base_interval, we can stop pulling from files via heap.
-            if lt(&base_interval, overlap, &self.chromosome_order) {
+            if lt(base_interval, r, &self.chromosome_order) {
                 break;
             }
         }
 
+        let mut overlapping_positions = Vec::new();
         // Q contains all intervals that can overlap with the base interval.
         // Q is sorted.
         // We iterate through (again) and add those to overlapping positions.
@@ -176,7 +178,7 @@ impl<'a, I: PositionedIterator<Item = P>, P: Positioned> Iterator
             if lt(&base_interval, p, &self.chromosome_order) {
                 break;
             }
-            overlapping_positions.push(*p.clone());
+            overlapping_positions.push(*p);
         }
 
         Some(Intersection {
