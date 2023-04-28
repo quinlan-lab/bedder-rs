@@ -18,7 +18,7 @@ pub struct IntersectionIterator<'a, I: PositionedIterator, P: Positioned> {
 }
 
 pub struct Intersection<P: Positioned> {
-    base_interval: P,
+    base_interval: Rc<P>,
     overlapping_positions: Vec<Rc<P>>,
 }
 
@@ -127,13 +127,7 @@ impl<'a, I: PositionedIterator<Item = P>, P: Positioned> Iterator
         let base_interval = Rc::new(self.base_iterator.next()?);
 
         // drop intervals from Q that are strictly before the base interval.
-        while self.dequeue.len() > 0
-            && lt(
-                self.dequeue[0].clone(),
-                base_interval,
-                &self.chromosome_order,
-            )
-        {
+        while self.dequeue.len() > 0 && lt(self.dequeue[0], base_interval, &self.chromosome_order) {
             _ = self.dequeue.pop_front();
         }
 
@@ -166,7 +160,11 @@ impl<'a, I: PositionedIterator<Item = P>, P: Positioned> Iterator
             self.dequeue.push_back(r);
 
             // if this position is after base_interval, we can stop pulling from files via heap.
-            if lt(base_interval, r.clone(), &self.chromosome_order) {
+            if lt(
+                base_interval,
+                self.dequeue.back().unwrap().clone(),
+                &self.chromosome_order,
+            ) {
                 break;
             }
         }
