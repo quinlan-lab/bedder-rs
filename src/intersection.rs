@@ -1,6 +1,6 @@
 use smartstring::alias::String;
 use std::cmp::Ordering;
-use std::collections::{BinaryHeap, HashMap};
+use std::collections::{vec_deque::VecDeque, BinaryHeap, HashMap};
 
 use crate::position::{Positioned, PositionedIterator};
 
@@ -9,6 +9,11 @@ pub struct IntersectionIterator<'a, I: PositionedIterator, P: Positioned> {
     other_iterators: Vec<I>,
     min_heap: BinaryHeap<ReverseOrderPosition<'a, P>>,
     chromosome_order: &'a HashMap<String, usize>,
+    // because multiple intervals from each stream can overlap a single base interval
+    // and each interval from others may overlap many base intervals, we must keep a cache (Q)
+    // we always add intervals in order with push_back and therefore remove with pop_front.
+    // As soon as the front interval in cache is stricly less than the query interval, then we can pop it.
+    dequeue: VecDeque<P>,
 }
 
 pub struct Intersection<P: Positioned> {
@@ -59,8 +64,6 @@ impl<'a, P: Positioned> Ord for ReverseOrderPosition<'a, P> {
     }
 }
 
-//pub struct IntersectionIterator<'a, 'b, I: PositionedIterator<'b>> {
-
 impl<'a, I: PositionedIterator<Item = P>, P: Positioned> IntersectionIterator<'a, I, P> {
     pub fn new(
         base_iterator: I,
@@ -73,6 +76,7 @@ impl<'a, I: PositionedIterator<Item = P>, P: Positioned> IntersectionIterator<'a
             other_iterators,
             min_heap,
             chromosome_order,
+            dequeue: VecDeque::new(),
         };
         ii.init_heap();
         ii
@@ -99,52 +103,80 @@ impl<'a, I: PositionedIterator<Item = P>, P: Positioned> IntersectionIterator<'a
     }
 }
 
+#[inline]
+/// if a is strictly less than b. either on earlier chrom, or stops before the start of b.
+fn lt<'a>(
+    a: &dyn Positioned,
+    b: &dyn Positioned,
+    chromosome_order: &'a HashMap<String, usize>,
+) -> bool {
+    if a.chrom() != b.chrom() {
+        chromosome_order[a.chrom()] < chromosome_order[b.chrom()]
+    } else {
+        a.stop() < b.start()
+    }
+}
+
 impl<'a, I: PositionedIterator<Item = P>, P: Positioned> Iterator
     for IntersectionIterator<'a, I, P>
 {
-    //impl<'a: 'b, 'b, I: PositionedIterator<'b>> Iterator for IntersectionIterator<'a, 'b, I> {
     type Item = Intersection<P>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let base_interval = self.base_iterator.next()?;
 
+        // drop intervals from Q that are strictly before the base interval.
+        while self.dequeue.len() > 0 && lt(&self.dequeue[0], &base_interval, &self.chromosome_order)
+        {
+            _ = self.dequeue.pop_front();
+        }
+
         let mut overlapping_positions: Vec<P> = Vec::new();
         let other_iterators = self.other_iterators.as_mut_slice();
+
+        // now pull through the min-heap until base_interval is strictly less than other interval
+        // we want all intervals to pass through the min_heap so that they are ordered across files
         while let Some(ReverseOrderPosition {
-            position,
+            position: overlap,
             file_index,
             ..
-        }) = &self.min_heap.peek()
+        }) = &self.min_heap.pop()
         {
-            if position.chrom() == base_interval.chrom() && position.start() <= base_interval.stop()
-            {
-                let file_index = *file_index;
-                let ReverseOrderPosition {
-                    position: overlap, ..
-                } = self.min_heap.pop().unwrap();
-                // NOTE/TODO: can't pop here. we leave it on the heap unless the stop is before this interval.
-                // irelate uses internal, extra cache. needs fast delete and add.
-                // can likely use dequeue because we can push on in order.
-                let f = other_iterators
-                    .get_mut(file_index)
-                    .expect("expected interval iterator at file index");
-                match f.next() {
-                    Some(p) => {
-                        self.min_heap.push(ReverseOrderPosition {
-                            position: p,
-                            chromosome_order: self.chromosome_order,
-                            file_index: file_index,
-                        });
-                    }
-                    _ => eprintln!("end of file"),
+            // must always pull into the heap.
+            let f = other_iterators
+                .get_mut(*file_index)
+                .expect("expected interval iterator at file index");
+            match f.next() {
+                Some(p) => {
+                    self.min_heap.push(ReverseOrderPosition {
+                        position: p,
+                        chromosome_order: self.chromosome_order,
+                        file_index: *file_index,
+                    });
                 }
+                _ => eprintln!("end of file"),
+            }
+            // and we must always add the position to the Q
+            self.dequeue.push_back(*overlap.clone());
 
-                if overlap.stop() >= base_interval.start() {
-                    overlapping_positions.push(overlap);
-                }
-            } else {
+            // if this position is after base_interval, we can stop pulling from files via heap.
+            if lt(&base_interval, overlap, &self.chromosome_order) {
                 break;
             }
+        }
+
+        // Q contains all intervals that can overlap with the base interval.
+        // Q is sorted.
+        // We iterate through (again) and add those to overlapping positions.
+        for p in &self.dequeue {
+            if lt(p, &base_interval, &self.chromosome_order) {
+                // could pop here. but easier to do at start above.
+                continue;
+            }
+            if lt(&base_interval, p, &self.chromosome_order) {
+                break;
+            }
+            overlapping_positions.push(*p.clone());
         }
 
         Some(Intersection {

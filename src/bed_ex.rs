@@ -2,7 +2,7 @@ use crate::intersection;
 use crate::position::{Positioned, PositionedIterator};
 use smartstring::alias::String;
 use std::io;
-use std::io::{BufRead, BufReader};
+use std::io::BufRead;
 
 pub struct BedFile<R> {
     inner: R,
