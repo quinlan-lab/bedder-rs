@@ -4,8 +4,8 @@ use smartstring::alias::String;
 use std::io;
 use std::io::{BufRead, BufReader};
 
-pub struct BedFile {
-    fh: BufReader<std::fs::File>,
+pub struct BedFile<R> {
+    inner: R,
     chroms: Vec<String>,
 }
 
@@ -28,25 +28,29 @@ impl Positioned for BedInterval {
 }
 
 // the new method on BedFile opens the file and returns a BedFile
-impl BedFile {
-    pub fn new(path: &str) -> io::Result<Self> {
-        let fh = std::fs::File::open(path)?;
-        let br = BufReader::new(fh);
-        Ok(BedFile {
-            fh: br,
+impl<R> BedFile<R>
+where
+    R: BufRead,
+{
+    pub fn new(inner: R) -> Self {
+        Self {
+            inner,
             chroms: vec![],
-        })
+        }
     }
 }
 
-impl PositionedIterator for BedFile {
+impl<R> PositionedIterator for BedFile<R>
+where
+    R: BufRead,
+{
     type Item = BedInterval;
 
     fn next(&mut self) -> Option<Self::Item> {
         // read a line from fh
 
         let mut line = std::string::String::new();
-        let mut toks = match self.fh.read_line(&mut line) {
+        let mut toks = match self.inner.read_line(&mut line) {
             Ok(_) => line.trim().split('\t'),
             Err(e) => {
                 // check if e is EOF error:
