@@ -14,7 +14,7 @@ pub struct IntersectionIterator<'a, I: PositionedIterator, P: Positioned> {
     // and each interval from others may overlap many base intervals, we must keep a cache (Q)
     // we always add intervals in order with push_back and therefore remove with pop_front.
     // As soon as the front interval in cache is stricly less than the query interval, then we can pop it.
-    dequeue: VecDeque<Rc<&'a P>>,
+    dequeue: VecDeque<Rc<P>>,
 }
 
 pub struct Intersection<P: Positioned> {
@@ -125,10 +125,15 @@ impl<'a, I: PositionedIterator<Item = P>, P: Positioned> Iterator
 
     fn next(&mut self) -> Option<Self::Item> {
         let base_interval = Rc::new(self.base_iterator.next()?);
-        let x = Rc::new(self.dequeue[0]);
 
         // drop intervals from Q that are strictly before the base interval.
-        while self.dequeue.len() > 0 && lt(x, base_interval, &self.chromosome_order) {
+        while self.dequeue.len() > 0
+            && lt(
+                self.dequeue[0].clone(),
+                base_interval,
+                &self.chromosome_order,
+            )
+        {
             _ = self.dequeue.pop_front();
         }
 
@@ -161,7 +166,7 @@ impl<'a, I: PositionedIterator<Item = P>, P: Positioned> Iterator
             self.dequeue.push_back(r);
 
             // if this position is after base_interval, we can stop pulling from files via heap.
-            if lt(base_interval, r, &self.chromosome_order) {
+            if lt(base_interval, r.clone(), &self.chromosome_order) {
                 break;
             }
         }
@@ -171,14 +176,14 @@ impl<'a, I: PositionedIterator<Item = P>, P: Positioned> Iterator
         // Q is sorted.
         // We iterate through (again) and add those to overlapping positions.
         for p in &self.dequeue {
-            if lt(p, &base_interval, &self.chromosome_order) {
+            if lt(p.clone(), base_interval, &self.chromosome_order) {
                 // could pop here. but easier to do at start above.
                 continue;
             }
-            if lt(&base_interval, p, &self.chromosome_order) {
+            if lt(base_interval, p.clone(), &self.chromosome_order) {
                 break;
             }
-            overlapping_positions.push(*p);
+            overlapping_positions.push(p.clone());
         }
 
         Some(Intersection {
