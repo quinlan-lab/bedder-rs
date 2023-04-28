@@ -122,7 +122,9 @@ impl<'a, I: PositionedIterator<Item = P>, P: Positioned> Iterator
                 let ReverseOrderPosition {
                     position: overlap, ..
                 } = self.min_heap.pop().unwrap();
-                // NOTE: can't pop here. we leave it on the heap unless the stop is before this interval.
+                // NOTE/TODO: can't pop here. we leave it on the heap unless the stop is before this interval.
+                // irelate uses internal, extra cache. needs fast delete and add.
+                // can likely use dequeue because we can push on in order.
                 let f = other_iterators
                     .get_mut(file_index)
                     .expect("expected interval iterator at file index");
