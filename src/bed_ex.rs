@@ -1,5 +1,5 @@
 use crate::intersection;
-use crate::position::{Position, Positioned, PositionedIterator};
+use crate::position::{Positioned, PositionedIterator};
 use smartstring::alias::String;
 use std::io;
 use std::io::{BufRead, BufReader};
@@ -16,8 +16,14 @@ pub struct BedInterval {
 }
 
 impl Positioned for BedInterval {
-    fn position(&self) -> Position {
-        Position::new(self.chromosome, self.start, self.stop)
+    fn chrom(&self) -> &str {
+        &self.chromosome
+    }
+    fn start(&self) -> u64 {
+        self.start
+    }
+    fn stop(&self) -> u64 {
+        self.stop
     }
 }
 
@@ -57,10 +63,11 @@ impl PositionedIterator for BedFile {
             self.chroms.push(String::from(chromosome));
         }
 
-        let chrom = self.chroms[self.chroms.len() - 1];
+        // todo, evaluate compact_str which has O(1) clone.
+        let chrom = self.chroms[self.chroms.len() - 1].clone();
         // parse the line into a Position
         let b: Option<BedInterval> = Some(BedInterval {
-            chromosome: String::from(chrom),
+            chromosome: chrom,
             start: toks.next()?.parse().ok()?,
             stop: toks.next()?.parse().ok()?,
         });

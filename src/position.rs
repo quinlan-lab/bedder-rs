@@ -9,7 +9,9 @@ pub enum Value {
 }
 
 pub trait Positioned {
-    fn position(&self) -> Position;
+    fn chrom(&self) -> &str;
+    fn start(&self) -> u64;
+    fn stop(&self) -> u64;
 
     // extract a value from the Positioned object with a string key
     //fn value(&self, String) -> Value<'a>
@@ -19,23 +21,6 @@ pub trait Positioned {
 
     // get back the original line?
     //fn line(&self) -> &'a str;
-}
-
-#[derive(Debug)]
-pub struct Position {
-    pub chromosome: String,
-    pub start: u64,
-    pub stop: u64,
-}
-
-impl Position {
-    pub fn new(chromosome: String, start: u64, stop: u64) -> Self {
-        Position {
-            chromosome,
-            start,
-            stop,
-        }
-    }
 }
 
 pub trait PositionedIterator {
