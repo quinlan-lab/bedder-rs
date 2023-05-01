@@ -95,33 +95,9 @@ impl<'a, I: PositionedIterator<Item = P>, P: Positioned> IntersectionIterator<'a
             }
         }
     }
-}
 
-#[inline]
-/// if a is strictly less than b. either on earlier chrom, or stops before the start of b.
-fn lt<P: Positioned>(a: Rc<P>, b: Rc<P>, chromosome_order: &HashMap<String, usize>) -> bool {
-    // TODO: make this return Ordering::Less so we can call it only once.
-    if a.chrom() != b.chrom() {
-        chromosome_order[a.chrom()] < chromosome_order[b.chrom()]
-    } else {
-        a.stop() <= b.start()
-    }
-}
-
-fn region_str<P: Positioned>(p: P) -> std::string::String {
-    format!("{}:{}-{}", p.chrom(), p.start() + 1, p.stop())
-}
-
-impl<'a, I: PositionedIterator<Item = P>, P: Positioned> Iterator
-    for IntersectionIterator<'a, I, P>
-{
-    type Item = Intersection<P>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let bi = self.base_iterator.next()?;
-        let base_interval = Rc::new(bi);
-
-        // drop intervals from Q that are strictly before the base interval.
+    /// drop intervals from Q that are strictly before the base interval.
+    fn pop_front(&mut self, base_interval: Rc<P>) {
         while !self.dequeue.is_empty()
             && lt(
                 self.dequeue[0].clone(),
@@ -131,11 +107,10 @@ impl<'a, I: PositionedIterator<Item = P>, P: Positioned> Iterator
         {
             _ = self.dequeue.pop_front();
         }
+    }
 
+    fn pull_through_heap(&mut self, base_interval: Rc<P>) {
         let other_iterators = self.other_iterators.as_mut_slice();
-
-        // now pull through the min-heap until base_interval is strictly less than other interval
-        // we want all intervals to pass through the min_heap so that they are ordered across files
         while let Some(ReverseOrderPosition {
             position: overlap,
             file_index,
@@ -175,10 +150,44 @@ impl<'a, I: PositionedIterator<Item = P>, P: Positioned> Iterator
                 break;
             }
         }
+    }
+}
+
+#[inline]
+/// if a is strictly less than b. either on earlier chrom, or stops before the start of b.
+fn lt<P: Positioned>(a: Rc<P>, b: Rc<P>, chromosome_order: &HashMap<String, usize>) -> bool {
+    // TODO: make this return Ordering::Less so we can call it only once.
+    if a.chrom() != b.chrom() {
+        chromosome_order[a.chrom()] < chromosome_order[b.chrom()]
+    } else {
+        a.stop() <= b.start()
+    }
+}
+
+fn region_str<P: Positioned>(p: P) -> std::string::String {
+    format!("{}:{}-{}", p.chrom(), p.start() + 1, p.stop())
+}
+
+impl<'a, I: PositionedIterator<Item = P>, P: Positioned> Iterator
+    for IntersectionIterator<'a, I, P>
+{
+    type Item = Intersection<P>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let bi = self.base_iterator.next()?;
+        let base_interval = Rc::new(bi);
+
+        // drop intervals from Q that are strictly before the base interval.
+        self.pop_front(base_interval.clone());
+
+        // pull intervals through the min-heap until the base interval is strictly less than the
+        // next interval.
+        // we want all intervals to pass through the min_heap so that they are ordered across files
+        self.pull_through_heap(base_interval.clone());
 
         let mut overlapping_positions = Vec::new();
-        // Q contains all intervals that can overlap with the base interval.
-        // Q is sorted.
+        // de-Q contains all intervals that can overlap with the base interval.
+        // de-Q is sorted.
         // We iterate through (again) and add those to overlapping positions.
         for p in self.dequeue.iter() {
             if lt(
