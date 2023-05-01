@@ -7,28 +7,28 @@ This library aims to provide:
 3. downstream tools to perform operations on the intersections
 4. a python library to interact with the intersections
 
-The API will look like something this:
+The API looks as follows
+
+Any genomic position from any data source can be intersected by this library as long as it implements this trait:
 
 ```rust
 
-pub trait Positioned<'a> {
-    // we may instead make this 3 separate fn's for chrom, start, stop, but this may be more efficient
-    fn position(&self) -> Position<'a>;
+pub trait Positioned {
+    fn chrom(&self) -> &str;
+    fn start(&self) -> u64;
+    fn stop(&self) -> u64;
 
     // Value an enum TBD. this will allow getting info fields of VCF or integer fields of bams.
-    fn get(&self, name: &str) -> Value;
+    //fn get(&self, name: &str) -> Value;
 }
+```
 
-#[derive(Debug)]
-pub struct Position<'a> {
-    pub chromosome: &'a str,
-    pub start: u64,
-    pub stop: u64,
-}
 
+Then each file-type (VCF/BAM/etc) would implement this trait
+```
 // something that generates Positioned things (BED/VCF/BAM/GFF/etc.)
-pub trait PositionedIterator<'a> {
-    type Item: Positioned<'a>;
+pub trait PositionedIterator {
+    type Item: Positioned;
 
     fn next(&'a mut self) -> Option<Self::Item>;
 }
@@ -41,26 +41,35 @@ to combine sorted intervals.
 That looks like this:
 
 ```rust
-pub struct IntersectionIterator<'a, 'b, I: PositionedIterator<'b>> {
-    base_iterator: I,
-    other_iterators: Vec<I>,
-    min_heap: BinaryHeap<ReverseOrderPosition<'a>>,
-    chromosome_order: &'a HashMap<String, usize>,
-    phantom: std::marker::PhantomData<&'b ()>,
+pub struct IntersectionIterator<'a, I: PositionedIterator, P: Positioned> {
+  // opaque
 }
+
+pub struct Intersection<P: Positioned> {
+    base_interval: Rc<P>,
+    overlapping_positions: Vec<Rc<P>>,
+}
+
+impl<'a, I: PositionedIterator<Item = P>, P: Positioned> Iterator
+    for IntersectionIterator<'a, I, P>
+{
+
+    type Item = Intersection<P>;
+
+    fn next(&mut self) -> Option<Self::Item> { ... }
+}
+
+let b = PositionedIterator::new(bedfile, vec![bam, otherbed], chrom_order_hashmap)
+
+for intersection in b {
+   //... do stuff with Intersection here.
+}
+
 ```
 
-where `base_iterator` is a `PositionedIterator` that is the query file. and `other_iterators` are any number of other files/interval iterators.
-(`ReverseOrderPosition` is necessary because the heap is by default a priority(max)-heap.)
+# Implementation Brief
 
-This library will handle the overlapping and grabbing from each file and will return:
-
-```rust
-pub struct Intersection<'a> {
-    base_interval: Position<'a>,
-    overlapping_positions: Vec<Position<'a>>,
-}
-```
-
-In the future, we will add methods to `Intersection` that facilitate common actions such as masking or splitting the `base_interval` by
-overlapping_positions in other intervals, etc.
+All Positioned structs are pulled through a min-heap. Each time an interval is pulled from the min heap (with the smallest genomic position),
+an new struct is pulled from the file where that interval originated. Then the pulled interval is pushed onto a `dequeue`.
+We then know the dequeue is in order. For each query interval, we drop from the dequeue any interval that is strictly *before* the interval,
+then pull into the Intersection result any interval that is not *after* the interval. Then return the result from the `next` call.

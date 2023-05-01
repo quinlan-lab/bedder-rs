@@ -173,14 +173,22 @@ impl<'a, I: PositionedIterator<Item = P>, P: Positioned> Iterator
         // Q is sorted.
         // We iterate through (again) and add those to overlapping positions.
         for p in self.dequeue.iter() {
-            if lt(p.clone(), base_interval.clone(), &self.chromosome_order) {
+            if lt(
+                Rc::clone(p),
+                Rc::clone(&base_interval),
+                &self.chromosome_order,
+            ) {
                 // could pop here. but easier to do at start above.
                 continue;
             }
-            if lt(base_interval.clone(), p.clone(), &self.chromosome_order) {
+            if lt(
+                Rc::clone(&base_interval),
+                Rc::clone(p),
+                &self.chromosome_order,
+            ) {
                 break;
             }
-            overlapping_positions.push(p.clone());
+            overlapping_positions.push(Rc::clone(p));
         }
 
         Some(Intersection {
