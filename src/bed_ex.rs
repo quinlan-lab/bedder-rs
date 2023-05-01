@@ -48,8 +48,8 @@ where
 {
     type Item = BedInterval;
 
-    fn name(&self) -> &str {
-        &self.name
+    fn name(&self) -> String {
+        self.name.clone()
     }
 
     fn next(&mut self) -> Option<Self::Item> {

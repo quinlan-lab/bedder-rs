@@ -29,9 +29,9 @@ pub trait Positioned {
 pub trait PositionedIterator {
     type Item: Positioned;
 
-    /// A name for the iterator. This is most often the file path.
+    /// A name for the iterator. This is most often the file path, perhaps with the line number appended.
     /// Used to provide informative messages to the user.
-    fn name(&self) -> &str;
+    fn name(&self) -> String;
 
     /// return the next Positioned from the iterator.
     fn next(&mut self) -> Option<Self::Item>;

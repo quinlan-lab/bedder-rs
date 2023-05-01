@@ -17,6 +17,7 @@ pub struct IntersectionIterator<'a, I: PositionedIterator, P: Positioned> {
     dequeue: VecDeque<Rc<P>>,
 }
 
+#[derive(Debug)]
 pub struct Intersection<P: Positioned> {
     base_interval: Rc<P>,
     overlapping_positions: Vec<Rc<P>>,
@@ -84,20 +85,12 @@ impl<'a, I: PositionedIterator<Item = P>, P: Positioned> IntersectionIterator<'a
     }
 
     fn init_heap(&mut self) {
-        if let Some(positioned) = self.base_iterator.next() {
-            self.min_heap.push(ReverseOrderPosition {
-                position: positioned,
-                chromosome_order: self.chromosome_order,
-                file_index: 0,
-            });
-        }
-
         for (i, iter) in self.other_iterators.iter_mut().enumerate() {
             if let Some(positioned) = iter.next() {
                 self.min_heap.push(ReverseOrderPosition {
                     position: positioned,
                     chromosome_order: self.chromosome_order,
-                    file_index: i + 1, // Adjust the file_index accordingly
+                    file_index: i, // Adjust the file_index accordingly
                 });
             }
         }
@@ -111,7 +104,7 @@ fn lt<P: Positioned>(a: Rc<P>, b: Rc<P>, chromosome_order: &HashMap<String, usiz
     if a.chrom() != b.chrom() {
         chromosome_order[a.chrom()] < chromosome_order[b.chrom()]
     } else {
-        a.stop() < b.start()
+        a.stop() <= b.start()
     }
 }
 
@@ -210,5 +203,144 @@ impl<'a, I: PositionedIterator<Item = P>, P: Positioned> Iterator
             base_interval,
             overlapping_positions,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[derive(Debug)]
+    struct Interval {
+        chrom: String,
+        start: u64,
+        stop: u64,
+    }
+
+    impl Positioned for Interval {
+        fn start(&self) -> u64 {
+            self.start
+        }
+        fn stop(&self) -> u64 {
+            self.stop
+        }
+        fn chrom(&self) -> &str {
+            &self.chrom
+        }
+    }
+    struct Intervals {
+        i: usize,
+        name: String,
+        ivs: Vec<Interval>,
+    }
+
+    impl Intervals {
+        fn new(name: String, ivs: Vec<Interval>) -> Self {
+            Intervals { i: 0, name, ivs }
+        }
+    }
+
+    impl PositionedIterator for Intervals {
+        type Item = Interval;
+
+        fn name(&self) -> String {
+            String::from(format!("{}:{}", self.name, self.i))
+        }
+
+        fn next(&mut self) -> Option<Interval> {
+            if self.i >= self.ivs.len() {
+                return None;
+            }
+            Some(self.ivs.remove(0))
+        }
+    }
+
+    #[test]
+    fn bookend_and_chrom() {
+        let chrom_order = HashMap::from([(String::from("chr1"), 0), (String::from("chr2"), 1)]);
+        let chrom = String::from("chr1");
+        let a_ivs = Intervals::new(
+            String::from("A"),
+            vec![
+                Interval {
+                    chrom: chrom.clone(),
+                    start: 0,
+                    stop: 10,
+                },
+                Interval {
+                    chrom: chrom.clone(),
+                    start: 0,
+                    stop: 10,
+                },
+            ],
+        );
+
+        let b_ivs = Intervals::new(
+            String::from("B"),
+            vec![
+                Interval {
+                    chrom: chrom.clone(),
+                    start: 0,
+                    stop: 5,
+                },
+                Interval {
+                    chrom: chrom.clone(),
+                    start: 0,
+                    stop: 10,
+                },
+                Interval {
+                    // this interval should not overlap.
+                    chrom: chrom.clone(),
+                    start: 10,
+                    stop: 20,
+                },
+                Interval {
+                    // this interval should not overlap.
+                    chrom: String::from("chr2"),
+                    start: 1,
+                    stop: 20,
+                },
+            ],
+        );
+
+        let iter = IntersectionIterator::new(a_ivs, vec![b_ivs], &chrom_order);
+        iter.for_each(|intersection| {
+            assert_eq!(intersection.overlapping_positions.len(), 2);
+            assert!(intersection
+                .overlapping_positions
+                .iter()
+                .all(|p| { p.start() == 0 }));
+        })
+    }
+
+    #[test]
+    fn zero_length() {
+        let chrom_order = HashMap::from([(String::from("chr1"), 0), (String::from("chr2"), 1)]);
+        let a_ivs = Intervals::new(
+            String::from("A"),
+            vec![Interval {
+                chrom: String::from("chr1"),
+                start: 1,
+                stop: 1,
+            }],
+        );
+        let b_ivs = Intervals::new(
+            String::from("B"),
+            vec![Interval {
+                chrom: String::from("chr1"),
+                start: 1,
+                stop: 1,
+            }],
+        );
+        let iter = IntersectionIterator::new(a_ivs, vec![b_ivs], &chrom_order);
+        // check that it overlapped by asserting that the loop ran and also that there was an overlap within the loop.
+        let c = iter
+            .map(|intersection| {
+                assert!(intersection.overlapping_positions.len() == 1);
+                1
+            })
+            .sum::<usize>();
+        // NOTE this fails as we likely need to fix the lt function.
+        assert_eq!(c, 1);
     }
 }
