@@ -49,7 +49,7 @@ impl<'a, P: Positioned> Ord for ReverseOrderPosition<'a, P> {
         let order = self
             .chromosome_order
             .get(self.position.chrom())
-            .unwrap()
+            .expect("Invalid chromosome")
             .cmp(self.chromosome_order.get(other.position.chrom()).unwrap());
 
         match order {
@@ -107,6 +107,7 @@ impl<'a, I: PositionedIterator<Item = P>, P: Positioned> IntersectionIterator<'a
 #[inline]
 /// if a is strictly less than b. either on earlier chrom, or stops before the start of b.
 fn lt<'a, P: Positioned>(a: Rc<P>, b: Rc<P>, chromosome_order: &'a HashMap<String, usize>) -> bool {
+    // TODO: make this return Ordering::Less so we can call it only once.
     if a.chrom() != b.chrom() {
         chromosome_order[a.chrom()] < chromosome_order[b.chrom()]
     } else {
@@ -115,7 +116,7 @@ fn lt<'a, P: Positioned>(a: Rc<P>, b: Rc<P>, chromosome_order: &'a HashMap<Strin
 }
 
 fn region_str<P: Positioned>(p: P) -> std::string::String {
-    format!("{}:{}-{}", p.chrom(), p.start(), p.stop())
+    format!("{}:{}-{}", p.chrom(), p.start() + 1, p.stop())
 }
 
 impl<'a, I: PositionedIterator<Item = P>, P: Positioned> Iterator
@@ -159,9 +160,10 @@ impl<'a, I: PositionedIterator<Item = P>, P: Positioned> Iterator
                         overlap.start() <= p.start()
                             || self.chromosome_order[overlap.chrom()]
                                 < self.chromosome_order[p.chrom()],
-                        "intervals out of order {} -> {}",
+                        "intervals out of order ({} -> {}) in iterator: {}",
                         region_str(overlap),
-                        region_str(p)
+                        region_str(p),
+                        other_iterators[file_index].name()
                     );
                     self.min_heap.push(ReverseOrderPosition {
                         position: p,

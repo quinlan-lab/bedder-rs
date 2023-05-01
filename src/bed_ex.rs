@@ -7,6 +7,7 @@ use std::io::BufRead;
 pub struct BedFile<R> {
     inner: R,
     chroms: Vec<String>,
+    name: String,
 }
 
 pub struct BedInterval {
@@ -32,10 +33,11 @@ impl<R> BedFile<R>
 where
     R: BufRead,
 {
-    pub fn new(inner: R) -> Self {
+    pub fn new(inner: R, name: String) -> Self {
         Self {
             inner,
             chroms: vec![],
+            name: name,
         }
     }
 }
@@ -45,6 +47,10 @@ where
     R: BufRead,
 {
     type Item = BedInterval;
+
+    fn name(&self) -> &str {
+        return &self.name;
+    }
 
     fn next(&mut self) -> Option<Self::Item> {
         // read a line from fh

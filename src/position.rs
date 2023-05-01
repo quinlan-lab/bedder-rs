@@ -8,9 +8,12 @@ pub enum Value {
     Strings(Vec<String>),
 }
 
+/// A Positioned has a position in the genome. It is a bed-like (half-open) interval.
 pub trait Positioned {
     fn chrom(&self) -> &str;
+    /// 0-based start position.
     fn start(&self) -> u64;
+    /// non-inclusive end;
     fn stop(&self) -> u64;
 
     // extract a value from the Positioned object with a string key
@@ -26,5 +29,10 @@ pub trait Positioned {
 pub trait PositionedIterator {
     type Item: Positioned;
 
+    /// A name for the iterator. This is most often the file path.
+    /// Used to provide informative messages to the user.
+    fn name(&self) -> &str;
+
+    /// return the next Positioned from the iterator.
     fn next(&mut self) -> Option<Self::Item>;
 }
