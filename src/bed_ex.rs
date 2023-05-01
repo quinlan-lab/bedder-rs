@@ -37,7 +37,7 @@ where
         Self {
             inner,
             chroms: vec![],
-            name: name,
+            name,
         }
     }
 }
@@ -49,7 +49,7 @@ where
     type Item = BedInterval;
 
     fn name(&self) -> &str {
-        return &self.name;
+        &self.name
     }
 
     fn next(&mut self) -> Option<Self::Item> {

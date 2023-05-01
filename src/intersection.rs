@@ -106,7 +106,7 @@ impl<'a, I: PositionedIterator<Item = P>, P: Positioned> IntersectionIterator<'a
 
 #[inline]
 /// if a is strictly less than b. either on earlier chrom, or stops before the start of b.
-fn lt<'a, P: Positioned>(a: Rc<P>, b: Rc<P>, chromosome_order: &'a HashMap<String, usize>) -> bool {
+fn lt<P: Positioned>(a: Rc<P>, b: Rc<P>, chromosome_order: &HashMap<String, usize>) -> bool {
     // TODO: make this return Ordering::Less so we can call it only once.
     if a.chrom() != b.chrom() {
         chromosome_order[a.chrom()] < chromosome_order[b.chrom()]
@@ -129,11 +129,11 @@ impl<'a, I: PositionedIterator<Item = P>, P: Positioned> Iterator
         let base_interval = Rc::new(bi);
 
         // drop intervals from Q that are strictly before the base interval.
-        while self.dequeue.len() > 0
+        while !self.dequeue.is_empty()
             && lt(
                 self.dequeue[0].clone(),
                 base_interval.clone(),
-                &self.chromosome_order,
+                self.chromosome_order,
             )
         {
             _ = self.dequeue.pop_front();
@@ -168,7 +168,7 @@ impl<'a, I: PositionedIterator<Item = P>, P: Positioned> Iterator
                     self.min_heap.push(ReverseOrderPosition {
                         position: p,
                         chromosome_order: self.chromosome_order,
-                        file_index: file_index,
+                        file_index,
                     });
                 }
                 _ => eprintln!("end of file"),
@@ -178,7 +178,7 @@ impl<'a, I: PositionedIterator<Item = P>, P: Positioned> Iterator
             self.dequeue.push_back(r.clone());
 
             // if this position is after base_interval, we can stop pulling from files via heap.
-            if lt(base_interval.clone(), r, &self.chromosome_order) {
+            if lt(base_interval.clone(), r, self.chromosome_order) {
                 break;
             }
         }
@@ -191,7 +191,7 @@ impl<'a, I: PositionedIterator<Item = P>, P: Positioned> Iterator
             if lt(
                 Rc::clone(p),
                 Rc::clone(&base_interval),
-                &self.chromosome_order,
+                self.chromosome_order,
             ) {
                 // could pop here. but easier to do at start above.
                 continue;
@@ -199,7 +199,7 @@ impl<'a, I: PositionedIterator<Item = P>, P: Positioned> Iterator
             if lt(
                 Rc::clone(&base_interval),
                 Rc::clone(p),
-                &self.chromosome_order,
+                self.chromosome_order,
             ) {
                 break;
             }
