@@ -114,6 +114,10 @@ fn lt<'a, P: Positioned>(a: Rc<P>, b: Rc<P>, chromosome_order: &'a HashMap<Strin
     }
 }
 
+fn region_str<P: Positioned>(p: P) -> std::string::String {
+    format!("{}:{}-{}", p.chrom(), p.start(), p.stop())
+}
+
 impl<'a, I: PositionedIterator<Item = P>, P: Positioned> Iterator
     for IntersectionIterator<'a, I, P>
 {
@@ -150,6 +154,15 @@ impl<'a, I: PositionedIterator<Item = P>, P: Positioned> Iterator
                 .expect("expected interval iterator at file index");
             match f.next() {
                 Some(p) => {
+                    // check that intervals within a file are in order.
+                    assert!(
+                        overlap.start() <= p.start()
+                            || self.chromosome_order[overlap.chrom()]
+                                < self.chromosome_order[p.chrom()],
+                        "intervals out of order {} -> {}",
+                        region_str(overlap),
+                        region_str(p)
+                    );
                     self.min_heap.push(ReverseOrderPosition {
                         position: p,
                         chromosome_order: self.chromosome_order,
