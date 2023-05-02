@@ -109,7 +109,7 @@ impl<'a, I: PositionedIterator<Item = P>, P: Positioned> IntersectionIterator<'a
         while !self.dequeue.is_empty()
             && lt(
                 self.dequeue[0].interval.clone(),
-                base_interval.clone(),
+                Rc::clone(&base_interval),
                 self.chromosome_order,
             )
         {
