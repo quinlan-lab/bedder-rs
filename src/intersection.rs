@@ -14,19 +14,27 @@ pub struct IntersectionIterator<'a, I: PositionedIterator, P: Positioned> {
     // and each interval from others may overlap many base intervals, we must keep a cache (Q)
     // we always add intervals in order with push_back and therefore remove with pop_front.
     // As soon as the front interval in cache is stricly less than the query interval, then we can pop it.
-    dequeue: VecDeque<Rc<P>>,
+    dequeue: VecDeque<Intersection<P>>,
 }
 
 #[derive(Debug)]
 pub struct Intersection<P: Positioned> {
+    /// the Positioned that was intersected
+    pub interval: Rc<P>,
+    /// a unique identifier indicating the source of this interval.
+    pub id: u32,
+}
+
+#[derive(Debug)]
+pub struct Intersections<P: Positioned> {
     base_interval: Rc<P>,
-    overlapping_positions: Vec<Rc<P>>,
+    overlapping: Vec<Intersection<P>>,
 }
 
 struct ReverseOrderPosition<'a, P: Positioned> {
     position: P,
     chromosome_order: &'a HashMap<String, usize>,
-    file_index: usize,
+    id: usize, // file_index
 }
 
 impl<'a, P: Positioned> PartialEq for ReverseOrderPosition<'a, P> {
@@ -90,7 +98,7 @@ impl<'a, I: PositionedIterator<Item = P>, P: Positioned> IntersectionIterator<'a
                 self.min_heap.push(ReverseOrderPosition {
                     position: positioned,
                     chromosome_order: self.chromosome_order,
-                    file_index: i, // Adjust the file_index accordingly
+                    id: i,
                 });
             }
         }
@@ -100,7 +108,7 @@ impl<'a, I: PositionedIterator<Item = P>, P: Positioned> IntersectionIterator<'a
     fn pop_front(&mut self, base_interval: Rc<P>) {
         while !self.dequeue.is_empty()
             && lt(
-                self.dequeue[0].clone(),
+                self.dequeue[0].interval.clone(),
                 base_interval.clone(),
                 self.chromosome_order,
             )
@@ -113,7 +121,7 @@ impl<'a, I: PositionedIterator<Item = P>, P: Positioned> IntersectionIterator<'a
         let other_iterators = self.other_iterators.as_mut_slice();
         while let Some(ReverseOrderPosition {
             position: overlap,
-            file_index,
+            id: file_index,
             ..
         }) = self.min_heap.pop()
         {
@@ -136,14 +144,18 @@ impl<'a, I: PositionedIterator<Item = P>, P: Positioned> IntersectionIterator<'a
                     self.min_heap.push(ReverseOrderPosition {
                         position: p,
                         chromosome_order: self.chromosome_order,
-                        file_index,
+                        id: file_index,
                     });
                 }
                 _ => eprintln!("end of file"),
             }
             // and we must always add the position to the Q
             let r = Rc::new(overlap);
-            self.dequeue.push_back(r.clone());
+            let int = Intersection {
+                interval: r.clone(),
+                id: file_index as u32,
+            };
+            self.dequeue.push_back(int);
 
             // if this position is after base_interval, we can stop pulling from files via heap.
             if lt(base_interval.clone(), r, self.chromosome_order) {
@@ -171,7 +183,7 @@ fn region_str<P: Positioned>(p: P) -> std::string::String {
 impl<'a, I: PositionedIterator<Item = P>, P: Positioned> Iterator
     for IntersectionIterator<'a, I, P>
 {
-    type Item = Intersection<P>;
+    type Item = Intersections<P>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let bi = self.base_iterator.next()?;
@@ -191,7 +203,7 @@ impl<'a, I: PositionedIterator<Item = P>, P: Positioned> Iterator
         // We iterate through (again) and add those to overlapping positions.
         for p in self.dequeue.iter() {
             if lt(
-                Rc::clone(p),
+                Rc::clone(&p.interval),
                 Rc::clone(&base_interval),
                 self.chromosome_order,
             ) {
@@ -200,17 +212,22 @@ impl<'a, I: PositionedIterator<Item = P>, P: Positioned> Iterator
             }
             if lt(
                 Rc::clone(&base_interval),
-                Rc::clone(p),
+                Rc::clone(&p.interval),
                 self.chromosome_order,
             ) {
                 break;
             }
-            overlapping_positions.push(Rc::clone(p));
+            overlapping_positions.push(Intersection {
+                // NOTE: we're effectively making a copy here, but it's only incrementing the Rc and a u32...
+                // we could avoid by by keeping entire intersection in Rc.
+                interval: Rc::clone(&p.interval),
+                id: p.id,
+            });
         }
 
-        Some(Intersection {
+        Some(Intersections {
             base_interval,
-            overlapping_positions,
+            overlapping: overlapping_positions,
         })
     }
 }
@@ -314,11 +331,11 @@ mod tests {
 
         let iter = IntersectionIterator::new(a_ivs, vec![b_ivs], &chrom_order);
         iter.for_each(|intersection| {
-            assert_eq!(intersection.overlapping_positions.len(), 2);
+            assert_eq!(intersection.overlapping.len(), 2);
             assert!(intersection
-                .overlapping_positions
+                .overlapping
                 .iter()
-                .all(|p| { p.start() == 0 }));
+                .all(|p| { p.interval.start() == 0 }));
         })
     }
 
@@ -352,7 +369,13 @@ mod tests {
         let iter = IntersectionIterator::new(a_ivs, vec![b_ivs, c_ivs], &chrom_order);
         let c = iter
             .map(|intersection| {
-                assert_eq!(intersection.overlapping_positions.len(), 2);
+                dbg!(&intersection.overlapping);
+                assert_eq!(intersection.overlapping.len(), 2);
+                // check that we got from source 1 and source 2.
+                assert_ne!(
+                    intersection.overlapping[0].id,
+                    intersection.overlapping[1].id
+                );
                 1
             })
             .sum::<usize>();
@@ -382,7 +405,7 @@ mod tests {
         // check that it overlapped by asserting that the loop ran and also that there was an overlap within the loop.
         let c = iter
             .map(|intersection| {
-                assert!(intersection.overlapping_positions.len() == 1);
+                assert!(intersection.overlapping.len() == 1);
                 1
             })
             .sum::<usize>();
