@@ -382,7 +382,9 @@ mod tests {
         assert_eq!(c, 1);
     }
 
-    fn _zero_length() {
+    #[test]
+    #[ignore]
+    fn zero_length() {
         let chrom_order = HashMap::from([(String::from("chr1"), 0), (String::from("chr2"), 1)]);
         let a_ivs = Intervals::new(
             String::from("A"),
