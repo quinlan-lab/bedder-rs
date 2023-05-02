@@ -2,6 +2,7 @@ use smartstring::alias::String;
 use std::cmp::Ordering;
 use std::collections::{vec_deque::VecDeque, BinaryHeap, HashMap};
 use std::rc::Rc;
+//use std::sync::Arc as Rc;
 
 use crate::position::{Positioned, PositionedIterator};
 
@@ -120,7 +121,7 @@ impl<'a, I: PositionedIterator<Item = P>, P: Positioned> IntersectionIterator<'a
     fn pull_through_heap(&mut self, base_interval: Rc<P>) {
         let other_iterators = self.other_iterators.as_mut_slice();
         while let Some(ReverseOrderPosition {
-            position: overlap,
+            position,
             id: file_index,
             ..
         }) = self.min_heap.pop()
@@ -130,19 +131,19 @@ impl<'a, I: PositionedIterator<Item = P>, P: Positioned> IntersectionIterator<'a
                 .get_mut(file_index)
                 .expect("expected interval iterator at file index");
             match f.next() {
-                Some(p) => {
+                Some(next_position) => {
                     // check that intervals within a file are in order.
                     assert!(
-                        overlap.start() <= p.start()
-                            || self.chromosome_order[overlap.chrom()]
-                                < self.chromosome_order[p.chrom()],
+                        position.start() <= next_position.start()
+                            || self.chromosome_order[position.chrom()]
+                                < self.chromosome_order[next_position.chrom()],
                         "intervals out of order ({} -> {}) in iterator: {}",
-                        region_str(overlap),
-                        region_str(p),
+                        region_str(position),
+                        region_str(next_position),
                         other_iterators[file_index].name()
                     );
                     self.min_heap.push(ReverseOrderPosition {
-                        position: p,
+                        position: next_position,
                         chromosome_order: self.chromosome_order,
                         id: file_index,
                     });
@@ -150,15 +151,15 @@ impl<'a, I: PositionedIterator<Item = P>, P: Positioned> IntersectionIterator<'a
                 _ => {} // eprintln!("end of file"),
             }
             // and we must always add the position to the Q
-            let r = Rc::new(overlap);
+            let rc_pos = Rc::new(position);
             let int = Intersection {
-                interval: r.clone(),
+                interval: rc_pos.clone(),
                 id: file_index as u32,
             };
             self.dequeue.push_back(int);
 
-            // if this position is after base_interval, we can stop pulling from files via heap.
-            if lt(base_interval.clone(), r, self.chromosome_order) {
+            // if this position is after base_interval, we can stop pulling through heap.
+            if lt(base_interval.clone(), rc_pos, self.chromosome_order) {
                 break;
             }
         }
@@ -193,7 +194,7 @@ impl<'a, I: PositionedIterator<Item = P>, P: Positioned> Iterator
         self.pop_front(base_interval.clone());
 
         // pull intervals through the min-heap until the base interval is strictly less than the
-        // next interval.
+        // last pulled interval.
         // we want all intervals to pass through the min_heap so that they are ordered across files
         self.pull_through_heap(base_interval.clone());
 
