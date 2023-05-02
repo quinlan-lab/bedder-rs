@@ -27,8 +27,8 @@ pub struct Intersection<P: Positioned> {
 
 #[derive(Debug)]
 pub struct Intersections<P: Positioned> {
-    base_interval: Rc<P>,
-    overlapping: Vec<Intersection<P>>,
+    pub base_interval: Rc<P>,
+    pub overlapping: Vec<Intersection<P>>,
 }
 
 struct ReverseOrderPosition<'a, P: Positioned> {
@@ -147,7 +147,7 @@ impl<'a, I: PositionedIterator<Item = P>, P: Positioned> IntersectionIterator<'a
                         id: file_index,
                     });
                 }
-                _ => eprintln!("end of file"),
+                _ => {} // eprintln!("end of file"),
             }
             // and we must always add the position to the Q
             let r = Rc::new(overlap);
