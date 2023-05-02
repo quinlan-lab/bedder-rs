@@ -323,6 +323,43 @@ mod tests {
     }
 
     #[test]
+    fn multiple_sources() {
+        let chrom_order = HashMap::from([(String::from("chr1"), 0), (String::from("chr2"), 1)]);
+        let a_ivs = Intervals::new(
+            String::from("A"),
+            vec![Interval {
+                chrom: String::from("chr1"),
+                start: 0,
+                stop: 1,
+            }],
+        );
+        let b_ivs = Intervals::new(
+            String::from("B"),
+            vec![Interval {
+                chrom: String::from("chr1"),
+                start: 0,
+                stop: 1,
+            }],
+        );
+        let c_ivs = Intervals::new(
+            String::from("c"),
+            vec![Interval {
+                chrom: String::from("chr1"),
+                start: 0,
+                stop: 1,
+            }],
+        );
+        let iter = IntersectionIterator::new(a_ivs, vec![b_ivs, c_ivs], &chrom_order);
+        let c = iter
+            .map(|intersection| {
+                assert_eq!(intersection.overlapping_positions.len(), 2);
+                1
+            })
+            .sum::<usize>();
+        assert_eq!(c, 1);
+    }
+
+    #[test]
     fn zero_length() {
         let chrom_order = HashMap::from([(String::from("chr1"), 0), (String::from("chr2"), 1)]);
         let a_ivs = Intervals::new(
