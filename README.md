@@ -1,3 +1,6 @@
+
+[![status](https://github.com/brentp/resort-rs/actions/workflows/rust.yml/badge.svg)](https://github.com/brentp/resort-rs/actions/)
+
 # heapiv
 
 This library aims to provide:
