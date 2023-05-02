@@ -5,8 +5,8 @@
 
 This library aims to provide:
 
-1. an abstraction so any interval types can be intersected together
-2. the rust implementation of the heap to handle intersections
+1. an abstraction so any interval types from sorted sources can be intersected together
+2. the rust implementation of the heap and Queue to find intersections with minimal overhead
 3. downstream tools to perform operations on the intersections
 4. a python library to interact with the intersections
 
