@@ -223,12 +223,11 @@ impl<'a, I: PositionedIterator<Item = P>, P: Positioned> Iterator
                 .previous_interval
                 .as_ref()
                 .expect("we know previous interval is_some from out_of_order");
-            let bi = base_interval.clone();
             let msg = format!(
                 "intervals from {} out of order {} should be before {}",
                 self.base_iterator.name(),
                 region_str(p.as_ref()),
-                region_str(bi.as_ref()),
+                region_str(base_interval.as_ref()),
             );
             return Some(Err(Error::new(ErrorKind::Other, msg)));
         }
