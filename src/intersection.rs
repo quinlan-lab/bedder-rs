@@ -231,7 +231,7 @@ impl<'a, I: PositionedIterator<Item = P>, P: Positioned> Iterator
                         .expect("out_of_order checks previous_interval is some")
                         .clone()
                 ),
-                rc_region_str(base_interval.clone()),
+                rc_region_str(base_interval),
             );
             return Some(Err(Error::new(ErrorKind::Other, msg)));
         }
