@@ -219,7 +219,10 @@ impl<'a, I: PositionedIterator<Item = P>, P: Positioned> Iterator
         };
 
         if self.out_of_order(base_interval.clone()) {
-            let p = self.previous_interval.as_ref().unwrap();
+            let p = self
+                .previous_interval
+                .as_ref()
+                .expect("we know previous interval is_some from out_of_order");
             let bi = base_interval.clone();
             let msg = format!(
                 "intervals from {} out of order {} should be before {}",
