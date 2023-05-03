@@ -159,8 +159,8 @@ impl<'a, I: PositionedIterator<Item = P>, P: Positioned> IntersectionIterator<'a
                 {
                     let msg = format!(
                         "database intervals out of order ({} -> {}) in iterator: {}",
-                        region_str(position),
-                        region_str(next_position),
+                        region_str(&position),
+                        region_str(&next_position),
                         other_iterators[file_index].name()
                     );
                     return Err(Error::new(ErrorKind::Other, msg));
@@ -200,10 +200,7 @@ fn lt<P: Positioned>(a: Rc<P>, b: Rc<P>, chromosome_order: &HashMap<String, usiz
     }
 }
 
-fn region_str<P: Positioned>(p: P) -> std::string::String {
-    format!("{}:{}-{}", p.chrom(), p.start() + 1, p.stop())
-}
-fn rc_region_str<P: Positioned>(p: Rc<P>) -> std::string::String {
+fn region_str<P: Positioned>(p: &P) -> std::string::String {
     format!("{}:{}-{}", p.chrom(), p.start() + 1, p.stop())
 }
 
@@ -222,16 +219,13 @@ impl<'a, I: PositionedIterator<Item = P>, P: Positioned> Iterator
         };
 
         if self.out_of_order(base_interval.clone()) {
+            let p = self.previous_interval.as_ref().unwrap();
+            let bi = base_interval.clone();
             let msg = format!(
                 "intervals from {} out of order {} should be before {}",
                 self.base_iterator.name(),
-                rc_region_str(
-                    self.previous_interval
-                        .as_ref()
-                        .expect("out_of_order checks previous_interval is some")
-                        .clone()
-                ),
-                rc_region_str(base_interval),
+                region_str(p.as_ref()),
+                region_str(bi.as_ref()),
             );
             return Some(Err(Error::new(ErrorKind::Other, msg)));
         }
