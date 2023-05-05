@@ -2,7 +2,7 @@ use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use rand::Rng;
 use resort::intersection::{Intersection, IntersectionIterator};
 use resort::position::{Positioned, PositionedIterator};
-use smartstring::alias::String;
+use resort::string::String;
 use std::collections::HashMap;
 use std::io;
 
@@ -31,6 +31,7 @@ struct Intervals {
     curr_max: f64,
     rng: rand::rngs::ThreadRng,
     interval_len: u64,
+    saved_chrom: String,
 }
 
 impl Intervals {
@@ -42,6 +43,7 @@ impl Intervals {
             curr_max: 1.0,
             rng: rand::thread_rng(),
             interval_len: interval_len,
+            saved_chrom: String::from("chr1"),
         }
     }
 }
@@ -60,7 +62,7 @@ impl PositionedIterator for Intervals {
             self.curr_max *= r.powf(self.i as f64);
             let start = ((1.0 - self.curr_max) * (MAX_POSITION as f64)) as u64;
             Some(Ok(Interval {
-                chrom: String::from("chr1"),
+                chrom: self.saved_chrom.clone(),
                 start: start,
                 stop: start + self.interval_len,
             }))
@@ -70,15 +72,15 @@ impl PositionedIterator for Intervals {
     }
 }
 
-const MAX_POSITION: u64 = 100_000;
+const MAX_POSITION: u64 = 10_000;
 
 pub fn intersection_benchmark(c: &mut Criterion) {
     let chrom_order = HashMap::from([(String::from("chr1"), 0), (String::from("chr2"), 1)]);
 
     c.bench_function("simple intersection", |b| {
         b.iter(|| {
-            let a_ivs = Intervals::new(String::from("a"), 1000, 1000);
-            let b_ivs = Intervals::new(String::from("b"), 10_000, 100);
+            let a_ivs = Intervals::new(String::from("a"), 100, 1000);
+            let b_ivs = Intervals::new(String::from("b"), 100_000, 100);
             let iter = IntersectionIterator::new(a_ivs, vec![b_ivs], &chrom_order)
                 .expect("error getting iterator");
 

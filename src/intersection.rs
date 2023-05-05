@@ -1,4 +1,4 @@
-use smartstring::alias::String;
+use crate::string::String;
 use std::cmp::Ordering;
 use std::collections::{vec_deque::VecDeque, BinaryHeap, HashMap};
 use std::io;

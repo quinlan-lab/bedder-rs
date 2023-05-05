@@ -1,4 +1,4 @@
-use smartstring::alias::String;
+use crate::string::String;
 use std::io;
 pub enum Value {
     Int(i64),
