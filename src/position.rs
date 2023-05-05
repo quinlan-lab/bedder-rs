@@ -1,4 +1,5 @@
 use smartstring::alias::String;
+use std::io;
 pub enum Value {
     Int(i64),
     Float(f64),
@@ -34,5 +35,5 @@ pub trait PositionedIterator {
     fn name(&self) -> String;
 
     /// return the next Positioned from the iterator.
-    fn next(&mut self) -> Option<Self::Item>;
+    fn next_position(&mut self) -> Option<Result<Self::Item, io::Error>>;
 }

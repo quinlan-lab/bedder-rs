@@ -4,6 +4,7 @@ use resort::intersection::{Intersection, IntersectionIterator};
 use resort::position::{Positioned, PositionedIterator};
 use smartstring::alias::String;
 use std::collections::HashMap;
+use std::io;
 
 #[derive(Debug)]
 struct Interval {
@@ -52,17 +53,17 @@ impl PositionedIterator for Intervals {
         String::from(format!("{}:{}", self.name, self.i))
     }
 
-    fn next(&mut self) -> Option<Interval> {
+    fn next_position(&mut self) -> Option<io::Result<Self::Item>> {
         if self.i < self.n_intervals {
             self.i += 1;
             let r: f64 = self.rng.gen();
             self.curr_max *= r.powf(self.i as f64);
             let start = ((1.0 - self.curr_max) * (MAX_POSITION as f64)) as u64;
-            Some(Interval {
+            Some(Ok(Interval {
                 chrom: String::from("chr1"),
                 start: start,
                 stop: start + self.interval_len,
-            })
+            }))
         } else {
             None
         }
@@ -78,9 +79,11 @@ pub fn intersection_benchmark(c: &mut Criterion) {
         b.iter(|| {
             let a_ivs = Intervals::new(String::from("a"), 1000, 1000);
             let b_ivs = Intervals::new(String::from("b"), 10_000, 100);
-            let iter = IntersectionIterator::new(a_ivs, vec![b_ivs], &chrom_order);
+            let iter = IntersectionIterator::new(a_ivs, vec![b_ivs], &chrom_order)
+                .expect("error getting iterator");
 
             iter.for_each(|intersection| {
+                let intersection = intersection.expect("error getting intersection");
                 black_box(intersection.overlapping);
             });
         });

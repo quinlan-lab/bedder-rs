@@ -1,6 +1,8 @@
 use smartstring::alias::String;
 use std::cmp::Ordering;
 use std::collections::{vec_deque::VecDeque, BinaryHeap, HashMap};
+use std::io;
+use std::io::{Error, ErrorKind};
 use std::rc::Rc;
 //use std::sync::Arc as Rc;
 
@@ -16,6 +18,9 @@ pub struct IntersectionIterator<'a, I: PositionedIterator, P: Positioned> {
     // we always add intervals in order with push_back and therefore remove with pop_front.
     // As soon as the front interval in cache is stricly less than the query interval, then we can pop it.
     dequeue: VecDeque<Intersection<P>>,
+
+    // this is only kept for error checking so we can track if intervals are out of order.
+    previous_interval: Option<Rc<P>>,
 }
 
 #[derive(Debug)]
@@ -80,7 +85,7 @@ impl<'a, I: PositionedIterator<Item = P>, P: Positioned> IntersectionIterator<'a
         base_iterator: I,
         other_iterators: Vec<I>,
         chromosome_order: &'a HashMap<String, usize>,
-    ) -> Self {
+    ) -> io::Result<Self> {
         let min_heap = BinaryHeap::new();
         let mut ii = IntersectionIterator {
             base_iterator,
@@ -88,14 +93,16 @@ impl<'a, I: PositionedIterator<Item = P>, P: Positioned> IntersectionIterator<'a
             min_heap,
             chromosome_order,
             dequeue: VecDeque::new(),
+            previous_interval: None,
         };
-        ii.init_heap();
-        ii
+        ii.init_heap()?;
+        Ok(ii)
     }
 
-    fn init_heap(&mut self) {
+    fn init_heap(&mut self) -> io::Result<()> {
         for (i, iter) in self.other_iterators.iter_mut().enumerate() {
-            if let Some(positioned) = iter.next() {
+            if let Some(positioned) = iter.next_position() {
+                let positioned = positioned?;
                 self.min_heap.push(ReverseOrderPosition {
                     position: positioned,
                     chromosome_order: self.chromosome_order,
@@ -103,6 +110,7 @@ impl<'a, I: PositionedIterator<Item = P>, P: Positioned> IntersectionIterator<'a
                 });
             }
         }
+        Ok(())
     }
 
     /// drop intervals from Q that are strictly before the base interval.
@@ -118,7 +126,18 @@ impl<'a, I: PositionedIterator<Item = P>, P: Positioned> IntersectionIterator<'a
         }
     }
 
-    fn pull_through_heap(&mut self, base_interval: Rc<P>) {
+    fn out_of_order(&self, interval: Rc<P>) -> bool {
+        return match &self.previous_interval {
+            None => false, // first interval in file.
+            Some(previous_interval) => {
+                let pci = self.chromosome_order[previous_interval.chrom()];
+                let ici = self.chromosome_order[interval.chrom()];
+                pci > ici || (pci == ici && previous_interval.start() > interval.start())
+            }
+        };
+    }
+
+    fn pull_through_heap(&mut self, base_interval: Rc<P>) -> io::Result<()> {
         let other_iterators = self.other_iterators.as_mut_slice();
         while let Some(ReverseOrderPosition {
             position,
@@ -130,26 +149,29 @@ impl<'a, I: PositionedIterator<Item = P>, P: Positioned> IntersectionIterator<'a
             let f = other_iterators
                 .get_mut(file_index)
                 .expect("expected interval iterator at file index");
-            match f.next() {
-                Some(next_position) => {
-                    // check that intervals within a file are in order.
-                    assert!(
-                        position.start() <= next_position.start()
-                            || self.chromosome_order[position.chrom()]
-                                < self.chromosome_order[next_position.chrom()],
-                        "intervals out of order ({} -> {}) in iterator: {}",
-                        region_str(position),
-                        region_str(next_position),
+            if let Some(next_position) = f.next_position() {
+                let next_position = next_position?;
+
+                // check that intervals within a file are in order.
+                if !(position.start() <= next_position.start()
+                    || self.chromosome_order[position.chrom()]
+                        < self.chromosome_order[next_position.chrom()])
+                {
+                    let msg = format!(
+                        "database intervals out of order ({} -> {}) in iterator: {}",
+                        region_str(&position),
+                        region_str(&next_position),
                         other_iterators[file_index].name()
                     );
-                    self.min_heap.push(ReverseOrderPosition {
-                        position: next_position,
-                        chromosome_order: self.chromosome_order,
-                        id: file_index,
-                    });
+                    return Err(Error::new(ErrorKind::Other, msg));
                 }
-                _ => {} // eprintln!("end of file"),
+                self.min_heap.push(ReverseOrderPosition {
+                    position: next_position,
+                    chromosome_order: self.chromosome_order,
+                    id: file_index,
+                });
             }
+
             // and we must always add the position to the Q
             let rc_pos = Rc::new(position);
             let int = Intersection {
@@ -163,6 +185,7 @@ impl<'a, I: PositionedIterator<Item = P>, P: Positioned> IntersectionIterator<'a
                 break;
             }
         }
+        Ok(())
     }
 }
 
@@ -177,18 +200,39 @@ fn lt<P: Positioned>(a: Rc<P>, b: Rc<P>, chromosome_order: &HashMap<String, usiz
     }
 }
 
-fn region_str<P: Positioned>(p: P) -> std::string::String {
+fn region_str<P: Positioned>(p: &P) -> std::string::String {
     format!("{}:{}-{}", p.chrom(), p.start() + 1, p.stop())
 }
 
 impl<'a, I: PositionedIterator<Item = P>, P: Positioned> Iterator
     for IntersectionIterator<'a, I, P>
 {
-    type Item = Intersections<P>;
+    type Item = io::Result<Intersections<P>>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let bi = self.base_iterator.next()?;
-        let base_interval = Rc::new(bi);
+        let bi = self.base_iterator.next_position()?;
+        // if bi is an error return the Result here
+
+        let base_interval = match bi {
+            Err(e) => return Some(Err(e)),
+            Ok(p) => Rc::new(p),
+        };
+
+        if self.out_of_order(base_interval.clone()) {
+            let p = self
+                .previous_interval
+                .as_ref()
+                .expect("we know previous interval is_some from out_of_order");
+            let msg = format!(
+                "intervals from {} out of order {} should be before {}",
+                self.base_iterator.name(),
+                region_str(p.as_ref()),
+                region_str(base_interval.as_ref()),
+            );
+            return Some(Err(Error::new(ErrorKind::Other, msg)));
+        }
+
+        self.previous_interval = Some(base_interval.clone());
 
         // drop intervals from Q that are strictly before the base interval.
         self.pop_front(base_interval.clone());
@@ -196,7 +240,9 @@ impl<'a, I: PositionedIterator<Item = P>, P: Positioned> Iterator
         // pull intervals through the min-heap until the base interval is strictly less than the
         // last pulled interval.
         // we want all intervals to pass through the min_heap so that they are ordered across files
-        self.pull_through_heap(base_interval.clone());
+        if let Err(e) = self.pull_through_heap(base_interval.clone()) {
+            return Some(Err(e));
+        }
 
         let mut overlapping_positions = Vec::new();
         // de-Q contains all intervals that can overlap with the base interval.
@@ -226,10 +272,10 @@ impl<'a, I: PositionedIterator<Item = P>, P: Positioned> Iterator
             });
         }
 
-        Some(Intersections {
+        Some(Ok(Intersections {
             base_interval,
             overlapping: overlapping_positions,
-        })
+        }))
     }
 }
 
@@ -274,11 +320,11 @@ mod tests {
             String::from(format!("{}:{}", self.name, self.i))
         }
 
-        fn next(&mut self) -> Option<Interval> {
+        fn next_position(&mut self) -> Option<io::Result<Interval>> {
             if self.i >= self.ivs.len() {
                 return None;
             }
-            Some(self.ivs.remove(0))
+            Some(Ok(self.ivs.remove(0)))
         }
     }
 
@@ -330,14 +376,83 @@ mod tests {
             ],
         );
 
-        let iter = IntersectionIterator::new(a_ivs, vec![b_ivs], &chrom_order);
+        let iter = IntersectionIterator::new(a_ivs, vec![b_ivs], &chrom_order)
+            .expect("error getting iterator");
         iter.for_each(|intersection| {
+            let intersection = intersection.expect("intersection");
             assert_eq!(intersection.overlapping.len(), 2);
             assert!(intersection
                 .overlapping
                 .iter()
                 .all(|p| { p.interval.start() == 0 }));
         })
+    }
+
+    #[test]
+    fn ordering_error() {
+        let chrom_order = HashMap::from([(String::from("chr1"), 0), (String::from("chr2"), 1)]);
+        let a_ivs = Intervals::new(
+            String::from("A"),
+            vec![
+                Interval {
+                    chrom: String::from("chr1"),
+                    start: 10,
+                    stop: 1,
+                },
+                Interval {
+                    chrom: String::from("chr1"),
+                    start: 1,
+                    stop: 2,
+                },
+            ],
+        );
+        let iter =
+            IntersectionIterator::new(a_ivs, vec![], &chrom_order).expect("error getting iterator");
+
+        let e = iter.skip(1).next().expect("error getting next");
+        assert!(e.is_err());
+        let e = e.err().unwrap();
+        assert!(e.to_string().contains("out of order"));
+
+        // now repeat with database out of order.
+        let a_ivs = Intervals::new(
+            String::from("A"),
+            vec![
+                Interval {
+                    chrom: String::from("chr1"),
+                    start: 1,
+                    stop: 2,
+                },
+                Interval {
+                    chrom: String::from("chr1"),
+                    start: 1,
+                    stop: 2,
+                },
+            ],
+        );
+        // now repeat with database out of order.
+        let b_ivs = Intervals::new(
+            String::from("B"),
+            vec![
+                Interval {
+                    chrom: String::from("chr1"),
+                    start: 1,
+                    stop: 2,
+                },
+                Interval {
+                    chrom: String::from("chr1"),
+                    start: 0,
+                    stop: 2,
+                },
+            ],
+        );
+
+        let mut iter = IntersectionIterator::new(a_ivs, vec![b_ivs], &chrom_order)
+            .expect("error getting iterator");
+        let e = iter.next().expect("error getting next");
+        assert!(e.is_err());
+        let e = e.err().unwrap();
+        assert!(e.to_string().contains("out of order"));
     }
 
     #[test]
@@ -367,9 +482,11 @@ mod tests {
                 stop: 1,
             }],
         );
-        let iter = IntersectionIterator::new(a_ivs, vec![b_ivs, c_ivs], &chrom_order);
+        let iter = IntersectionIterator::new(a_ivs, vec![b_ivs, c_ivs], &chrom_order)
+            .expect("error getting iterator");
         let c = iter
             .map(|intersection| {
+                let intersection = intersection.expect("error getting intersection");
                 dbg!(&intersection.overlapping);
                 assert_eq!(intersection.overlapping.len(), 2);
                 // check that we got from source 1 and source 2.
@@ -403,10 +520,12 @@ mod tests {
                 stop: 1,
             }],
         );
-        let iter = IntersectionIterator::new(a_ivs, vec![b_ivs], &chrom_order);
+        let iter = IntersectionIterator::new(a_ivs, vec![b_ivs], &chrom_order)
+            .expect("error getting iterator");
         // check that it overlapped by asserting that the loop ran and also that there was an overlap within the loop.
         let c = iter
             .map(|intersection| {
+                let intersection = intersection.expect("error getting intersection");
                 assert!(intersection.overlapping.len() == 1);
                 1
             })
