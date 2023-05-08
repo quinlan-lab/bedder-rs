@@ -1,5 +1,6 @@
 use crate::string::String;
 use std::io;
+
 pub enum Value {
     Int(i64),
     Float(f64),
@@ -27,6 +28,14 @@ pub trait Positioned {
     //fn line(&self) -> &'a str;
 }
 
+impl PartialEq for dyn Positioned {
+    fn eq(&self, other: &dyn Positioned) -> bool {
+        self.start() == other.start()
+            && self.stop() == other.stop()
+            && self.chrom() == other.chrom()
+    }
+}
+
 pub trait PositionedIterator {
     type Item: Positioned;
 
@@ -35,5 +44,16 @@ pub trait PositionedIterator {
     fn name(&self) -> String;
 
     /// return the next Positioned from the iterator.
-    fn next_position(&mut self) -> Option<Result<Self::Item, io::Error>>;
+    /// it is fine for implementers to ignore `q`. Some iterators may improve performance
+    /// by using `q` to index-skip.
+    /// `q` will be Some only on the first call for a given query interval.
+    /// Calls where `q` is None should return the next Positioned in the iterator (file) that has not
+    /// been returned previously. Intervals should only be returned once (even across many identical query intervals)
+    /// and they should always be returned in order (querys will always be in order).
+    /// Thus, if the implementer heeds `q` it should check that the returned Positioned is greater than the previously
+    /// returned position (Positioned equal to previously returned position should have already been returned).
+    fn next_position(
+        &mut self,
+        q: Option<&dyn Positioned>,
+    ) -> Option<Result<Self::Item, io::Error>>;
 }

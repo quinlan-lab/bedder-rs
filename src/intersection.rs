@@ -21,6 +21,10 @@ pub struct IntersectionIterator<'a, I: PositionedIterator, P: Positioned> {
 
     // this is only kept for error checking so we can track if intervals are out of order.
     previous_interval: Option<Rc<P>>,
+
+    // this tracks which iterators have been called with Some(Positioned) for a given interval
+    // so that calls after the first are called with None.
+    called: Vec<bool>,
 }
 
 #[derive(Debug)]
@@ -87,6 +91,7 @@ impl<'a, I: PositionedIterator<Item = P>, P: Positioned> IntersectionIterator<'a
         chromosome_order: &'a HashMap<String, usize>,
     ) -> io::Result<Self> {
         let min_heap = BinaryHeap::new();
+        let called = vec![false; other_iterators.len()];
         let mut ii = IntersectionIterator {
             base_iterator,
             other_iterators,
@@ -94,6 +99,7 @@ impl<'a, I: PositionedIterator<Item = P>, P: Positioned> IntersectionIterator<'a
             chromosome_order,
             dequeue: VecDeque::new(),
             previous_interval: None,
+            called: called,
         };
         ii.init_heap()?;
         Ok(ii)
@@ -101,7 +107,7 @@ impl<'a, I: PositionedIterator<Item = P>, P: Positioned> IntersectionIterator<'a
 
     fn init_heap(&mut self) -> io::Result<()> {
         for (i, iter) in self.other_iterators.iter_mut().enumerate() {
-            if let Some(positioned) = iter.next_position() {
+            if let Some(positioned) = iter.next_position(None) {
                 let positioned = positioned?;
                 self.min_heap.push(ReverseOrderPosition {
                     position: positioned,
@@ -137,8 +143,17 @@ impl<'a, I: PositionedIterator<Item = P>, P: Positioned> IntersectionIterator<'a
         };
     }
 
+    // reset the array that tracks which iterators have been called with Some(Positioned)
+    #[inline]
+    fn zero_called(&mut self) {
+        let ptr = self.called.as_mut_ptr();
+        unsafe { ptr.write_bytes(0, self.called.len() * std::mem::size_of::<bool>()) };
+    }
+
     fn pull_through_heap(&mut self, base_interval: Rc<P>) -> io::Result<()> {
+        self.zero_called();
         let other_iterators = self.other_iterators.as_mut_slice();
+
         while let Some(ReverseOrderPosition {
             position,
             id: file_index,
@@ -149,7 +164,15 @@ impl<'a, I: PositionedIterator<Item = P>, P: Positioned> IntersectionIterator<'a
             let f = other_iterators
                 .get_mut(file_index)
                 .expect("expected interval iterator at file index");
-            if let Some(next_position) = f.next_position() {
+            // for a given base_interval, we make sure to call next_position with Some, only once.
+            // subsequent calls will be with None.
+            let arg: Option<&dyn Positioned> = if !self.called[file_index] {
+                self.called[file_index] = true;
+                Some(base_interval.as_ref())
+            } else {
+                None
+            };
+            if let Some(next_position) = f.next_position(arg) {
                 let next_position = next_position?;
 
                 // check that intervals within a file are in order.
@@ -210,7 +233,7 @@ impl<'a, I: PositionedIterator<Item = P>, P: Positioned> Iterator
     type Item = io::Result<Intersections<P>>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let bi = self.base_iterator.next_position()?;
+        let bi = self.base_iterator.next_position(None)?;
         // if bi is an error return the Result here
 
         let base_interval = match bi {
@@ -320,7 +343,7 @@ mod tests {
             String::from(format!("{}:{}", self.name, self.i))
         }
 
-        fn next_position(&mut self) -> Option<io::Result<Interval>> {
+        fn next_position(&mut self, _o: Option<&dyn Positioned>) -> Option<io::Result<Interval>> {
             if self.i >= self.ivs.len() {
                 return None;
             }

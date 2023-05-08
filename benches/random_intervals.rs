@@ -55,7 +55,7 @@ impl PositionedIterator for Intervals {
         String::from(format!("{}:{}", self.name, self.i))
     }
 
-    fn next_position(&mut self) -> Option<io::Result<Self::Item>> {
+    fn next_position(&mut self, _q: Option<&dyn Positioned>) -> Option<io::Result<Self::Item>> {
         if self.i < self.n_intervals {
             self.i += 1;
             let r: f64 = self.rng.gen();
