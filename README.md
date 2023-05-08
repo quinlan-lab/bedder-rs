@@ -20,8 +20,8 @@ pub trait Positioned {
     fn start(&self) -> u64;
     fn stop(&self) -> u64;
 
-    // Value an enum TBD. this will allow getting info fields of VCF or integer fields of bams.
-    //fn get(&self, name: &str) -> Value;
+    // Col and Value enums TBD. this will allow getting info fields of VCF or integer fields of bams.
+    //fn get(&self, name: Col) -> Value;
 }
 ```
 
@@ -32,44 +32,30 @@ Then each file-type (VCF/BAM/etc) would implement this trait
 pub trait PositionedIterator {
     type Item: Positioned;
 
-    fn next(&mut self) -> Option<Self::Item>;
+    /// Q can be ignored. See below for more detail.
+    fn next_position(&mut self, q: Option<&dyn Positioned>) -> Option<Self::Item>;
 
-    // A name for the iterator (likely filename) used by this library when logging.
+    /// A name for the iterator (likely filename) used by this library when logging.
     fn name(&self)
 }
 ```
 
-So, anything that can create a `PositionedIterator` can be used by the library.
-The library will follow the methodology in [irelate](https://github.com/brentp/irelate) that uses a min-heap
-to combine sorted intervals.
+Anything that can create a `PositionedIterator` can be used by the library.
 
-That looks like this:
+Note the `q` argument to `next_position`. This can be ignored by implementers but can be used to skip.
+For each query interval, we may make many calls to `next_position`. On the first of those calls, `q`
+is `Some(query_position)`. The implementer can choose to use this information to skip (rather than stream)
+for example with an index (or search) to the first interval that overlaps the `q`. Subsequent calls for the
+same interval will be called with `q` of `None`. The implementer must:
 
-```rust
-pub struct Intersection<P: Positioned> {
-    /// the Positioned that was intersected
-    pub interval: Rc<P>,
-    /// a unique identifier indicating the source (file) of this interval.
-    pub id: u32,
-}
-
-pub struct Intersections<P: Positioned> {
-    pub base_interval: Rc<P>,
-    pub overlapping: Vec<Intersection<P>>,
-}
-
-let b = PositionedIterator::new(bedfile, vec![bam, otherbed], chrom_order_hashmap)
-
-for intersection in b {
-   //... do stuff with intersection.overlapping and intersection.base_interval here.
-}
-
-```
+1. Always return an interval (unless EOF is reached)
+1. Always return intervals in order.
+1. Never return an interval that was returned previously (even if the same query interval appears multiple times).
 
 # Implementation Brief
 
-All Positioned structs are pulled through a min-heap. Each time an interval is pulled from the min heap (with the smallest genomic position),
-an new struct is pulled from the file where that interval originated. Then the pulled interval is pushed onto a `dequeue`.
+All Positioned structs are pulled through a min-heap. Each time an interval (with the smallest genomic position) is pulled from the min heap,
+a new struct is pulled from the file where that interval originated. Then the pulled interval is pushed onto a `dequeue`.
 We then know the dequeue is in order. For each query interval, we drop from the dequeue any interval that is strictly _before_ the interval,
 then pull into the Intersection result any interval that is not _after_ the interval. Then return the result from the `next` call.
 We use `Rc` because each database interval may be attached to more than one query interval.
