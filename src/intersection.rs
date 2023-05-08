@@ -122,11 +122,12 @@ impl<'a, I: PositionedIterator<Item = P>, P: Positioned> IntersectionIterator<'a
     /// drop intervals from Q that are strictly before the base interval.
     fn pop_front(&mut self, base_interval: Rc<P>) {
         while !self.dequeue.is_empty()
-            && lt(
-                self.dequeue[0].interval.clone(),
-                Rc::clone(&base_interval),
-                self.chromosome_order,
-            )
+            && Ordering::Less
+                == cmp(
+                    self.dequeue[0].interval.as_ref(),
+                    base_interval.as_ref(),
+                    self.chromosome_order,
+                )
         {
             _ = self.dequeue.pop_front();
         }
@@ -208,7 +209,12 @@ impl<'a, I: PositionedIterator<Item = P>, P: Positioned> IntersectionIterator<'a
             self.dequeue.push_back(int);
 
             // if this position is after base_interval, we can stop pulling through heap.
-            if lt(base_interval.clone(), rc_pos, self.chromosome_order) {
+            if cmp(
+                base_interval.as_ref(),
+                rc_pos.as_ref(),
+                self.chromosome_order,
+            ) == Ordering::Greater
+            {
                 break;
             }
         }
@@ -216,15 +222,25 @@ impl<'a, I: PositionedIterator<Item = P>, P: Positioned> IntersectionIterator<'a
     }
 }
 
-#[inline]
-/// if a is strictly less than b. either on earlier chrom, or stops before the start of b.
-fn lt<P: Positioned>(a: Rc<P>, b: Rc<P>, chromosome_order: &HashMap<String, usize>) -> bool {
-    // TODO: make this return Ordering::Less so we can call it only once.
+/// cmp will return Less if a is before b, Greater if a is after b, Equal if they overlap.
+#[inline(always)]
+fn cmp(
+    a: &dyn Positioned,
+    b: &dyn Positioned,
+    chromosome_order: &HashMap<String, usize>,
+) -> Ordering {
     if a.chrom() != b.chrom() {
-        chromosome_order[a.chrom()] < chromosome_order[b.chrom()]
-    } else {
-        a.stop() <= b.start()
+        return chromosome_order[a.chrom()].cmp(&chromosome_order[b.chrom()]);
     }
+    // same chrom.
+    if a.stop() <= b.start() {
+        return Ordering::Less;
+    }
+    if a.start() >= b.stop() {
+        return Ordering::Greater;
+    }
+    // Equal simply means they overlap.
+    return Ordering::Equal;
 }
 
 fn region_str<P: Positioned>(p: &P) -> std::string::String {
@@ -276,27 +292,21 @@ impl<'a, I: PositionedIterator<Item = P>, P: Positioned> Iterator
         // de-Q is sorted.
         // We iterate through (again) and add those to overlapping positions.
         for p in self.dequeue.iter() {
-            if lt(
-                Rc::clone(&p.interval),
-                Rc::clone(&base_interval),
-                self.chromosome_order,
-            ) {
-                // could pop here. but easier to do at start above.
-                continue;
+            let o = cmp(
+                p.interval.as_ref(),
+                base_interval.as_ref(),
+                &self.chromosome_order,
+            );
+            match o {
+                Ordering::Less => continue,
+                Ordering::Greater => break,
+                Ordering::Equal => overlapping_positions.push(Intersection {
+                    // NOTE: we're effectively making a copy here, but it's only incrementing the Rc and a u32...
+                    // we could avoid by by keeping entire intersection in Rc.
+                    interval: Rc::clone(&p.interval),
+                    id: p.id,
+                }),
             }
-            if lt(
-                Rc::clone(&base_interval),
-                Rc::clone(&p.interval),
-                self.chromosome_order,
-            ) {
-                break;
-            }
-            overlapping_positions.push(Intersection {
-                // NOTE: we're effectively making a copy here, but it's only incrementing the Rc and a u32...
-                // we could avoid by by keeping entire intersection in Rc.
-                interval: Rc::clone(&p.interval),
-                id: p.id,
-            });
         }
 
         Some(Ok(Intersections {
