@@ -25,6 +25,9 @@ pub struct IntersectionIterator<'a, I: PositionedIterator, P: Positioned> {
     // this tracks which iterators have been called with Some(Positioned) for a given interval
     // so that calls after the first are called with None.
     called: Vec<bool>, // TODO: use bitset
+
+    // we call this on the first iteration of pull_through_heap
+    heap_initialized: bool,
 }
 
 #[derive(Debug)]
@@ -92,7 +95,7 @@ impl<'a, I: PositionedIterator<Item = P>, P: Positioned> IntersectionIterator<'a
     ) -> io::Result<Self> {
         let min_heap = BinaryHeap::new();
         let called = vec![false; other_iterators.len()];
-        let mut ii = IntersectionIterator {
+        Ok(IntersectionIterator {
             base_iterator,
             other_iterators,
             min_heap,
@@ -100,15 +103,14 @@ impl<'a, I: PositionedIterator<Item = P>, P: Positioned> IntersectionIterator<'a
             dequeue: VecDeque::new(),
             previous_interval: None,
             called: called,
-        };
-        ii.init_heap()?;
-        Ok(ii)
+            heap_initialized: false,
+        })
     }
 
-    fn init_heap(&mut self) -> io::Result<()> {
+    fn init_heap(&mut self, base_interval: Rc<P>) -> io::Result<()> {
+        assert!(!self.heap_initialized);
         for (i, iter) in self.other_iterators.iter_mut().enumerate() {
-            // TODO: this should be called with the first base_interval instead of None.
-            if let Some(positioned) = iter.next_position(None) {
+            if let Some(positioned) = iter.next_position(Some(base_interval.as_ref())) {
                 let positioned = positioned?;
                 self.min_heap.push(ReverseOrderPosition {
                     position: positioned,
@@ -117,6 +119,7 @@ impl<'a, I: PositionedIterator<Item = P>, P: Positioned> IntersectionIterator<'a
                 });
             }
         }
+        self.heap_initialized = true;
         Ok(())
     }
 
@@ -158,6 +161,11 @@ impl<'a, I: PositionedIterator<Item = P>, P: Positioned> IntersectionIterator<'a
 
     fn pull_through_heap(&mut self, base_interval: Rc<P>) -> io::Result<()> {
         self.zero_called();
+        if !self.heap_initialized {
+            // we wait til first iteration here to call init heap
+            // because we need the base interval.
+            self.init_heap(Rc::clone(&base_interval))?;
+        }
         let other_iterators = self.other_iterators.as_mut_slice();
 
         while let Some(ReverseOrderPosition {
@@ -320,7 +328,7 @@ impl<'a, I: PositionedIterator<Item = P>, P: Positioned> Iterator
 mod tests {
     use super::*;
 
-    #[derive(Debug)]
+    #[derive(Debug, Clone)]
     struct Interval {
         chrom: String,
         start: u64,
@@ -363,6 +371,54 @@ mod tests {
             }
             Some(Ok(self.ivs.remove(0)))
         }
+    }
+
+    #[test]
+    fn many_intervals() {
+        let chrom_order = HashMap::from([(String::from("chr1"), 0), (String::from("chr2"), 1)]);
+        let mut ivs = Vec::new();
+        let n_intervals = 100;
+        for i in 0..n_intervals {
+            ivs.push(Interval {
+                chrom: String::from("chr1"),
+                start: i,
+                stop: i + 1,
+            })
+        }
+
+        let a_ivs = Intervals::new(String::from("A"), ivs.clone());
+
+        let times = 3;
+        for _ in 0..times {
+            for i in 0..n_intervals {
+                ivs.push(Interval {
+                    chrom: String::from("chr1"),
+                    start: i,
+                    stop: i + 1,
+                })
+            }
+        }
+        ivs.push(Interval {
+            chrom: String::from("chr1"),
+            start: n_intervals + 9,
+            stop: n_intervals + 10,
+        });
+        ivs.sort_by(|a, b| a.start.cmp(&b.start));
+
+        let b_ivs = Intervals::new(String::from("B"), ivs.clone());
+        let mut iter = IntersectionIterator::new(a_ivs, vec![b_ivs], &chrom_order)
+            .expect("error getting iterator");
+        let mut n = 0;
+        assert!(iter.all(|intersection| {
+            let intersection = intersection.expect("error getting intersection");
+            n += 1;
+            assert!(intersection
+                .overlapping
+                .iter()
+                .all(|p| p.interval.start() == intersection.base_interval.start()));
+            intersection.overlapping.len() == times + 1
+        }));
+        assert_eq!(n, n_intervals)
     }
 
     #[test]
