@@ -107,6 +107,7 @@ impl<'a, I: PositionedIterator<Item = P>, P: Positioned> IntersectionIterator<'a
 
     fn init_heap(&mut self) -> io::Result<()> {
         for (i, iter) in self.other_iterators.iter_mut().enumerate() {
+            // TODO: this should be called with the first base_interval instead of None.
             if let Some(positioned) = iter.next_position(None) {
                 let positioned = positioned?;
                 self.min_heap.push(ReverseOrderPosition {
@@ -254,8 +255,8 @@ impl<'a, I: PositionedIterator<Item = P>, P: Positioned> Iterator
 
     fn next(&mut self) -> Option<Self::Item> {
         let bi = self.base_iterator.next_position(None)?;
-        // if bi is an error return the Result here
 
+        // if bi is an error return the Result here
         let base_interval = match bi {
             Err(e) => return Some(Err(e)),
             Ok(p) => Rc::new(p),
@@ -291,20 +292,19 @@ impl<'a, I: PositionedIterator<Item = P>, P: Positioned> Iterator
         // de-Q contains all intervals that can overlap with the base interval.
         // de-Q is sorted.
         // We iterate through (again) and add those to overlapping positions.
-        for p in self.dequeue.iter() {
-            let o = cmp(
-                p.interval.as_ref(),
+        for o in self.dequeue.iter() {
+            match cmp(
+                o.interval.as_ref(),
                 base_interval.as_ref(),
                 &self.chromosome_order,
-            );
-            match o {
+            ) {
                 Ordering::Less => continue,
                 Ordering::Greater => break,
                 Ordering::Equal => overlapping_positions.push(Intersection {
                     // NOTE: we're effectively making a copy here, but it's only incrementing the Rc and a u32...
                     // we could avoid by by keeping entire intersection in Rc.
-                    interval: Rc::clone(&p.interval),
-                    id: p.id,
+                    interval: Rc::clone(&o.interval),
+                    id: o.id,
                 }),
             }
         }
