@@ -24,7 +24,7 @@ pub struct IntersectionIterator<'a, I: PositionedIterator, P: Positioned> {
 
     // this tracks which iterators have been called with Some(Positioned) for a given interval
     // so that calls after the first are called with None.
-    called: Vec<bool>,
+    called: Vec<bool>, // TODO: use bitset
 }
 
 #[derive(Debug)]
@@ -138,7 +138,11 @@ impl<'a, I: PositionedIterator<Item = P>, P: Positioned> IntersectionIterator<'a
             Some(previous_interval) => {
                 let pci = self.chromosome_order[previous_interval.chrom()];
                 let ici = self.chromosome_order[interval.chrom()];
-                pci > ici || (pci == ici && previous_interval.start() > interval.start())
+                pci > ici
+                    || (pci == ici && previous_interval.start() > interval.start())
+                    || (pci == ici
+                        && previous_interval.start() == interval.start()
+                        && previous_interval.stop() > interval.stop())
             }
         };
     }
