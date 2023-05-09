@@ -102,7 +102,7 @@ impl<'a, I: PositionedIterator<Item = P>, P: Positioned> IntersectionIterator<'a
             chromosome_order,
             dequeue: VecDeque::new(),
             previous_interval: None,
-            called: called,
+            called,
             heap_initialized: false,
         })
     }
@@ -156,7 +156,7 @@ impl<'a, I: PositionedIterator<Item = P>, P: Positioned> IntersectionIterator<'a
     #[inline]
     fn zero_called(&mut self) {
         let ptr = self.called.as_mut_ptr();
-        unsafe { ptr.write_bytes(0, self.called.len() * std::mem::size_of::<bool>()) };
+        unsafe { ptr.write_bytes(0, self.called.len()) };
     }
 
     fn pull_through_heap(&mut self, base_interval: Rc<P>) -> io::Result<()> {
@@ -249,7 +249,7 @@ fn cmp(
         return Ordering::Greater;
     }
     // Equal simply means they overlap.
-    return Ordering::Equal;
+    Ordering::Equal
 }
 
 fn region_str<P: Positioned>(p: &P) -> std::string::String {
@@ -304,7 +304,7 @@ impl<'a, I: PositionedIterator<Item = P>, P: Positioned> Iterator
             match cmp(
                 o.interval.as_ref(),
                 base_interval.as_ref(),
-                &self.chromosome_order,
+                self.chromosome_order,
             ) {
                 Ordering::Less => continue,
                 Ordering::Greater => break,
