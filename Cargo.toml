@@ -25,6 +25,7 @@ bed = ["noodles/bed"]
 
 [dev-dependencies]
 criterion = { version = "0.4", features = ["html_reports"] }
+clap = {version = "4.2.7", features=["derive"]}
 
 [[bench]]
 name = "random_intervals"

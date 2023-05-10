@@ -35,6 +35,20 @@ where
     line_number: u64,
 }
 
+impl<R> BedderBed<R>
+where
+    R: BufRead,
+{
+    pub fn new(r: R) -> BedderBed<R> {
+        BedderBed {
+            reader: bed::Reader::new(r),
+            buf: String::new(),
+            last_record: None,
+            line_number: 0,
+        }
+    }
+}
+
 impl<R> crate::position::PositionedIterator for BedderBed<R>
 where
     R: BufRead,
@@ -105,22 +119,9 @@ mod tests {
     #[test]
     fn test_bed_read() {
         // write a test for bed from a string using BufRead
-        let a = bed::Reader::new(Cursor::new("chr1\t20\t30\nchr1\t21\t33"));
-        let b = bed::Reader::new(Cursor::new("chr1\t21\t30\nchr1\t22\t33"));
+        let ar = BedderBed::new(Cursor::new("chr1\t20\t30\nchr1\t21\t33"));
+        let br = BedderBed::new(Cursor::new("chr1\t21\t30\nchr1\t22\t33"));
 
-        let ar = BedderBed {
-            reader: a,
-            buf: String::new(),
-            last_record: None,
-            line_number: 0,
-        };
-
-        let br = BedderBed {
-            reader: b,
-            buf: String::new(),
-            last_record: None,
-            line_number: 0,
-        };
         let chrom_order = HashMap::from([(String::from("chr1"), 0), (String::from("chr2"), 1)]);
 
         let it =
