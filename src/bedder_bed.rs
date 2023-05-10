@@ -1,8 +1,8 @@
+use crate::position::Positioned;
 use crate::string::String;
 pub use noodles::bed;
 use std::io;
 use std::io::BufRead;
-use std::rc::Rc;
 
 impl crate::position::Positioned for bed::record::Record<3> {
     fn chrom(&self) -> &str {
@@ -19,13 +19,19 @@ impl crate::position::Positioned for bed::record::Record<3> {
     }
 }
 
+struct Last {
+    chrom: String,
+    start: u64,
+    stop: u64,
+}
+
 pub struct BedderBed<R>
 where
     R: BufRead,
 {
     reader: bed::Reader<R>,
     buf: crate::string::String,
-    last_record: Option<Rc<bed::record::Record<3>>>,
+    last_record: Option<Last>,
     line_number: u64,
 }
 
@@ -48,12 +54,36 @@ where
                     if self.buf.starts_with('#') {
                         continue;
                     }
-                    let record = self
-                        .buf
-                        .parse()
-                        .map_err(|e| return io::Error::new(io::ErrorKind::InvalidData, e));
-                    //self.last_record = Some(Rc::new(record.unwrap()));
-                    Some(record)
+                    let record: bed::record::Record<3> = match self.buf.parse() {
+                        Err(e) => {
+                            let msg = format!(
+                                "line#{:?}:{:?} error: {:?}",
+                                self.line_number, &self.buf, e
+                            );
+                            return Some(Err(io::Error::new(io::ErrorKind::InvalidData, msg)));
+                        }
+                        Ok(r) => r,
+                    };
+
+                    // last_record isn't currently used, but could be later improved to handle index skipping.
+                    match &mut self.last_record {
+                        None => {
+                            self.last_record = Some(Last {
+                                chrom: String::from(record.chrom()),
+                                start: record.start(),
+                                stop: record.stop(),
+                            })
+                        }
+                        Some(r) => {
+                            if r.chrom != record.chrom() {
+                                r.chrom = String::from(record.chrom())
+                            }
+                            r.start = record.start();
+                            r.stop = record.stop();
+                        }
+                    }
+
+                    Some(Ok(record))
                 }
                 Err(e) => Some(Err(e)),
             };
@@ -61,14 +91,14 @@ where
     }
 
     fn name(&self) -> String {
-        String::from(format!("bed:{}", self.line_number))
+        format!("bed:{}", self.line_number)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{intersection::IntersectionIterator, *};
+    use crate::intersection::IntersectionIterator;
     use std::collections::HashMap;
     use std::io::Cursor;
 
