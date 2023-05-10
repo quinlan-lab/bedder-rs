@@ -68,21 +68,19 @@ impl<'a, P: Positioned> PartialOrd for ReverseOrderPosition<'a, P> {
 
 impl<'a, P: Positioned> Ord for ReverseOrderPosition<'a, P> {
     fn cmp(&self, other: &Self) -> Ordering {
-        let order = self
-            .chromosome_order
-            .get(self.position.chrom())
-            .expect("Invalid chromosome")
-            .cmp(self.chromosome_order.get(other.position.chrom()).unwrap());
+        if self.position.chrom() != other.position.chrom() {
+            return self
+                .chromosome_order
+                .get(self.position.chrom())
+                .expect("Invalid chromosome")
+                .cmp(self.chromosome_order.get(other.position.chrom()).unwrap())
+                .reverse();
+        }
 
-        match order {
-            Ordering::Equal => {
-                let so = self.position.start().cmp(&other.position.start()).reverse();
-                match so {
-                    Ordering::Equal => self.position.stop().cmp(&other.position.stop()).reverse(),
-                    _ => so,
-                }
-            }
-            _ => order,
+        let so = self.position.start().cmp(&other.position.start()).reverse();
+        match so {
+            Ordering::Equal => self.position.stop().cmp(&other.position.stop()).reverse(),
+            _ => so,
         }
     }
 }
