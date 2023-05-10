@@ -5,15 +5,18 @@ use std::io;
 use std::io::BufRead;
 
 impl crate::position::Positioned for bed::record::Record<3> {
+    #[inline]
     fn chrom(&self) -> &str {
         self.reference_sequence_name()
     }
 
+    #[inline]
     fn start(&self) -> u64 {
         // noodles position is 1-based.
         self.start_position().get() as u64 - 1
     }
 
+    #[inline]
     fn stop(&self) -> u64 {
         self.end_position().get() as u64
     }
@@ -80,6 +83,7 @@ where
                     };
 
                     // last_record isn't currently used, but could be later improved to handle index skipping.
+                    /*
                     match &mut self.last_record {
                         None => {
                             self.last_record = Some(Last {
@@ -96,6 +100,7 @@ where
                             r.stop = record.stop();
                         }
                     }
+                    */
 
                     Some(Ok(record))
                 }

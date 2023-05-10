@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::io;
+use std::io::{self, BufRead};
 use std::path::PathBuf;
 
 use clap::Parser;
@@ -23,10 +23,15 @@ fn main() -> io::Result<()> {
     let ai = crate::resort::bedder_bed::BedderBed::new(a);
     let bi = crate::resort::bedder_bed::BedderBed::new(b);
 
-    // TODO: parse chromosome order from fai
-    let chrom_order = HashMap::from([(String::from("chr1"), 0), (String::from("chr2"), 1)]);
+    let fh = std::io::BufReader::new(std::fs::File::open(args.fai)?);
+    let mut h = HashMap::new();
+    fh.lines().enumerate().for_each(|(i, line)| {
+        let line = line.expect("error reading line from fai");
+        let chrom = line.split("\t").next().expect("error getting line");
+        h.insert(String::from(chrom), i);
+    });
 
-    let it = crate::resort::intersection::IntersectionIterator::new(ai, vec![bi], &chrom_order)?;
+    let it = crate::resort::intersection::IntersectionIterator::new(ai, vec![bi], &h)?;
 
     for intersection in it {
         let intersection = intersection?;
