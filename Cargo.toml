@@ -11,6 +11,17 @@ smartstring = {version = "1.0.1", optional = true }
 smol_str = {version = "0.2.0", optional = true }
 compact_str = {version = "0.7.0", optional = true }
 kstring = {version = "2.0.0", optional = true }
+noodles = {version = "0.37.0"}
+
+[features]
+default = ["bed"]
+bed = ["noodles/bed"]
+#bam = ["noodles/bam"]
+#cram = ["noodles/cram"]
+#sam = ["noodles/sam"]
+#vcf = ["noodles/vcf"]
+#bcf = ["noodles/bcf"]
+
 
 [dev-dependencies]
 criterion = { version = "0.4", features = ["html_reports"] }
