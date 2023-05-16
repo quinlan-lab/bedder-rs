@@ -324,7 +324,7 @@ impl<'a, I: PositionedIterator<Item = P>, P: Positioned> IntersectionIterator<'a
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::position::{Col, Result, Value, ValueError};
+    use crate::position::{Field, Result, Value, ValueError};
 
     #[derive(Debug, Clone)]
     struct Interval {
@@ -344,16 +344,16 @@ mod tests {
             &self.chrom
         }
 
-        fn value(&self, b: Col) -> Result {
+        fn value(&self, b: Field) -> Result {
             match b {
-                Col::Int(i) => match i {
+                Field::Int(i) => match i {
                     0 => Ok(Value::Strings(vec![self.chrom.clone()])),
                     1 => Ok(Value::Ints(vec![self.start as i64])),
                     2 => Ok(Value::Ints(vec![self.stop as i64])),
                     3 => Ok(Value::Strings(vec![String::from("hello")])),
                     _ => Err(ValueError::InvalidColumnIndex(i)),
                 },
-                Col::String(s) => match s.as_str() {
+                Field::String(s) => match s.as_str() {
                     "chrom" => Ok(Value::Strings(vec![self.chrom.clone()])),
                     "start" => Ok(Value::Ints(vec![self.start as i64])),
                     "stop" => Ok(Value::Ints(vec![self.stop as i64])),

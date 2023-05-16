@@ -1,7 +1,7 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use rand::Rng;
 use resort::intersection::{Intersection, IntersectionIterator};
-use resort::position::{Col, Positioned, PositionedIterator, Value, ValueError};
+use resort::position::{Field, Positioned, PositionedIterator, Value, ValueError};
 use resort::string::String;
 use std::collections::HashMap;
 use std::io;
@@ -24,7 +24,7 @@ impl Positioned for Interval {
         &self.chrom
     }
 
-    fn value(&self, _v: Col) -> Result<Value, ValueError> {
+    fn value(&self, _v: Field) -> Result<Value, ValueError> {
         Ok(Value::Strings(vec![String::from("foo")]))
     }
 }

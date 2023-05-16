@@ -21,16 +21,19 @@ pub trait Positioned {
     fn stop(&self) -> u64;
 
     // extract a value from the Positioned object Col
-    fn value(&self, b: Col) -> Result<Value, ValueError>;
+    fn value(&self, f: Field) -> Result<Value, ValueError>;
 }
 
+/// Value can be any number of Ints, Floats, or Strings.
 pub enum Value {
     Ints(Vec<i64>),
     Floats(Vec<f64>),
     Strings(Vec<String>),
 }
 
-pub enum Col {
+/// Field is either an integer: the i'th column.
+/// Or a String, e.g. "INFO.DP".
+pub enum Field {
     String(String),
     Int(usize),
 }

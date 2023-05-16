@@ -1,4 +1,4 @@
-use crate::position::{Col, Positioned, Result, Value, ValueError};
+use crate::position::{Field, Positioned, Result, Value, ValueError};
 use crate::string::String;
 pub use noodles::bed;
 use std::io;
@@ -21,10 +21,10 @@ impl crate::position::Positioned for bed::record::Record<3> {
         self.end_position().get() as u64
     }
 
-    fn value(&self, v: crate::position::Col) -> Result {
+    fn value(&self, v: crate::position::Field) -> Result {
         match v {
-            Col::String(s) => Ok(Value::Strings(vec![s])),
-            Col::Int(i) => match i {
+            Field::String(s) => Ok(Value::Strings(vec![s])),
+            Field::Int(i) => match i {
                 0 => Ok(Value::Strings(vec![String::from(self.chrom())])),
                 1 => Ok(Value::Ints(vec![self.start() as i64])),
                 2 => Ok(Value::Ints(vec![self.stop() as i64])),
