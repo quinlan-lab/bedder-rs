@@ -85,150 +85,6 @@ impl<'a, P: Positioned> Ord for ReverseOrderPosition<'a, P> {
     }
 }
 
-impl<'a, I: PositionedIterator<Item = P>, P: Positioned> IntersectionIterator<'a, I, P> {
-    pub fn new(
-        base_iterator: I,
-        other_iterators: Vec<I>,
-        chromosome_order: &'a HashMap<String, usize>,
-    ) -> io::Result<Self> {
-        let min_heap = BinaryHeap::new();
-        let called = vec![false; other_iterators.len()];
-        Ok(IntersectionIterator {
-            base_iterator,
-            other_iterators,
-            min_heap,
-            chromosome_order,
-            dequeue: VecDeque::new(),
-            previous_interval: None,
-            called,
-            heap_initialized: false,
-        })
-    }
-
-    fn init_heap(&mut self, base_interval: Rc<P>) -> io::Result<()> {
-        assert!(!self.heap_initialized);
-        for (i, iter) in self.other_iterators.iter_mut().enumerate() {
-            if let Some(positioned) = iter.next_position(Some(base_interval.as_ref())) {
-                let positioned = positioned?;
-                self.min_heap.push(ReverseOrderPosition {
-                    position: positioned,
-                    chromosome_order: self.chromosome_order,
-                    id: i,
-                });
-            }
-        }
-        self.heap_initialized = true;
-        Ok(())
-    }
-
-    /// drop intervals from Q that are strictly before the base interval.
-    fn pop_front(&mut self, base_interval: Rc<P>) {
-        while !self.dequeue.is_empty()
-            && Ordering::Less
-                == cmp(
-                    self.dequeue[0].interval.as_ref(),
-                    base_interval.as_ref(),
-                    self.chromosome_order,
-                )
-        {
-            _ = self.dequeue.pop_front();
-        }
-    }
-
-    fn out_of_order(&self, interval: Rc<P>) -> bool {
-        return match &self.previous_interval {
-            None => false, // first interval in file.
-            Some(previous_interval) => {
-                let pci = self.chromosome_order[previous_interval.chrom()];
-                let ici = self.chromosome_order[interval.chrom()];
-                pci > ici
-                    || (pci == ici && previous_interval.start() > interval.start())
-                    || (pci == ici
-                        && previous_interval.start() == interval.start()
-                        && previous_interval.stop() > interval.stop())
-            }
-        };
-    }
-
-    // reset the array that tracks which iterators have been called with Some(Positioned)
-    #[inline]
-    fn zero_called(&mut self) {
-        let ptr = self.called.as_mut_ptr();
-        unsafe { ptr.write_bytes(0, self.called.len()) };
-    }
-
-    fn pull_through_heap(&mut self, base_interval: Rc<P>) -> io::Result<()> {
-        self.zero_called();
-        if !self.heap_initialized {
-            // we wait til first iteration here to call init heap
-            // because we need the base interval.
-            self.init_heap(Rc::clone(&base_interval))?;
-        }
-        let other_iterators = self.other_iterators.as_mut_slice();
-
-        while let Some(ReverseOrderPosition {
-            position,
-            id: file_index,
-            ..
-        }) = self.min_heap.pop()
-        {
-            // must always pull into the heap.
-            let f = other_iterators
-                .get_mut(file_index)
-                .expect("expected interval iterator at file index");
-            // for a given base_interval, we make sure to call next_position with Some, only once.
-            // subsequent calls will be with None.
-            let arg: Option<&dyn Positioned> = if !self.called[file_index] {
-                self.called[file_index] = true;
-                Some(base_interval.as_ref())
-            } else {
-                None
-            };
-            if let Some(next_position) = f.next_position(arg) {
-                let next_position = next_position?;
-
-                // check that intervals within a file are in order.
-                if !(position.start() <= next_position.start()
-                    || self.chromosome_order[position.chrom()]
-                        < self.chromosome_order[next_position.chrom()])
-                {
-                    let msg = format!(
-                        "database intervals out of order ({} -> {}) in iterator: {}",
-                        region_str(&position),
-                        region_str(&next_position),
-                        other_iterators[file_index].name()
-                    );
-                    return Err(Error::new(ErrorKind::Other, msg));
-                }
-                self.min_heap.push(ReverseOrderPosition {
-                    position: next_position,
-                    chromosome_order: self.chromosome_order,
-                    id: file_index,
-                });
-            }
-
-            // and we must always add the position to the Q
-            let rc_pos = Rc::new(position);
-            let int = Intersection {
-                interval: rc_pos.clone(),
-                id: file_index as u32,
-            };
-            self.dequeue.push_back(int);
-
-            // if this position is after base_interval, we can stop pulling through heap.
-            if cmp(
-                base_interval.as_ref(),
-                rc_pos.as_ref(),
-                self.chromosome_order,
-            ) == Ordering::Greater
-            {
-                break;
-            }
-        }
-        Ok(())
-    }
-}
-
 /// cmp will return Less if a is before b, Greater if a is after b, Equal if they overlap.
 #[inline(always)]
 fn cmp(
@@ -322,9 +178,153 @@ impl<'a, I: PositionedIterator<Item = P>, P: Positioned> Iterator
     }
 }
 
+impl<'a, I: PositionedIterator<Item = P>, P: Positioned> IntersectionIterator<'a, I, P> {
+    pub fn new(
+        base_iterator: I,
+        other_iterators: Vec<I>,
+        chromosome_order: &'a HashMap<String, usize>,
+    ) -> io::Result<Self> {
+        let min_heap = BinaryHeap::new();
+        let called = vec![false; other_iterators.len()];
+        Ok(IntersectionIterator {
+            base_iterator,
+            other_iterators,
+            min_heap,
+            chromosome_order,
+            dequeue: VecDeque::new(),
+            previous_interval: None,
+            called,
+            heap_initialized: false,
+        })
+    }
+
+    fn init_heap(&mut self, base_interval: Rc<P>) -> io::Result<()> {
+        assert!(!self.heap_initialized);
+        for (i, iter) in self.other_iterators.iter_mut().enumerate() {
+            if let Some(positioned) = iter.next_position(Some(base_interval.as_ref())) {
+                let positioned = positioned?;
+                self.min_heap.push(ReverseOrderPosition {
+                    position: positioned,
+                    chromosome_order: self.chromosome_order,
+                    id: i,
+                });
+            }
+        }
+        self.heap_initialized = true;
+        Ok(())
+    }
+
+    /// drop intervals from Q that are strictly before the base interval.
+    fn pop_front(&mut self, base_interval: Rc<P>) {
+        while !self.dequeue.is_empty()
+            && Ordering::Less
+                == cmp(
+                    self.dequeue[0].interval.as_ref(),
+                    base_interval.as_ref(),
+                    self.chromosome_order,
+                )
+        {
+            _ = self.dequeue.pop_front();
+        }
+    }
+
+    fn out_of_order(&self, interval: Rc<P>) -> bool {
+        return match &self.previous_interval {
+            None => false, // first interval in file.
+            Some(previous_interval) => {
+                let pci = self.chromosome_order[previous_interval.chrom()];
+                let ici = self.chromosome_order[interval.chrom()];
+                pci > ici
+                    || (pci == ici && previous_interval.start() > interval.start())
+                    || (pci == ici
+                        && previous_interval.start() == interval.start()
+                        && previous_interval.stop() > interval.stop())
+            }
+        };
+    }
+    // reset the array that tracks which iterators have been called with Some(Positioned)
+    #[inline]
+    fn zero_called(&mut self) {
+        let ptr = self.called.as_mut_ptr();
+        unsafe { ptr.write_bytes(0, self.called.len()) };
+    }
+
+    fn pull_through_heap(&mut self, base_interval: Rc<P>) -> io::Result<()> {
+        self.zero_called();
+        if !self.heap_initialized {
+            // we wait til first iteration here to call init heap
+            // because we need the base interval.
+            self.init_heap(Rc::clone(&base_interval))?;
+        }
+        let other_iterators = self.other_iterators.as_mut_slice();
+
+        while let Some(ReverseOrderPosition {
+            position,
+            id: file_index,
+            ..
+        }) = self.min_heap.pop()
+        {
+            // must always pull into the heap.
+            let f = other_iterators
+                .get_mut(file_index)
+                .expect("expected interval iterator at file index");
+            // for a given base_interval, we make sure to call next_position with Some, only once.
+            // subsequent calls will be with None.
+            let arg: Option<&dyn Positioned> = if !self.called[file_index] {
+                self.called[file_index] = true;
+                Some(base_interval.as_ref())
+            } else {
+                None
+            };
+            if let Some(next_position) = f.next_position(arg) {
+                let next_position = next_position?;
+
+                // check that intervals within a file are in order.
+                if !(position.start() <= next_position.start()
+                    || self.chromosome_order[position.chrom()]
+                        < self.chromosome_order[next_position.chrom()])
+                {
+                    let msg = format!(
+                        "database intervals out of order ({} -> {}) in iterator: {}",
+                        region_str(&position),
+                        region_str(&next_position),
+                        other_iterators[file_index].name()
+                    );
+                    return Err(Error::new(ErrorKind::Other, msg));
+                }
+                self.min_heap.push(ReverseOrderPosition {
+                    position: next_position,
+                    chromosome_order: self.chromosome_order,
+                    id: file_index,
+                });
+            }
+
+            // and we must always add the position to the Q
+            let rc_pos = Rc::new(position);
+            let int = Intersection {
+                interval: rc_pos.clone(),
+                id: file_index as u32,
+            };
+            self.dequeue.push_back(int);
+
+            // if this position is after base_interval, we can stop pulling through heap.
+            if cmp(
+                base_interval.as_ref(),
+                rc_pos.as_ref(),
+                self.chromosome_order,
+            ) == Ordering::Greater
+            {
+                break;
+            }
+        }
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::position::{Col, Result, Value};
 
     #[derive(Debug, Clone)]
     struct Interval {
@@ -342,6 +342,31 @@ mod tests {
         }
         fn chrom(&self) -> &str {
             &self.chrom
+        }
+
+        fn value(&self, b: Col) -> Result {
+            match b {
+                Col::Int(i) => match i {
+                    0 => Ok(Value::Strings(vec![self.chrom.clone()])),
+                    1 => Ok(Value::Ints(vec![self.start as i64])),
+                    2 => Ok(Value::Ints(vec![self.stop as i64])),
+                    3 => Ok(Value::Strings(vec![String::from("hello")])),
+                    _ => Err(Box::new(Error::new(
+                        ErrorKind::Other,
+                        format!("no such column {}", i),
+                    ))),
+                },
+                Col::String(s) => match s.as_str() {
+                    "chrom" => Ok(Value::Strings(vec![self.chrom.clone()])),
+                    "start" => Ok(Value::Ints(vec![self.start as i64])),
+                    "stop" => Ok(Value::Ints(vec![self.stop as i64])),
+                    "name" => Ok(Value::Strings(vec![String::from("hello")])),
+                    _ => Err(Box::new(Error::new(
+                        ErrorKind::Other,
+                        format!("no such column {}", s),
+                    ))),
+                },
+            }
         }
     }
     struct Intervals {

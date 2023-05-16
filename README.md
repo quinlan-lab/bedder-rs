@@ -20,9 +20,22 @@ pub trait Positioned {
     fn start(&self) -> u64;
     fn stop(&self) -> u64;
 
-    // Col and Value enums TBD. this will allow getting info fields of VCF or integer fields of bams.
-    //fn get(&self, name: Col) -> Value;
+    // extract a value from the Positioned object Col
+    fn value(&self, b: Col) -> Result;
 }
+
+pub enum Value {
+    Ints(Vec<i64>),
+    Floats(Vec<f64>),
+    Strings(Vec<String>),
+}
+
+pub enum Col {
+    String(String),
+    Int(usize),
+}
+
+pub type Result = std::result::Result<Value, Box<dyn Error>>;
 ```
 
 Then each file-type (VCF/BAM/etc) would implement this trait

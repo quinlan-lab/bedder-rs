@@ -1,4 +1,4 @@
-use crate::position::Positioned;
+use crate::position::{Col, Positioned, Result, Value};
 use crate::string::String;
 pub use noodles::bed;
 use std::io;
@@ -20,6 +20,21 @@ impl crate::position::Positioned for bed::record::Record<3> {
     fn stop(&self) -> u64 {
         self.end_position().get() as u64
     }
+
+    fn value(&self, v: crate::position::Col) -> Result {
+        match v {
+            Col::String(s) => Ok(Value::Strings(vec![s])),
+            Col::Int(i) => match i {
+                0 => Ok(Value::Strings(vec![String::from(self.chrom())])),
+                1 => Ok(Value::Ints(vec![self.start() as i64])),
+                2 => Ok(Value::Ints(vec![self.stop() as i64])),
+                _ => Err(Box::new(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    format!("invalid column index: {:?}", i),
+                ))),
+            },
+        }
+    }
 }
 
 struct Last {
@@ -33,7 +48,7 @@ where
     R: BufRead,
 {
     reader: bed::Reader<R>,
-    buf: crate::string::String,
+    buf: std::string::String,
     last_record: Option<Last>,
     line_number: u64,
 }
@@ -45,7 +60,7 @@ where
     pub fn new(r: R) -> BedderBed<R> {
         BedderBed {
             reader: bed::Reader::new(r),
-            buf: String::new(),
+            buf: std::string::String::new(),
             last_record: None,
             line_number: 0,
         }
@@ -61,7 +76,7 @@ where
     fn next_position(
         &mut self,
         _q: Option<&dyn crate::position::Positioned>,
-    ) -> Option<Result<Self::Item, std::io::Error>> {
+    ) -> Option<std::result::Result<Self::Item, std::io::Error>> {
         self.buf.clear();
         loop {
             self.line_number += 1;
@@ -82,8 +97,6 @@ where
                         Ok(r) => r,
                     };
 
-                    // last_record isn't currently used, but could be later improved to handle index skipping.
-                    /*
                     match &mut self.last_record {
                         None => {
                             self.last_record = Some(Last {
@@ -100,7 +113,6 @@ where
                             r.stop = record.stop();
                         }
                     }
-                    */
 
                     Some(Ok(record))
                 }
@@ -110,7 +122,7 @@ where
     }
 
     fn name(&self) -> String {
-        format!("bed:{}", self.line_number)
+        String::from(format!("bed:{}", self.line_number))
     }
 }
 

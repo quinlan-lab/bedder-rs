@@ -1,14 +1,19 @@
 use crate::string::String;
+use std::error::Error;
 use std::io;
 
 pub enum Value {
-    Int(i64),
-    Float(f64),
-    String(String),
     Ints(Vec<i64>),
     Floats(Vec<f64>),
     Strings(Vec<String>),
 }
+
+pub enum Col {
+    String(String),
+    Int(usize),
+}
+
+pub type Result = std::result::Result<Value, Box<dyn Error>>;
 
 /// A Positioned has a position in the genome. It is a bed-like (half-open) interval.
 pub trait Positioned {
@@ -18,11 +23,8 @@ pub trait Positioned {
     /// non-inclusive end;
     fn stop(&self) -> u64;
 
-    // extract a value from the Positioned object with a string key
-    //fn value(&self, String) -> Value<'a>
-
-    // extract a value from the Positioned object with an integer key. for a column.
-    //fn ivalue(&self, usize) -> Value<'a>
+    // extract a value from the Positioned object Col
+    fn value(&self, b: Col) -> Result;
 
     // get back the original line?
     //fn line(&self) -> &'a str;
@@ -44,8 +46,8 @@ pub trait PositionedIterator {
     fn name(&self) -> String;
 
     /// return the next Positioned from the iterator.
-    /// it is fine for implementers to ignore `q`. Some iterators may improve performance
-    /// by using `q` to index-skip.
+    /// It is fine for implementers to ignore `q`;
+    /// Some iterators may improve performance by using `q` to index-skip.
     /// `q` will be Some only on the first call for a given query interval.
     /// Calls where `q` is None should return the next Positioned in the iterator (file) that has not
     /// been returned previously. Intervals should only be returned once (even across many identical query intervals)
@@ -55,5 +57,5 @@ pub trait PositionedIterator {
     fn next_position(
         &mut self,
         q: Option<&dyn Positioned>,
-    ) -> Option<Result<Self::Item, io::Error>>;
+    ) -> Option<std::result::Result<Self::Item, io::Error>>;
 }
