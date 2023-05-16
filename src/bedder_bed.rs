@@ -1,4 +1,4 @@
-use crate::position::{Col, Positioned, Result, Value};
+use crate::position::{Col, Positioned, Result, Value, ValueError};
 use crate::string::String;
 pub use noodles::bed;
 use std::io;
@@ -28,10 +28,7 @@ impl crate::position::Positioned for bed::record::Record<3> {
                 0 => Ok(Value::Strings(vec![String::from(self.chrom())])),
                 1 => Ok(Value::Ints(vec![self.start() as i64])),
                 2 => Ok(Value::Ints(vec![self.stop() as i64])),
-                _ => Err(Box::new(io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    format!("invalid column index: {:?}", i),
-                ))),
+                _ => Err(ValueError::InvalidColumnIndex(i)),
             },
         }
     }

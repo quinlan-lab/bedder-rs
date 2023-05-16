@@ -324,7 +324,7 @@ impl<'a, I: PositionedIterator<Item = P>, P: Positioned> IntersectionIterator<'a
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::position::{Col, Result, Value};
+    use crate::position::{Col, Result, Value, ValueError};
 
     #[derive(Debug, Clone)]
     struct Interval {
@@ -351,20 +351,14 @@ mod tests {
                     1 => Ok(Value::Ints(vec![self.start as i64])),
                     2 => Ok(Value::Ints(vec![self.stop as i64])),
                     3 => Ok(Value::Strings(vec![String::from("hello")])),
-                    _ => Err(Box::new(Error::new(
-                        ErrorKind::Other,
-                        format!("no such column {}", i),
-                    ))),
+                    _ => Err(ValueError::InvalidColumnIndex(i)),
                 },
                 Col::String(s) => match s.as_str() {
                     "chrom" => Ok(Value::Strings(vec![self.chrom.clone()])),
                     "start" => Ok(Value::Ints(vec![self.start as i64])),
                     "stop" => Ok(Value::Ints(vec![self.stop as i64])),
                     "name" => Ok(Value::Strings(vec![String::from("hello")])),
-                    _ => Err(Box::new(Error::new(
-                        ErrorKind::Other,
-                        format!("no such column {}", s),
-                    ))),
+                    _ => Err(ValueError::InvalidColumnName(s)),
                 },
             }
         }

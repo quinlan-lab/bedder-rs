@@ -1,5 +1,5 @@
 use crate::string::String;
-use std::error::Error;
+use core::fmt;
 use std::io;
 
 pub enum Value {
@@ -13,7 +13,24 @@ pub enum Col {
     Int(usize),
 }
 
-pub type Result = std::result::Result<Value, Box<dyn Error>>;
+#[derive(Debug)]
+pub enum ValueError {
+    InvalidColumnIndex(usize),
+    InvalidColumnName(String),
+}
+
+impl fmt::Display for ValueError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            ValueError::InvalidColumnIndex(i) => write!(f, "invalid column index: {}", i),
+            ValueError::InvalidColumnName(s) => write!(f, "invalid column name: {}", s),
+        }
+    }
+}
+
+impl std::error::Error for ValueError {}
+
+pub type Result = std::result::Result<Value, ValueError>;
 
 /// A Positioned has a position in the genome. It is a bed-like (half-open) interval.
 pub trait Positioned {

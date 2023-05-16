@@ -21,7 +21,7 @@ pub trait Positioned {
     fn stop(&self) -> u64;
 
     // extract a value from the Positioned object Col
-    fn value(&self, b: Col) -> Result<Value, Box<dyn Error>>;
+    fn value(&self, b: Col) -> Result<Value, ValueError>;
 }
 
 pub enum Value {
@@ -33,6 +33,11 @@ pub enum Value {
 pub enum Col {
     String(String),
     Int(usize),
+}
+
+pub enum ValueError {
+    InvalidColumnIndex(usize),
+    InvalidColumnName(String),
 }
 
 ```
