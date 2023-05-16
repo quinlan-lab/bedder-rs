@@ -21,7 +21,7 @@ pub trait Positioned {
     fn stop(&self) -> u64;
 
     // extract a value from the Positioned object Col
-    fn value(&self, b: Col) -> Result;
+    fn value(&self, b: Col) -> Result<Value, Box<dyn Error>>;
 }
 
 pub enum Value {
@@ -35,7 +35,6 @@ pub enum Col {
     Int(usize),
 }
 
-pub type Result = std::result::Result<Value, Box<dyn Error>>;
 ```
 
 Then each file-type (VCF/BAM/etc) would implement this trait
