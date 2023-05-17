@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use clap::Parser;
 extern crate resort;
 use crate::resort::position::Positioned;
+use crate::resort::string::String;
 
 #[derive(Parser, Debug)]
 struct Args {

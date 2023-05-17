@@ -14,23 +14,23 @@ pub enum Field {
 }
 
 #[derive(Debug)]
-pub enum ValueError {
-    InvalidColumnIndex(usize),
-    InvalidColumnName(String),
+pub enum FieldError {
+    InvalidFieldIndex(usize),
+    InvalidFieldName(String),
 }
 
-impl fmt::Display for ValueError {
+impl fmt::Display for FieldError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            ValueError::InvalidColumnIndex(i) => write!(f, "invalid column index: {}", i),
-            ValueError::InvalidColumnName(s) => write!(f, "invalid column name: {}", s),
+            FieldError::InvalidFieldIndex(i) => write!(f, "invalid column index: {}", i),
+            FieldError::InvalidFieldName(s) => write!(f, "invalid column name: {}", s),
         }
     }
 }
 
-impl std::error::Error for ValueError {}
+impl std::error::Error for FieldError {}
 
-pub type Result = std::result::Result<Value, ValueError>;
+pub type Result = std::result::Result<Value, FieldError>;
 
 /// A Positioned has a position in the genome. It is a bed-like (half-open) interval.
 pub trait Positioned {

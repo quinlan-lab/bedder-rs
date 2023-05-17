@@ -20,8 +20,8 @@ pub trait Positioned {
     fn start(&self) -> u64;
     fn stop(&self) -> u64;
 
-    // extract a value from the Positioned object Col
-    fn value(&self, f: Field) -> Result<Value, ValueError>;
+    // extract a value from the Positioned object Field
+    fn value(&self, f: Field) -> Result<Value, FieldError>;
 }
 
 /// Value can be any number of Ints, Floats, or Strings.
@@ -38,9 +38,9 @@ pub enum Field {
     Int(usize),
 }
 
-pub enum ValueError {
-    InvalidColumnIndex(usize),
-    InvalidColumnName(String),
+pub enum FieldError {
+    InvalidFieldIndex(usize),
+    InvalidFieldName(String),
 }
 
 ```
