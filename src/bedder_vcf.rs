@@ -1,4 +1,4 @@
-use crate::position::{Field, FieldError, Positioned, Result, Value};
+use crate::position::{Field, FieldError, Result, Value};
 use crate::string::String;
 use noodles::bcf;
 use noodles::core::{Position, Region};
@@ -7,15 +7,12 @@ use noodles::vcf::{self, record::Chromosome};
 use std::fs::File;
 use std::io::{self, BufRead, BufReader};
 
-pub trait VCFReader<R>
-where
-    R: BufRead,
-{
+pub trait VCFReader {
     fn read_header(&mut self) -> io::Result<vcf::Header>;
     fn read_record(&mut self, header: &vcf::Header, v: &mut vcf::Record) -> io::Result<usize>;
 }
 
-impl<R> VCFReader<R> for vcf::Reader<R>
+impl<R> VCFReader for vcf::Reader<R>
 where
     R: BufRead,
 {
@@ -29,7 +26,7 @@ where
     }
 }
 
-impl<R> VCFReader<R> for vcf::indexed_reader::IndexedReader<R>
+impl<R> VCFReader for vcf::indexed_reader::IndexedReader<R>
 where
     R: BufRead,
 {
@@ -43,7 +40,7 @@ where
     }
 }
 
-impl<R> VCFReader<R> for bcf::Reader<R>
+impl<R> VCFReader for bcf::Reader<R>
 where
     R: BufRead,
 {
@@ -57,22 +54,16 @@ where
     }
 }
 
-pub struct BedderVCF<R>
-where
-    R: BufRead,
-{
-    reader: Box<dyn VCFReader<R>>,
+pub struct BedderVCF<'a> {
+    reader: Box<dyn VCFReader + 'a>,
     header: vcf::Header,
     record_number: u64,
 }
 
-impl<R> BedderVCF<R>
-where
-    R: VCFReader<R> + BufRead + 'static,
-{
-    pub fn new(r: R) -> io::Result<BedderVCF<R>> {
+impl<'a> BedderVCF<'a> {
+    pub fn new(r: Box<dyn VCFReader>) -> io::Result<BedderVCF<'a>> {
         let mut v = BedderVCF {
-            reader: Box::new(r),
+            reader: r,
             header: vcf::Header::default(),
             record_number: 0,
         };
@@ -85,8 +76,8 @@ impl crate::position::Positioned for vcf::record::Record {
     #[inline]
     fn chrom(&self) -> &str {
         match self.chromosome() {
-            Chromosome::Name(s) => &s,
-            Chromosome::Symbol(s) => &s,
+            Chromosome::Name(s) => s,
+            Chromosome::Symbol(s) => s,
         }
     }
 
@@ -114,10 +105,7 @@ impl crate::position::Positioned for vcf::record::Record {
     }
 }
 
-impl<R> crate::position::PositionedIterator for BedderVCF<R>
-where
-    R: BufRead,
-{
+impl<'a> crate::position::PositionedIterator for BedderVCF<'a> {
     type Item = vcf::Record;
 
     fn next_position(
@@ -152,7 +140,7 @@ pub fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     //let header = vcf_reader.read_header().unwrap();
 
     // Open the index
-    let index = csi::read(&index_path).unwrap();
+    let index = csi::read(index_path).unwrap();
 
     // Build an indexed VCF reader
     let mut reader = vcf::indexed_reader::Builder::default()
