@@ -1,29 +1,79 @@
 use crate::position::{Field, FieldError, Positioned, Result, Value};
+use crate::string::String;
+use noodles::bcf;
 use noodles::core::{Position, Region};
 use noodles::csi;
 use noodles::vcf::{self, record::Chromosome};
 use std::fs::File;
 use std::io::{self, BufRead, BufReader};
 
+pub trait VCFReader<R>
+where
+    R: BufRead,
+{
+    fn read_header(&mut self) -> io::Result<vcf::Header>;
+    fn read_record(&mut self, header: &vcf::Header, v: &mut vcf::Record) -> io::Result<usize>;
+}
+
+impl<R> VCFReader<R> for vcf::Reader<R>
+where
+    R: BufRead,
+{
+    fn read_header(&mut self) -> io::Result<vcf::Header> {
+        self.read_header()
+    }
+
+    #[inline]
+    fn read_record(&mut self, header: &vcf::Header, v: &mut vcf::Record) -> io::Result<usize> {
+        self.read_record(header, v)
+    }
+}
+
+impl<R> VCFReader<R> for vcf::indexed_reader::IndexedReader<R>
+where
+    R: BufRead,
+{
+    fn read_header(&mut self) -> io::Result<vcf::Header> {
+        self.read_header()
+    }
+
+    #[inline]
+    fn read_record(&mut self, header: &vcf::Header, v: &mut vcf::Record) -> io::Result<usize> {
+        self.read_record(header, v)
+    }
+}
+
+impl<R> VCFReader<R> for bcf::Reader<R>
+where
+    R: BufRead,
+{
+    fn read_header(&mut self) -> io::Result<vcf::Header> {
+        self.read_header()
+    }
+
+    #[inline]
+    fn read_record(&mut self, header: &vcf::Header, v: &mut vcf::Record) -> io::Result<usize> {
+        self.read_record(header, v)
+    }
+}
+
 pub struct BedderVCF<R>
 where
     R: BufRead,
 {
-    reader: vcf::Reader<R>,
+    reader: Box<dyn VCFReader<R>>,
     header: vcf::Header,
-    buf: std::string::String,
     record_number: u64,
 }
 
 impl<R> BedderVCF<R>
 where
-    R: BufRead,
+    R: VCFReader<R> + BufRead + 'static,
 {
     pub fn new(r: R) -> io::Result<BedderVCF<R>> {
         let mut v = BedderVCF {
-            reader: vcf::Reader::new(r),
+            reader: Box::new(r),
             header: vcf::Header::default(),
-            buf: std::string::String::new(),
             record_number: 0,
         };
         v.header = v.reader.read_header()?;
@@ -74,14 +124,12 @@ where
         &mut self,
         _q: Option<&dyn crate::position::Positioned>,
     ) -> Option<std::result::Result<Self::Item, std::io::Error>> {
-        let mut record = vcf::Record::default();
-        let result = self.reader.read_record(&self.header, &mut record);
-
-        match result {
-            Ok(0) => None,
+        let mut v = vcf::Record::default();
+        match self.reader.read_record(&self.header, &mut v) {
+            Ok(0) => None, // EOF
             Ok(_) => {
                 self.record_number += 1;
-                Some(Ok(record))
+                Some(Ok(v))
             }
             Err(e) => Some(Err(e)),
         }
