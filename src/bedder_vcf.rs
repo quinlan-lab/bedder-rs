@@ -10,6 +10,8 @@ use std::io::{self, BufRead, BufReader};
 pub trait VCFReader {
     fn read_header(&mut self) -> io::Result<vcf::Header>;
     fn read_record(&mut self, header: &vcf::Header, v: &mut vcf::Record) -> io::Result<usize>;
+
+    // fn queryable
 }
 
 impl<R> VCFReader for vcf::Reader<R>
@@ -61,13 +63,12 @@ pub struct BedderVCF<'a> {
 }
 
 impl<'a> BedderVCF<'a> {
-    pub fn new(r: Box<dyn VCFReader>) -> io::Result<BedderVCF<'a>> {
-        let mut v = BedderVCF {
+    pub fn new(r: Box<dyn VCFReader>, header: vcf::Header) -> io::Result<BedderVCF<'a>> {
+        let v = BedderVCF {
             reader: r,
-            header: vcf::Header::default(),
+            header: header,
             record_number: 0,
         };
-        v.header = v.reader.read_header()?;
         Ok(v)
     }
 }
@@ -113,6 +114,7 @@ impl<'a> crate::position::PositionedIterator for BedderVCF<'a> {
         _q: Option<&dyn crate::position::Positioned>,
     ) -> Option<std::result::Result<Self::Item, std::io::Error>> {
         let mut v = vcf::Record::default();
+
         match self.reader.read_record(&self.header, &mut v) {
             Ok(0) => None, // EOF
             Ok(_) => {
@@ -149,7 +151,10 @@ pub fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         .unwrap();
 
     let header = reader.read_header()?;
+    let b = Box::new(reader);
+    let br = BedderVCF::new(b, header.clone())?;
 
+    /*
     // Define the region to query
     let start = Position::try_from(1)?;
     let stop = Position::try_from(1_000_000)?;
@@ -163,5 +168,6 @@ pub fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         let record = result.unwrap();
         println!("{:?}", record);
     }
+    */
     Ok(())
 }
