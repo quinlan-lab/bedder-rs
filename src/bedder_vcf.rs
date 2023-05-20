@@ -116,6 +116,31 @@ impl crate::position::Positioned for vcf::record::Record {
                     match info.get(&key) {
                         Some(value) => match value {
                             Some(field::Value::Integer(i)) => Ok(Value::Ints(vec![*i as i64])),
+                            Some(field::Value::Float(f)) => Ok(Value::Floats(vec![*f as f64])),
+                            Some(field::Value::String(s)) => {
+                                Ok(Value::Strings(vec![s.to_string()]))
+                            }
+                            Some(field::Value::Character(c)) => {
+                                Ok(Value::Strings(vec![c.to_string()]))
+                            }
+                            //Some(field::Value::Flag) => Ok(Value::Strings(vec![String::from("true")])),
+                            Some(field::Value::Array(arr)) => {
+                                match arr {
+                                    field::value::Array::Integer(arr) => Ok(Value::Ints(
+                                        arr.iter().flatten().map(|&v| v as i64).collect(),
+                                    )),
+                                    field::value::Array::Float(arr) => Ok(Value::Floats(
+                                        arr.iter().flatten().map(|&v| v as f64).collect(),
+                                    )),
+                                    field::value::Array::String(arr) => Ok(Value::Strings(
+                                        arr.iter().flatten().map(|v| v.to_string()).collect(),
+                                    )),
+                                    field::value::Array::Character(arr) => Ok(Value::Strings(
+                                        arr.iter().flatten().map(|v| v.to_string()).collect(),
+                                    )),
+                                    //field::Value::Flag => Ok(Value::Strings(vec![String::from("true")])),
+                                }
+                            }
 
                             _ => Err(FieldError::InvalidFieldName(s)),
                         },
