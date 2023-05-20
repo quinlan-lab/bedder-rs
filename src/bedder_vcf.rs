@@ -6,6 +6,7 @@ use noodles::csi;
 use noodles::vcf::{self, record::Chromosome};
 use std::fs::File;
 use std::io::{self, BufRead, BufReader};
+use vcf::record::info::field;
 
 pub trait VCFReader {
     fn read_header(&mut self) -> io::Result<vcf::Header>;
@@ -63,7 +64,7 @@ pub struct BedderVCF<'a> {
 }
 
 impl<'a> BedderVCF<'a> {
-    pub fn new(r: Box<dyn VCFReader>, header: vcf::Header) -> io::Result<BedderVCF<'a>> {
+    pub fn new(r: Box<dyn VCFReader + 'a>, header: vcf::Header) -> io::Result<BedderVCF<'a>> {
         let v = BedderVCF {
             reader: r,
             header: header,
@@ -95,13 +96,36 @@ impl crate::position::Positioned for vcf::record::Record {
     fn value(&self, f: crate::position::Field) -> Result {
         // TODO: implement this!
         match f {
-            Field::String(s) => Ok(Value::Strings(vec![s])),
-            Field::Int(i) => match i {
-                0 => Ok(Value::Strings(vec![String::from(self.chrom())])),
-                1 => Ok(Value::Ints(vec![self.start() as i64])),
-                2 => Ok(Value::Ints(vec![self.stop() as i64])),
-                _ => Err(FieldError::InvalidFieldIndex(i)),
+            Field::String(s) => match s.as_str() {
+                "chrom" => Ok(Value::Strings(vec![String::from(self.chrom())])),
+                "start" => Ok(Value::Ints(vec![self.start() as i64])),
+                "stop" => Ok(Value::Ints(vec![self.stop() as i64])),
+                "ID" => Ok(Value::Strings(
+                    self.ids().iter().map(|s| s.to_string()).collect(),
+                )),
+                "FILTER" => Ok(Value::Strings(
+                    self.filters().iter().map(|s| s.to_string()).collect(),
+                )),
+
+                "INFO.DP" => {
+                    let info = self.info();
+                    let key: vcf::record::info::field::Key = "DP"
+                        .parse()
+                        .map_err(|_| FieldError::InvalidFieldName(String::from("INFO.DP")))?;
+
+                    match info.get(&key) {
+                        Some(value) => match value {
+                            Some(field::Value::Integer(i)) => Ok(Value::Ints(vec![*i as i64])),
+
+                            _ => Err(FieldError::InvalidFieldName(s)),
+                        },
+                        None => Err(FieldError::InvalidFieldName(s)),
+                    }
+                }
+                _ => Err(FieldError::InvalidFieldName(s)),
             },
+
+            Field::Int(i) => Err(FieldError::InvalidFieldIndex(i)),
         }
     }
 }
