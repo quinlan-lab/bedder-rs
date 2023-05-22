@@ -3,11 +3,11 @@ use std::io::{self, BufRead, BufReader};
 use std::path::PathBuf;
 
 use clap::Parser;
-extern crate resort;
-use crate::resort::bedder_bed::BedderBed;
-use crate::resort::intersection::IntersectionIterator;
-use crate::resort::position::Positioned;
-use crate::resort::string::String;
+extern crate bedder;
+use crate::bedder::bedder_bed::BedderBed;
+use crate::bedder::intersection::IntersectionIterator;
+use crate::bedder::position::Positioned;
+use crate::bedder::string::String;
 
 #[derive(Parser, Debug)]
 struct Args {

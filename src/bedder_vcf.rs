@@ -11,7 +11,6 @@ use vcf::record::info::field;
 pub trait VCFReader {
     fn read_header(&mut self) -> io::Result<vcf::Header>;
     fn read_record(&mut self, header: &vcf::Header, v: &mut vcf::Record) -> io::Result<usize>;
-
     // fn queryable
 }
 

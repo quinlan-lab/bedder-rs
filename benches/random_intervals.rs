@@ -1,8 +1,8 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use rand::Rng;
-use resort::intersection::{Intersection, IntersectionIterator};
-use resort::position::{Field, FieldError, Positioned, PositionedIterator, Value};
-use resort::string::String;
+use bedder::intersection::{Intersection, IntersectionIterator};
+use bedder::position::{Field, FieldError, Positioned, PositionedIterator, Value};
+use bedder::string::String;
 use std::collections::HashMap;
 use std::io;
 
