@@ -71,8 +71,10 @@ fn match_info_value(info: &vcf::record::Info, name: &str) -> Result {
         Some(value) => match value {
             Some(field::Value::Integer(i)) => Ok(Value::Ints(vec![*i as i64])),
             Some(field::Value::Float(f)) => Ok(Value::Floats(vec![*f as f64])),
-            Some(field::Value::String(s)) => Ok(Value::Strings(vec![s.to_string()])),
-            Some(field::Value::Character(c)) => Ok(Value::Strings(vec![c.to_string()])),
+            Some(field::Value::String(s)) => Ok(Value::Strings(vec![String::from(s)])),
+            Some(field::Value::Character(c)) => {
+                Ok(Value::Strings(vec![String::from(c.to_string())]))
+            }
             //Some(field::Value::Flag) => Ok(Value::Strings(vec![String::from("true")])),
             Some(field::Value::Array(arr)) => {
                 match arr {
@@ -83,10 +85,10 @@ fn match_info_value(info: &vcf::record::Info, name: &str) -> Result {
                         arr.iter().flatten().map(|&v| v as f64).collect(),
                     )),
                     field::value::Array::String(arr) => Ok(Value::Strings(
-                        arr.iter().flatten().map(|v| v.to_string()).collect(),
+                        arr.iter().flatten().map(|v| String::from(v)).collect(),
                     )),
                     field::value::Array::Character(arr) => Ok(Value::Strings(
-                        arr.iter().flatten().map(|v| v.to_string()).collect(),
+                        arr.iter().flatten().map(|v| v.to_string().into()).collect(),
                     )),
                     //field::Value::Flag => Ok(Value::Strings(vec![String::from("true")])),
                 }
@@ -107,10 +109,14 @@ fn match_value(record: &vcf::record::Record, f: Field) -> Result {
             "start" => Ok(Value::Ints(vec![Positioned::start(record) as i64])),
             "stop" => Ok(Value::Ints(vec![Positioned::stop(record) as i64])),
             "ID" => Ok(Value::Strings(
-                record.ids().iter().map(|s| s.to_string()).collect(),
+                record.ids().iter().map(|s| s.to_string().into()).collect(),
             )),
             "FILTER" => Ok(Value::Strings(
-                record.filters().iter().map(|s| s.to_string()).collect(),
+                record
+                    .filters()
+                    .iter()
+                    .map(|s| String::from(s.to_string()))
+                    .collect(),
             )),
             "QUAL" => Ok(Value::Floats(vec![f32::from(
                 record
@@ -248,11 +254,11 @@ mod tests {
         let info: vcf::record::Info = [(
             key.clone(),
             Some(field::Value::Array(field::value::Array::Integer(vec![
-                Some(1),
+                Some(-1),
                 Some(2),
                 Some(3),
                 None,
-                Some(4),
+                Some(496),
             ]))),
         )]
         .into_iter()
@@ -264,10 +270,10 @@ mod tests {
 
         if let Value::Ints(v) = value {
             assert_eq!(v.len(), 4);
-            assert_eq!(v[0], 1);
+            assert_eq!(v[0], -1);
             assert_eq!(v[1], 2);
             assert_eq!(v[2], 3);
-            assert_eq!(v[3], 4);
+            assert_eq!(v[3], 496);
         } else {
             assert!(false);
         }
