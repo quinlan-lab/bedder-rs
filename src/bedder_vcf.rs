@@ -1,4 +1,4 @@
-use crate::position::{Field, FieldError, Result, Value};
+use crate::position::{Field, FieldError, Positioned, Result, Value};
 use crate::string::String;
 use noodles::bcf;
 use noodles::core::{Position, Region};
@@ -7,9 +7,9 @@ use noodles::vcf::{self, record::Chromosome};
 use std::fs::File;
 use std::io::{self, BufRead, BufReader};
 use vcf::record::info::field;
+use vcf::record::QualityScore;
 
 pub trait VCFReader {
-    fn read_header(&mut self) -> io::Result<vcf::Header>;
     fn read_record(&mut self, header: &vcf::Header, v: &mut vcf::Record) -> io::Result<usize>;
     // fn queryable
 }
@@ -18,10 +18,6 @@ impl<R> VCFReader for vcf::Reader<R>
 where
     R: BufRead,
 {
-    fn read_header(&mut self) -> io::Result<vcf::Header> {
-        self.read_header()
-    }
-
     #[inline]
     fn read_record(&mut self, header: &vcf::Header, v: &mut vcf::Record) -> io::Result<usize> {
         self.read_record(header, v)
@@ -32,10 +28,6 @@ impl<R> VCFReader for vcf::indexed_reader::IndexedReader<R>
 where
     R: BufRead,
 {
-    fn read_header(&mut self) -> io::Result<vcf::Header> {
-        self.read_header()
-    }
-
     #[inline]
     fn read_record(&mut self, header: &vcf::Header, v: &mut vcf::Record) -> io::Result<usize> {
         self.read_record(header, v)
@@ -46,10 +38,6 @@ impl<R> VCFReader for bcf::Reader<R>
 where
     R: BufRead,
 {
-    fn read_header(&mut self) -> io::Result<vcf::Header> {
-        self.read_header()
-    }
-
     #[inline]
     fn read_record(&mut self, header: &vcf::Header, v: &mut vcf::Record) -> io::Result<usize> {
         self.read_record(header, v)
@@ -73,7 +61,78 @@ impl<'a> BedderVCF<'a> {
     }
 }
 
-impl crate::position::Positioned for vcf::record::Record {
+fn match_info_value(info: &vcf::record::Info, name: &str) -> Result {
+    //let info = record.info();
+    let key: vcf::record::info::field::Key = name
+        .parse()
+        .map_err(|_| FieldError::InvalidFieldName(String::from(name)))?;
+
+    match info.get(&key) {
+        Some(value) => match value {
+            Some(field::Value::Integer(i)) => Ok(Value::Ints(vec![*i as i64])),
+            Some(field::Value::Float(f)) => Ok(Value::Floats(vec![*f as f64])),
+            Some(field::Value::String(s)) => Ok(Value::Strings(vec![s.to_string()])),
+            Some(field::Value::Character(c)) => Ok(Value::Strings(vec![c.to_string()])),
+            //Some(field::Value::Flag) => Ok(Value::Strings(vec![String::from("true")])),
+            Some(field::Value::Array(arr)) => {
+                match arr {
+                    field::value::Array::Integer(arr) => Ok(Value::Ints(
+                        arr.iter().flatten().map(|&v| v as i64).collect(),
+                    )),
+                    field::value::Array::Float(arr) => Ok(Value::Floats(
+                        arr.iter().flatten().map(|&v| v as f64).collect(),
+                    )),
+                    field::value::Array::String(arr) => Ok(Value::Strings(
+                        arr.iter().flatten().map(|v| v.to_string()).collect(),
+                    )),
+                    field::value::Array::Character(arr) => Ok(Value::Strings(
+                        arr.iter().flatten().map(|v| v.to_string()).collect(),
+                    )),
+                    //field::Value::Flag => Ok(Value::Strings(vec![String::from("true")])),
+                }
+            }
+
+            _ => Err(FieldError::InvalidFieldName(String::from(name))),
+        },
+        None => Err(FieldError::InvalidFieldName(String::from(name))),
+    }
+}
+
+fn match_value(record: &vcf::record::Record, f: Field) -> Result {
+    match f {
+        Field::String(s) => match s.as_str() {
+            "chrom" => Ok(Value::Strings(vec![String::from(Positioned::chrom(
+                record,
+            ))])),
+            "start" => Ok(Value::Ints(vec![Positioned::start(record) as i64])),
+            "stop" => Ok(Value::Ints(vec![Positioned::stop(record) as i64])),
+            "ID" => Ok(Value::Strings(
+                record.ids().iter().map(|s| s.to_string()).collect(),
+            )),
+            "FILTER" => Ok(Value::Strings(
+                record.filters().iter().map(|s| s.to_string()).collect(),
+            )),
+            "QUAL" => Ok(Value::Floats(vec![f32::from(
+                record
+                    .quality_score()
+                    .unwrap_or(QualityScore::try_from(0f32).expect("error getting quality score")),
+            ) as f64])),
+            _ => {
+                if s.len() > 5 && &s[0..5] == "INFO." {
+                    match_info_value(record.info(), &s[5..])
+                } else {
+                    // TODO: format
+                    unimplemented!();
+                }
+            }
+            _ => Err(FieldError::InvalidFieldName(s)),
+        },
+
+        Field::Int(i) => Err(FieldError::InvalidFieldIndex(i)),
+    }
+}
+
+impl Positioned for vcf::record::Record {
     #[inline]
     fn chrom(&self) -> &str {
         match self.chromosome() {
@@ -94,63 +153,7 @@ impl crate::position::Positioned for vcf::record::Record {
 
     fn value(&self, f: crate::position::Field) -> Result {
         // TODO: implement this!
-        match f {
-            Field::String(s) => match s.as_str() {
-                "chrom" => Ok(Value::Strings(vec![String::from(self.chrom())])),
-                "start" => Ok(Value::Ints(vec![self.start() as i64])),
-                "stop" => Ok(Value::Ints(vec![self.stop() as i64])),
-                "ID" => Ok(Value::Strings(
-                    self.ids().iter().map(|s| s.to_string()).collect(),
-                )),
-                "FILTER" => Ok(Value::Strings(
-                    self.filters().iter().map(|s| s.to_string()).collect(),
-                )),
-
-                "INFO.DP" => {
-                    let info = self.info();
-                    let key: vcf::record::info::field::Key = "DP"
-                        .parse()
-                        .map_err(|_| FieldError::InvalidFieldName(String::from("INFO.DP")))?;
-
-                    match info.get(&key) {
-                        Some(value) => match value {
-                            Some(field::Value::Integer(i)) => Ok(Value::Ints(vec![*i as i64])),
-                            Some(field::Value::Float(f)) => Ok(Value::Floats(vec![*f as f64])),
-                            Some(field::Value::String(s)) => {
-                                Ok(Value::Strings(vec![s.to_string()]))
-                            }
-                            Some(field::Value::Character(c)) => {
-                                Ok(Value::Strings(vec![c.to_string()]))
-                            }
-                            //Some(field::Value::Flag) => Ok(Value::Strings(vec![String::from("true")])),
-                            Some(field::Value::Array(arr)) => {
-                                match arr {
-                                    field::value::Array::Integer(arr) => Ok(Value::Ints(
-                                        arr.iter().flatten().map(|&v| v as i64).collect(),
-                                    )),
-                                    field::value::Array::Float(arr) => Ok(Value::Floats(
-                                        arr.iter().flatten().map(|&v| v as f64).collect(),
-                                    )),
-                                    field::value::Array::String(arr) => Ok(Value::Strings(
-                                        arr.iter().flatten().map(|v| v.to_string()).collect(),
-                                    )),
-                                    field::value::Array::Character(arr) => Ok(Value::Strings(
-                                        arr.iter().flatten().map(|v| v.to_string()).collect(),
-                                    )),
-                                    //field::Value::Flag => Ok(Value::Strings(vec![String::from("true")])),
-                                }
-                            }
-
-                            _ => Err(FieldError::InvalidFieldName(s)),
-                        },
-                        None => Err(FieldError::InvalidFieldName(s)),
-                    }
-                }
-                _ => Err(FieldError::InvalidFieldName(s)),
-            },
-
-            Field::Int(i) => Err(FieldError::InvalidFieldIndex(i)),
-        }
+        match_value(self, f)
     }
 }
 
@@ -218,4 +221,55 @@ pub fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     }
     */
     Ok(())
+}
+
+// tests
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_match_info() {
+        let key: field::Key = "AAA".parse().expect("error parsing key");
+
+        let info: vcf::record::Info = [(key.clone(), Some(field::Value::Integer(1)))]
+            .into_iter()
+            .collect();
+
+        // write a test to extract the value using match_info_value
+        let value = match_info_value(&info, "AAA").unwrap();
+        assert!(matches!(value, Value::Ints(_)));
+    }
+
+    #[test]
+    fn test_match_info_vector() {
+        let key: field::Key = "AAA".parse().expect("error parsing key");
+
+        let info: vcf::record::Info = [(
+            key.clone(),
+            Some(field::Value::Array(field::value::Array::Integer(vec![
+                Some(1),
+                Some(2),
+                Some(3),
+                None,
+                Some(4),
+            ]))),
+        )]
+        .into_iter()
+        .collect();
+
+        // write a test to extract the value using match_info_value
+        let value = match_info_value(&info, "AAA").unwrap();
+        assert!(matches!(value, Value::Ints(_)));
+
+        if let Value::Ints(v) = value {
+            assert_eq!(v.len(), 4);
+            assert_eq!(v[0], 1);
+            assert_eq!(v[1], 2);
+            assert_eq!(v[2], 3);
+            assert_eq!(v[3], 4);
+        } else {
+            assert!(false);
+        }
+    }
 }

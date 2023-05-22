@@ -2,6 +2,7 @@ use crate::string::String;
 use core::fmt;
 use std::io;
 
+#[derive(Debug)]
 pub enum Value {
     Ints(Vec<i64>),
     Floats(Vec<f64>),
