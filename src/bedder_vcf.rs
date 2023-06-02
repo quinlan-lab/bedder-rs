@@ -84,7 +84,7 @@ fn match_info_value(info: &vcf::record::Info, name: &str) -> Result {
                         arr.iter().flatten().map(|&v| v as f64).collect(),
                     )),
                     field::value::Array::String(arr) => Ok(Value::Strings(
-                        arr.iter().flatten().map(|v| String::from(v)).collect(),
+                        arr.iter().flatten().map(String::from).collect(),
                     )),
                     field::value::Array::Character(arr) => Ok(Value::Strings(
                         arr.iter().flatten().map(|v| v.to_string().into()).collect(),

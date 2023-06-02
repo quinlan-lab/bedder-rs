@@ -1,3 +1,11 @@
+<!--- 
+# build
+target=x86_64-unknown-linux-gnu
+export RUSTFLAGS="-C target-feature=-crt-static -C relocation-model=pie"
+cargo test --release --target $target \
+&& cargo build --release --target $target
+--->
+
 [![status](https://github.com/brentp/bedder-rs/actions/workflows/rust.yml/badge.svg)](https://github.com/brentp/bedder-rs/actions/)
 
 # bedder (tools)
