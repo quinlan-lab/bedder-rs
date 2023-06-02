@@ -6,6 +6,12 @@ This library aims to provide:
 
 - [x] an abstraction so any interval types from sorted sources can be intersected together
 - [x] the rust implementation of the heap and Queue to find intersections with minimal overhead
+- [ ] bedder wrappers for:
+  + [x] bed
+  + [x] vcf/bcf
+  + [ ] sam/bam/cram
+  + [ ] gff/gtf
+  + [ ] generalized tabixed/csi files
 - [ ] downstream APIs to perform operations on the intersections
 - [ ] a python library to interact with the intersections
 
