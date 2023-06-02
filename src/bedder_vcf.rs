@@ -1,7 +1,6 @@
 use crate::position::{Field, FieldError, Positioned, Result, Value};
 use crate::string::String;
 use noodles::bcf;
-use noodles::core::{Position, Region};
 use noodles::csi;
 use noodles::vcf::{self, record::Chromosome};
 use std::fs::File;
@@ -54,7 +53,7 @@ impl<'a> BedderVCF<'a> {
     pub fn new(r: Box<dyn VCFReader + 'a>, header: vcf::Header) -> io::Result<BedderVCF<'a>> {
         let v = BedderVCF {
             reader: r,
-            header: header,
+            header,
             record_number: 0,
         };
         Ok(v)
@@ -131,7 +130,6 @@ fn match_value(record: &vcf::record::Record, f: Field) -> Result {
                     unimplemented!();
                 }
             }
-            _ => Err(FieldError::InvalidFieldName(s)),
         },
 
         Field::Int(i) => Err(FieldError::InvalidFieldIndex(i)),
@@ -209,7 +207,7 @@ pub fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 
     let header = reader.read_header()?;
     let b = Box::new(reader);
-    let br = BedderVCF::new(b, header.clone())?;
+    let _br = BedderVCF::new(b, header.clone())?;
 
     /*
     // Define the region to query
@@ -238,7 +236,7 @@ mod tests {
     fn test_match_info() {
         let key: field::Key = "AAA".parse().expect("error parsing key");
 
-        let info: vcf::record::Info = [(key.clone(), Some(field::Value::Integer(1)))]
+        let info: vcf::record::Info = [(key, Some(field::Value::Integer(1)))]
             .into_iter()
             .collect();
 
@@ -252,7 +250,7 @@ mod tests {
         let key: field::Key = "AAA".parse().expect("error parsing key");
 
         let info: vcf::record::Info = [(
-            key.clone(),
+            key,
             Some(field::Value::Array(field::value::Array::Integer(vec![
                 Some(-1),
                 Some(2),
@@ -275,7 +273,7 @@ mod tests {
             assert_eq!(v[2], 3);
             assert_eq!(v[3], 496);
         } else {
-            assert!(false);
+            panic!("error getting value");
         }
     }
 }

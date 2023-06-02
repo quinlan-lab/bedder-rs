@@ -2,6 +2,8 @@ use crate::string::String;
 use core::fmt;
 use std::io;
 
+/// A Value is a vector of integers, floats, or strings.
+/// Often this will be a single value.
 #[derive(Debug)]
 pub enum Value {
     Ints(Vec<i64>),
@@ -9,6 +11,9 @@ pub enum Value {
     Strings(Vec<String>),
 }
 
+/// Field is either an integer, as in a bed column
+/// or a string, as in a vcf info field.
+#[derive(Debug)]
 pub enum Field {
     String(String),
     Int(usize),
@@ -34,6 +39,7 @@ impl std::error::Error for FieldError {}
 pub type Result = std::result::Result<Value, FieldError>;
 
 /// A Positioned has a position in the genome. It is a bed-like (half-open) interval.
+/// It also has a means to extract values from integer or string columns.
 pub trait Positioned {
     fn chrom(&self) -> &str;
     /// 0-based start position.
@@ -56,6 +62,7 @@ impl PartialEq for dyn Positioned {
     }
 }
 
+/// PositionedIterator is an iterator over Positioned objects.
 pub trait PositionedIterator {
     type Item: Positioned;
 

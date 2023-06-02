@@ -8,6 +8,7 @@ use std::rc::Rc;
 
 use crate::position::{Positioned, PositionedIterator};
 
+/// An iterator that returns the intersection of multiple iterators.
 pub struct IntersectionIterator<'a, I: PositionedIterator, P: Positioned> {
     base_iterator: I,
     other_iterators: Vec<I>,
@@ -30,6 +31,8 @@ pub struct IntersectionIterator<'a, I: PositionedIterator, P: Positioned> {
     heap_initialized: bool,
 }
 
+/// An Intersection wraps the Positioned that was intersected with a unique identifier.
+/// The u32 identifier matches the index of the database that was intersected.
 #[derive(Debug)]
 pub struct Intersection<P: Positioned> {
     /// the Positioned that was intersected
@@ -38,6 +41,7 @@ pub struct Intersection<P: Positioned> {
     pub id: u32,
 }
 
+/// An Intersections wraps the base interval and a vector of overlapping intervals.
 #[derive(Debug)]
 pub struct Intersections<P: Positioned> {
     pub base_interval: Rc<P>,
@@ -110,6 +114,7 @@ fn region_str<P: Positioned>(p: &P) -> std::string::String {
     format!("{}:{}-{}", p.chrom(), p.start() + 1, p.stop())
 }
 
+/// An iterator that returns the intersection of multiple iterators for each query interval
 impl<'a, I: PositionedIterator<Item = P>, P: Positioned> Iterator
     for IntersectionIterator<'a, I, P>
 {
@@ -178,6 +183,7 @@ impl<'a, I: PositionedIterator<Item = P>, P: Positioned> Iterator
     }
 }
 
+/// Create a new IntersectionIterator given a query (base) and a vector of other positioned iterators.
 impl<'a, I: PositionedIterator<Item = P>, P: Positioned> IntersectionIterator<'a, I, P> {
     pub fn new(
         base_iterator: I,
@@ -516,10 +522,10 @@ mod tests {
                 },
             ],
         );
-        let iter =
+        let mut iter =
             IntersectionIterator::new(a_ivs, vec![], &chrom_order).expect("error getting iterator");
 
-        let e = iter.skip(1).next().expect("error getting next");
+        let e = iter.nth(1).expect("error getting next");
         assert!(e.is_err());
         let e = e.err().unwrap();
         assert!(e.to_string().contains("out of order"));

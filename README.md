@@ -1,6 +1,6 @@
-[![status](https://github.com/brentp/resort-rs/actions/workflows/rust.yml/badge.svg)](https://github.com/brentp/resort-rs/actions/)
+[![status](https://github.com/brentp/bedder-rs/actions/workflows/rust.yml/badge.svg)](https://github.com/brentp/bedder-rs/actions/)
 
-# heapiv
+# bedder (tools)
 
 This library aims to provide:
 
@@ -79,3 +79,8 @@ a new struct is pulled from the file where that interval originated. Then the pu
 We then know the dequeue is in order. For each query interval, we drop from the dequeue any interval that is strictly _before_ the interval,
 then pull into the Intersection result any interval that is not _after_ the interval. Then return the result from the `next` call.
 We use `Rc` because each database interval may be attached to more than one query interval.
+
+# Acknowledgements
+
+- We received very valuable `rust` feedback from @sstadick.
+- We leverage the excellent [noodles](https://github.com/zaeleus/noodles) library.
