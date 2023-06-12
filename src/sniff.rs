@@ -3,6 +3,7 @@ use std::io::{BufRead, Read};
 use std::path::Path;
 use std::path::PathBuf;
 
+/// File formats supported by this file detector.
 #[derive(Debug, PartialEq)]
 pub enum FileFormat {
     VCF,
@@ -15,6 +16,7 @@ pub enum FileFormat {
     Unknown,
 }
 
+/// Possible Compression formats.
 #[derive(Debug, PartialEq)]
 pub enum Compression {
     None,
@@ -23,7 +25,8 @@ pub enum Compression {
     RAZF,
 }
 
-pub(crate) fn detect_file_format<R: BufRead, S: AsRef<Path>>(
+/// detect the file format of a reader.
+pub fn detect_file_format<R: BufRead, S: AsRef<Path>>(
     reader: &mut R,
     path: S,
 ) -> std::io::Result<(FileFormat, Compression)> {
@@ -61,7 +64,6 @@ pub(crate) fn detect_file_format<R: BufRead, S: AsRef<Path>>(
             buf,
         )
     };
-    eprintln!("dec_buf: {:?}", &dec_buf[0..3]);
 
     let format = if &dec_buf[0..4] == b"BAM\x01" {
         FileFormat::BAM
