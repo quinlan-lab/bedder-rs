@@ -61,6 +61,7 @@ pub(crate) fn detect_file_format<R: BufRead, S: AsRef<Path>>(
             buf,
         )
     };
+    eprintln!("dec_buf: {:?}", &dec_buf[0..3]);
 
     let format = if &dec_buf[0..4] == b"BAM\x01" {
         FileFormat::BAM
@@ -70,11 +71,11 @@ pub(crate) fn detect_file_format<R: BufRead, S: AsRef<Path>>(
         FileFormat::VCF
     } else if &dec_buf[0..4] == b"CRAM" {
         FileFormat::CRAM
-    } else if &dec_buf[0..3] == b"@HD\t"
-        || &dec_buf[0..3] == b"@SQ\t"
-        || &dec_buf[0..3] == b"@RG\t"
-        || &dec_buf[0..3] == b"@PG\t"
-        || &dec_buf[0..3] == b"@CO\t"
+    } else if &dec_buf[0..4] == b"@HD\t"
+        || &dec_buf[0..4] == b"@SQ\t"
+        || &dec_buf[0..4] == b"@RG\t"
+        || &dec_buf[0..4] == b"@PG\t"
+        || &dec_buf[0..4] == b"@CO\t"
     {
         FileFormat::SAM
     } else {
@@ -107,9 +108,10 @@ mod tests {
 
     use super::*;
     use noodles::bam;
+    use noodles::sam;
 
     #[test]
-    fn test_detect_format() {
+    fn test_detect_format_bam() {
         let file_path = "tests/test.bam";
         let mut fs = std::fs::File::open(file_path).unwrap();
         let mut rdr = std::io::BufReader::new(&mut fs);
@@ -118,6 +120,23 @@ mod tests {
         assert_eq!(format, FileFormat::BAM);
 
         let mut b = bam::reader::Reader::new(&mut rdr);
+        let h = b.read_header().expect("eror reading header");
+        for r in b.records(&h) {
+            let r = r.expect("error reading record");
+            eprintln!("{:?}", r);
+        }
+    }
+
+    #[test]
+    fn test_detect_format_sam() {
+        let file_path = "tests/test.sam";
+        let mut fs = std::fs::File::open(file_path).unwrap();
+        let mut rdr = std::io::BufReader::new(&mut fs);
+        let (format, compression) = detect_file_format(&mut rdr, file_path).unwrap();
+        assert_eq!(compression, Compression::None);
+        assert_eq!(format, FileFormat::SAM);
+
+        let mut b = sam::reader::Reader::new(&mut rdr);
         let h = b.read_header().expect("eror reading header");
         for r in b.records(&h) {
             let r = r.expect("error reading record");
