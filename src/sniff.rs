@@ -41,10 +41,25 @@ pub(crate) fn detect_file_format<R: BufRead, S: AsRef<Path>>(
         };
 
         let mut gz = GzDecoder::new(buf);
-        gz.read_exact(&mut dec_buf)?;
+        // it's ok if we have an unexepected EOF here
+        match gz.read_exact(&mut dec_buf) {
+            Ok(_) => {}
+            Err(e) => {
+                if e.kind() != std::io::ErrorKind::UnexpectedEof {
+                    return Err(e);
+                }
+            }
+        }
         (c, dec_buf.as_slice())
     } else {
-        (Compression::None, buf)
+        (
+            if is_gzipped {
+                Compression::GZ
+            } else {
+                Compression::None
+            },
+            buf,
+        )
     };
 
     let format = if &dec_buf[0..4] == b"BAM\x01" {
@@ -75,7 +90,6 @@ pub(crate) fn detect_file_format<R: BufRead, S: AsRef<Path>>(
                     if c.exists() {
                         return Ok((FileFormat::CSI, compression));
                     }
-
                 }
                 FileFormat::CSI
             } else {
@@ -85,4 +99,29 @@ pub(crate) fn detect_file_format<R: BufRead, S: AsRef<Path>>(
     };
 
     Ok((format, compression))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+
+    use super::*;
+    use noodles::bam;
+
+    #[test]
+    fn test_detect_format() {
+        let file_path = "tests/test.bam";
+        let mut fs = std::fs::File::open(file_path).unwrap();
+        let mut rdr = std::io::BufReader::new(&mut fs);
+        let (format, compression) = detect_file_format(&mut rdr, file_path).unwrap();
+        assert_eq!(compression, Compression::BGZF);
+        assert_eq!(format, FileFormat::BAM);
+
+        let mut b = bam::reader::Reader::new(&mut rdr);
+        let h = b.read_header().expect("eror reading header");
+        for r in b.records(&h) {
+            let r = r.expect("error reading record");
+            eprintln!("{:?}", r);
+        }
+    }
 }

@@ -9,6 +9,8 @@ pub mod position;
 /// a std::String::String unless other string features are enabled.
 pub mod string;
 
+pub mod sniff;
+
 #[cfg(feature = "bed")]
 /// Bed parser implementing the PositionedIterator trait.
 pub mod bedder_bed;

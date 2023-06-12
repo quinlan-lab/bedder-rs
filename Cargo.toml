@@ -12,13 +12,14 @@ smol_str = {version = "0.2.0", optional = true }
 compact_str = {version = "0.7.0", optional = true }
 kstring = {version = "2.0.0", optional = true }
 noodles = {version = "0.39.0"}
+flate2 = "1.0.26"
 
 [features]
-default = ["bed", "vcf", "bcf", "csi", "core"]
+default = ["bed", "vcf", "bcf", "csi", "core", "bam", "sam"]
 bed = ["noodles/bed"]
-#bam = ["noodles/bam"]
+bam = ["noodles/bam"]
 #cram = ["noodles/cram"]
-#sam = ["noodles/sam"]
+sam = ["noodles/sam"]
 vcf = ["noodles/vcf"]
 csi = ["noodles/csi"]
 core = ["noodles/core"]
