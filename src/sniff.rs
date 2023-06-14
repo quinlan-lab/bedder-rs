@@ -33,19 +33,21 @@ pub enum Compression {
 
 pub fn open_file(
     path: &Path,
+    //) -> std::io::Result<Box<dyn PositionedIterator<Item = dyn Positioned>>> {
 ) -> std::io::Result<Box<dyn PositionedIterator<Item = dyn Positioned>>> {
     let file = std::fs::File::open(path)?;
     let mut reader = std::io::BufReader::new(file);
     let (format, compression) = detect_file_format(&mut reader, path)?;
     match format {
         FileFormat::VCF => {
-            let vcf = vcf::reader::Builder::default()
+            let br = Box::new(reader);
+            let mut vcf = vcf::reader::Builder::default()
                 //.set_index(index)
-                .build_from_reader(reader)?;
+                .build_from_reader(br)?;
             let hdr = vcf.read_header()?;
-            let bvcf: dyn PositionedIterator<Item = dyn Positioned> =
-                BedderVCF::new(Box::new(vcf), hdr)?;
-            Ok(Box::new(bvcf))
+            let bed_vcf = BedderVCF::new(Box::new(vcf), hdr)?;
+            let brr = Box::new(bed_vcf);
+            Ok(brr)
         }
         /*
         FileFormat::BED => {
@@ -117,19 +119,7 @@ pub fn detect_file_format<R: BufRead, S: AsRef<Path>>(
         if p.ends_with(".bed") || p.ends_with(".bed.gz") || p.ends_with(".bed.bgz") {
             FileFormat::BED
         } else {
-            if compression == Compression::BGZF {
-                for ext in ["csi", "tbi"] {
-                    let mut c: PathBuf = p.to_path_buf();
-                    c.push(".");
-                    c.push(ext);
-                    if c.exists() {
-                        return Ok((FileFormat::CSI, compression));
-                    }
-                }
-                FileFormat::CSI
-            } else {
-                FileFormat::Unknown
-            }
+            FileFormat::Unknown
         }
     };
 

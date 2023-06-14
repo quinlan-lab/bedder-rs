@@ -1,3 +1,4 @@
+use crate::intersection::IntersectionIterator;
 use crate::position::{Field, FieldError, Positioned, Result, Value};
 use crate::string::String;
 use noodles::bcf;
@@ -185,6 +186,7 @@ impl<'a> crate::position::PositionedIterator for BedderVCF<'a> {
 }
 
 pub fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
+    use std::collections::HashMap;
     let vcf_path = "sample.vcf.gz";
     let index_path = "sample.vcf.gz.csi";
 
@@ -208,6 +210,19 @@ pub fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let header = reader.read_header()?;
     let b = Box::new(reader);
     let _br = BedderVCF::new(b, header.clone())?;
+    let chrom_order = header
+        .contigs()
+        .iter()
+        .enumerate()
+        .map(|(i, c)| (c.0.to_string(), i))
+        .collect::<HashMap<std::string::String, usize>>();
+
+    let it = IntersectionIterator::new(_br, vec![], &chrom_order).unwrap();
+
+    for r in it {
+        let r = r.unwrap();
+        println!("{:?}", r.overlapping);
+    }
 
     /*
     // Define the region to query
