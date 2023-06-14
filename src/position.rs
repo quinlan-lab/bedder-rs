@@ -19,7 +19,6 @@ pub enum Field {
     Int(usize),
 }
 
-
 /// Error returned when a field is not found.
 #[derive(Debug)]
 pub enum FieldError {

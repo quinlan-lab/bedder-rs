@@ -3,6 +3,12 @@ use std::io::{BufRead, Read};
 use std::path::Path;
 use std::path::PathBuf;
 
+use crate::bedder_bed::BedderBed;
+use crate::bedder_vcf::BedderVCF;
+use crate::position::{Positioned, PositionedIterator};
+use noodles::bcf;
+use noodles::vcf;
+
 /// File formats supported by this file detector.
 #[derive(Debug, PartialEq)]
 pub enum FileFormat {
@@ -23,6 +29,32 @@ pub enum Compression {
     GZ,
     BGZF,
     RAZF,
+}
+
+pub fn open_file(
+    path: &Path,
+) -> std::io::Result<Box<dyn PositionedIterator<Item = dyn Positioned>>> {
+    let file = std::fs::File::open(path)?;
+    let mut reader = std::io::BufReader::new(file);
+    let (format, compression) = detect_file_format(&mut reader, path)?;
+    match format {
+        FileFormat::VCF => {
+            let vcf = vcf::reader::Builder::default()
+                //.set_index(index)
+                .build_from_reader(reader)?;
+            let hdr = vcf.read_header()?;
+            let bvcf: dyn PositionedIterator<Item = dyn Positioned> =
+                BedderVCF::new(Box::new(vcf), hdr)?;
+            Ok(Box::new(bvcf))
+        }
+        /*
+        FileFormat::BED => {
+            let reader = BedderBed::new(reader);
+            Ok(Box::new(reader))
+        },
+        */
+        _ => unimplemented!(),
+    }
 }
 
 /// detect the file format of a reader.
