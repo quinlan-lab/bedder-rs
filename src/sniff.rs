@@ -31,6 +31,14 @@ pub enum Compression {
     RAZF,
 }
 
+fn tt<R>(a: BedderVCF, b: BedderBed<R>, c: std::collections::HashMap<String, usize>)
+where
+    R: BufRead,
+{
+    use crate::intersection::IntersectionIterator;
+    let x = IntersectionIterator::new(a, vec![b], &c);
+}
+
 pub fn open_file(
     path: &Path,
     //) -> std::io::Result<Box<dyn PositionedIterator<Item = dyn Positioned>>> {
@@ -46,7 +54,13 @@ pub fn open_file(
                 .build_from_reader(br)?;
             let hdr = vcf.read_header()?;
             let bed_vcf = BedderVCF::new(Box::new(vcf), hdr)?;
-            let brr = Box::new(bed_vcf);
+            let chrom_order = hdr
+                .contigs()
+                .iter()
+                .enumerate()
+                .map(|(i, c)| (c.0.to_string(), i));
+            let x = crate::intersection::IntersectionIterator::new(bed_vcf, vec![], &chrom_order)?;
+
             Ok(brr)
         }
         /*
