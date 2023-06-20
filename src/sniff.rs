@@ -31,18 +31,18 @@ pub enum Compression {
     RAZF,
 }
 
-fn tt<R>(a: BedderVCF, b: BedderBed<R>, c: std::collections::HashMap<String, usize>)
+fn tt<R>(a: BedderVCF<'static>, b: BedderBed<R>, c: std::collections::HashMap<String, usize>)
 where
-    R: BufRead,
+    R: BufRead + 'static,
 {
     use crate::intersection::IntersectionIterator;
-    let x = IntersectionIterator::new(a, vec![b], &c);
+    let x = IntersectionIterator::new(Box::new(a), vec![Box::new(b)], &c);
 }
 
 pub fn open_file(
     path: &Path,
     //) -> std::io::Result<Box<dyn PositionedIterator<Item = dyn Positioned>>> {
-) -> std::io::Result<Box<dyn PositionedIterator<Item = dyn Positioned>>> {
+) -> std::io::Result<Box<dyn PositionedIterator<Item = Box<dyn Positioned>>>> {
     let file = std::fs::File::open(path)?;
     let mut reader = std::io::BufReader::new(file);
     let (format, compression) = detect_file_format(&mut reader, path)?;
@@ -54,14 +54,19 @@ pub fn open_file(
                 .build_from_reader(br)?;
             let hdr = vcf.read_header()?;
             let bed_vcf = BedderVCF::new(Box::new(vcf), hdr)?;
-            let chrom_order = hdr
-                .contigs()
-                .iter()
-                .enumerate()
-                .map(|(i, c)| (c.0.to_string(), i));
-            let x = crate::intersection::IntersectionIterator::new(bed_vcf, vec![], &chrom_order)?;
+            // let chrom_order = hdr
+            //     .contigs()
+            //     .iter()
+            //     .enumerate()
+            //     .map(|(i, c)| (c.0.to_string(), i))
+            //     .collect();
+            // let x = crate::intersection::IntersectionIterator::new(
+            //     Box::new(bed_vcf),
+            //     vec![],
+            //     &chrom_order,
+            // )?;
 
-            Ok(brr)
+            Ok(Box::new(bed_vcf))
         }
         /*
         FileFormat::BED => {
