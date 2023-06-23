@@ -1,13 +1,10 @@
 use flate2::read::GzDecoder;
 use std::io::{BufRead, Read};
 use std::path::Path;
-use std::path::PathBuf;
 
 use crate::bedder_bed::BedderBed;
 use crate::bedder_vcf::BedderVCF;
 use crate::position::{Positioned, PositionedIterator};
-use crate::string::String;
-use noodles::bcf;
 use noodles::bgzf;
 use noodles::vcf;
 
@@ -33,13 +30,27 @@ pub enum Compression {
     RAZF,
 }
 
-pub fn open_file(
-    path: &Path,
-) -> std::io::Result<Box<dyn PositionedIterator<Item = Box<dyn Positioned>>>> {
-    let file = std::fs::File::open(path)?;
-    let mut reader = std::io::BufReader::new(file);
+pub fn open_file<P>(
+    path: P,
+) -> std::io::Result<Box<dyn PositionedIterator<Item = Box<dyn Positioned>>>>
+where
+    P: AsRef<Path>,
+{
+    let file = std::fs::File::open(&path)?;
+    let r = open_reader(file, path);
+    r
+}
+
+pub fn open_reader<R, P>(
+    reader: R,
+    path: P,
+) -> std::io::Result<Box<dyn PositionedIterator<Item = Box<dyn Positioned>>>>
+where
+    R: Read + 'static,
+    P: AsRef<Path>,
+{
+    let mut reader = std::io::BufReader::new(reader);
     let (format, compression) = detect_file_format(&mut reader, path)?;
-    // TODO: useful to get header
     match format {
         FileFormat::VCF => {
             let br = Box::new(reader);
@@ -65,9 +76,9 @@ pub fn open_file(
 }
 
 /// detect the file format of a reader.
-pub fn detect_file_format<R: BufRead, S: AsRef<Path>>(
+pub fn detect_file_format<R: BufRead, P: AsRef<Path>>(
     reader: &mut R,
-    path: S,
+    path: P,
 ) -> std::io::Result<(FileFormat, Compression)> {
     let buf = reader.fill_buf()?;
     let mut dec_buf = vec![0; buf.len()];
@@ -133,7 +144,6 @@ pub fn detect_file_format<R: BufRead, S: AsRef<Path>>(
 
 #[cfg(test)]
 mod tests {
-    use std::fs;
 
     use super::*;
     use noodles::bam;
