@@ -9,19 +9,19 @@ use std::rc::Rc;
 use crate::position::{Positioned, PositionedIterator};
 
 /// An iterator that returns the intersection of multiple iterators.
-pub struct IntersectionIterator<'a, I: PositionedIterator, P: Positioned> {
-    base_iterator: I,
-    other_iterators: Vec<I>,
-    min_heap: BinaryHeap<ReverseOrderPosition<'a, P>>,
+pub struct IntersectionIterator<'a> {
+    base_iterator: Box<dyn PositionedIterator<Item = Box<dyn Positioned>>>,
+    other_iterators: Vec<Box<dyn PositionedIterator<Item = Box<dyn Positioned>>>>,
+    min_heap: BinaryHeap<ReverseOrderPosition<'a, Box<dyn Positioned>>>,
     chromosome_order: &'a HashMap<String, usize>,
     // because multiple intervals from each stream can overlap a single base interval
     // and each interval from others may overlap many base intervals, we must keep a cache (Q)
     // we always add intervals in order with push_back and therefore remove with pop_front.
     // As soon as the front interval in cache is stricly less than the query interval, then we can pop it.
-    dequeue: VecDeque<Intersection<P>>,
+    dequeue: VecDeque<Intersection<Box<dyn Positioned>>>,
 
     // this is only kept for error checking so we can track if intervals are out of order.
-    previous_interval: Option<Rc<P>>,
+    previous_interval: Option<Rc<Box<dyn Positioned>>>,
 
     // this tracks which iterators have been called with Some(Positioned) for a given interval
     // so that calls after the first are called with None.
@@ -115,10 +115,8 @@ fn region_str<P: Positioned>(p: &P) -> std::string::String {
 }
 
 /// An iterator that returns the intersection of multiple iterators for each query interval
-impl<'a, I: PositionedIterator<Item = P>, P: Positioned> Iterator
-    for IntersectionIterator<'a, I, P>
-{
-    type Item = io::Result<Intersections<P>>;
+impl<'a> Iterator for IntersectionIterator<'a> {
+    type Item = io::Result<Intersections<Box<dyn Positioned>>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let bi = self.base_iterator.next_position(None)?;
@@ -184,10 +182,10 @@ impl<'a, I: PositionedIterator<Item = P>, P: Positioned> Iterator
 }
 
 /// Create a new IntersectionIterator given a query (base) and a vector of other positioned iterators.
-impl<'a, I: PositionedIterator<Item = P>, P: Positioned> IntersectionIterator<'a, I, P> {
+impl<'a> IntersectionIterator<'a> {
     pub fn new(
-        base_iterator: I,
-        other_iterators: Vec<I>,
+        base_iterator: Box<dyn PositionedIterator<Item = Box<dyn Positioned>>>,
+        other_iterators: Vec<Box<dyn PositionedIterator<Item = Box<dyn Positioned>>>>,
         chromosome_order: &'a HashMap<String, usize>,
     ) -> io::Result<Self> {
         let min_heap = BinaryHeap::new();
@@ -204,7 +202,8 @@ impl<'a, I: PositionedIterator<Item = P>, P: Positioned> IntersectionIterator<'a
         })
     }
 
-    fn init_heap(&mut self, base_interval: Rc<P>) -> io::Result<()> {
+    // TODO: this may not have to be Rc anymore?
+    fn init_heap(&mut self, base_interval: Rc<Box<dyn Positioned>>) -> io::Result<()> {
         assert!(!self.heap_initialized);
         for (i, iter) in self.other_iterators.iter_mut().enumerate() {
             if let Some(positioned) = iter.next_position(Some(base_interval.as_ref())) {
@@ -221,7 +220,7 @@ impl<'a, I: PositionedIterator<Item = P>, P: Positioned> IntersectionIterator<'a
     }
 
     /// drop intervals from Q that are strictly before the base interval.
-    fn pop_front(&mut self, base_interval: Rc<P>) {
+    fn pop_front(&mut self, base_interval: Rc<Box<dyn Positioned>>) {
         while !self.dequeue.is_empty()
             && Ordering::Less
                 == cmp(
@@ -234,7 +233,7 @@ impl<'a, I: PositionedIterator<Item = P>, P: Positioned> IntersectionIterator<'a
         }
     }
 
-    fn out_of_order(&self, interval: Rc<P>) -> bool {
+    fn out_of_order(&self, interval: Rc<Box<dyn Positioned>>) -> bool {
         return match &self.previous_interval {
             None => false, // first interval in file.
             Some(previous_interval) => {
@@ -255,7 +254,7 @@ impl<'a, I: PositionedIterator<Item = P>, P: Positioned> IntersectionIterator<'a
         unsafe { ptr.write_bytes(0, self.called.len()) };
     }
 
-    fn pull_through_heap(&mut self, base_interval: Rc<P>) -> io::Result<()> {
+    fn pull_through_heap(&mut self, base_interval: Rc<Box<dyn Positioned>>) -> io::Result<()> {
         self.zero_called();
         if !self.heap_initialized {
             // we wait til first iteration here to call init heap
@@ -382,17 +381,17 @@ mod tests {
     }
 
     impl PositionedIterator for Intervals {
-        type Item = Interval;
+        type Item = Box<dyn Positioned>;
 
         fn name(&self) -> String {
             String::from(format!("{}:{}", self.name, self.i))
         }
 
-        fn next_position(&mut self, _o: Option<&dyn Positioned>) -> Option<io::Result<Interval>> {
+        fn next_position(&mut self, _o: Option<&dyn Positioned>) -> Option<io::Result<Self::Item>> {
             if self.i >= self.ivs.len() {
                 return None;
             }
-            Some(Ok(self.ivs.remove(0)))
+            Some(Ok(Box::new(self.ivs.remove(0))))
         }
     }
 
@@ -429,8 +428,9 @@ mod tests {
         ivs.sort_by(|a, b| a.start.cmp(&b.start));
 
         let b_ivs = Intervals::new(String::from("B"), ivs.clone());
-        let mut iter = IntersectionIterator::new(a_ivs, vec![b_ivs], &chrom_order)
-            .expect("error getting iterator");
+        let mut iter =
+            IntersectionIterator::new(Box::new(a_ivs), vec![Box::new(b_ivs)], &chrom_order)
+                .expect("error getting iterator");
         let mut n = 0;
         assert!(iter.all(|intersection| {
             let intersection = intersection.expect("error getting intersection");
@@ -492,7 +492,7 @@ mod tests {
             ],
         );
 
-        let iter = IntersectionIterator::new(a_ivs, vec![b_ivs], &chrom_order)
+        let iter = IntersectionIterator::new(Box::new(a_ivs), vec![Box::new(b_ivs)], &chrom_order)
             .expect("error getting iterator");
         iter.for_each(|intersection| {
             let intersection = intersection.expect("intersection");
@@ -522,8 +522,8 @@ mod tests {
                 },
             ],
         );
-        let mut iter =
-            IntersectionIterator::new(a_ivs, vec![], &chrom_order).expect("error getting iterator");
+        let mut iter = IntersectionIterator::new(Box::new(a_ivs), vec![], &chrom_order)
+            .expect("error getting iterator");
 
         let e = iter.nth(1).expect("error getting next");
         assert!(e.is_err());
@@ -563,8 +563,9 @@ mod tests {
             ],
         );
 
-        let mut iter = IntersectionIterator::new(a_ivs, vec![b_ivs], &chrom_order)
-            .expect("error getting iterator");
+        let mut iter =
+            IntersectionIterator::new(Box::new(a_ivs), vec![Box::new(b_ivs)], &chrom_order)
+                .expect("error getting iterator");
         let e = iter.next().expect("error getting next");
         assert!(e.is_err());
         let e = e.err().unwrap();
@@ -598,8 +599,12 @@ mod tests {
                 stop: 1,
             }],
         );
-        let iter = IntersectionIterator::new(a_ivs, vec![b_ivs, c_ivs], &chrom_order)
-            .expect("error getting iterator");
+        let iter = IntersectionIterator::new(
+            Box::new(a_ivs),
+            vec![Box::new(b_ivs), Box::new(c_ivs)],
+            &chrom_order,
+        )
+        .expect("error getting iterator");
         let c = iter
             .map(|intersection| {
                 let intersection = intersection.expect("error getting intersection");
@@ -636,7 +641,7 @@ mod tests {
                 stop: 1,
             }],
         );
-        let iter = IntersectionIterator::new(a_ivs, vec![b_ivs], &chrom_order)
+        let iter = IntersectionIterator::new(Box::new(a_ivs), vec![Box::new(b_ivs)], &chrom_order)
             .expect("error getting iterator");
         // check that it overlapped by asserting that the loop ran and also that there was an overlap within the loop.
         let c = iter

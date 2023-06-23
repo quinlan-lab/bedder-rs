@@ -68,7 +68,8 @@ impl<R> crate::position::PositionedIterator for BedderBed<R>
 where
     R: BufRead,
 {
-    type Item = bed::record::Record<3>;
+    // type Item = bed::record::Record<3>;
+    type Item = Box<dyn Positioned>;
 
     fn next_position(
         &mut self,
@@ -111,7 +112,7 @@ where
                         }
                     }
 
-                    Some(Ok(record))
+                    Some(Ok(Box::new(record)))
                 }
                 Err(e) => Some(Err(e)),
             };
@@ -138,8 +139,8 @@ mod tests {
 
         let chrom_order = HashMap::from([(String::from("chr1"), 0), (String::from("chr2"), 1)]);
 
-        let it =
-            IntersectionIterator::new(ar, vec![br], &chrom_order).expect("error creating iterator");
+        let it = IntersectionIterator::new(Box::new(ar), vec![Box::new(br)], &chrom_order)
+            .expect("error creating iterator");
 
         let mut n = 0;
         it.for_each(|int| {

@@ -163,7 +163,7 @@ impl Positioned for vcf::record::Record {
 }
 
 impl<'a> crate::position::PositionedIterator for BedderVCF<'a> {
-    type Item = vcf::Record;
+    type Item = Box<dyn Positioned>;
 
     fn next_position(
         &mut self,
@@ -175,7 +175,7 @@ impl<'a> crate::position::PositionedIterator for BedderVCF<'a> {
             Ok(0) => None, // EOF
             Ok(_) => {
                 self.record_number += 1;
-                Some(Ok(v))
+                Some(Ok(Box::new(v)))
             }
             Err(e) => Some(Err(e)),
         }
@@ -217,7 +217,7 @@ pub fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         .map(|(i, c)| (c.0.to_string(), i))
         .collect::<HashMap<std::string::String, usize>>();
 
-    let it = IntersectionIterator::new(_br, vec![], &chrom_order).unwrap();
+    let it = IntersectionIterator::new(Box::new(_br), vec![], &chrom_order).unwrap();
 
     for r in it {
         let r = r.unwrap();

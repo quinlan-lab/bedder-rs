@@ -1,5 +1,5 @@
 use crate::string::String;
-use core::fmt;
+use std::fmt::{self, Debug};
 use std::io;
 
 /// A Value is a vector of integers, floats, or strings.
@@ -41,7 +41,7 @@ pub type Result = std::result::Result<Value, FieldError>;
 
 /// A Positioned has a position in the genome. It is a bed-like (half-open) interval.
 /// It also has a means to extract values from integer or string columns.
-pub trait Positioned {
+pub trait Positioned: Debug {
     fn chrom(&self) -> &str;
     /// 0-based start position.
     fn start(&self) -> u64;
@@ -53,6 +53,25 @@ pub trait Positioned {
 
     // get back the original line?
     //fn line(&self) -> &'a str;
+}
+
+// Delegate the boxed version of this trait object to the inner object.
+impl<T: Positioned + ?Sized> Positioned for Box<T> {
+    fn chrom(&self) -> &str {
+        (**self).chrom()
+    }
+
+    fn start(&self) -> u64 {
+        (**self).start()
+    }
+
+    fn stop(&self) -> u64 {
+        (**self).stop()
+    }
+
+    fn value(&self, b: Field) -> Result {
+        (**self).value(b)
+    }
 }
 
 impl PartialEq for dyn Positioned {

@@ -34,7 +34,7 @@ fn main() -> io::Result<()> {
         h.insert(String::from(chrom), i);
     });
 
-    let it = IntersectionIterator::new(ai, vec![bi], &h)?;
+    let it = IntersectionIterator::new(Box::new(ai), vec![Box::new(bi)], &h)?;
 
     for intersection in it {
         let intersection = intersection?;
