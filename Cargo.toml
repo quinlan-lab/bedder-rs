@@ -26,9 +26,10 @@ env_logger = "0.10.0"
 log = "0.4.19"
 
 [features]
-default = ["bed", "vcf", "bcf", "csi", "core", "bam", "sam"]
-bed = ["noodles/bed"]
+default = ["bed", "vcf", "bcf", "csi", "core", "bam", "sam", "bgzf"]
 bam = ["noodles/bam"]
+bed = ["noodles/bed"]
+bgzf = ["noodles/bgzf"]
 #cram = ["noodles/cram"]
 sam = ["noodles/sam"]
 vcf = ["noodles/vcf"]

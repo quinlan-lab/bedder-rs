@@ -8,6 +8,7 @@ use crate::bedder_vcf::BedderVCF;
 use crate::position::{Positioned, PositionedIterator};
 use crate::string::String;
 use noodles::bcf;
+use noodles::bgzf;
 use noodles::vcf;
 
 /// File formats supported by this file detector.
@@ -32,21 +33,13 @@ pub enum Compression {
     RAZF,
 }
 
-fn tt<R>(a: BedderVCF<'static>, b: BedderBed<R>, c: std::collections::HashMap<String, usize>)
-where
-    R: BufRead + 'static,
-{
-    use crate::intersection::IntersectionIterator;
-    let x = IntersectionIterator::new(Box::new(a), vec![Box::new(b)], &c);
-}
-
 pub fn open_file(
     path: &Path,
-    //) -> std::io::Result<Box<dyn PositionedIterator<Item = dyn Positioned>>> {
 ) -> std::io::Result<Box<dyn PositionedIterator<Item = Box<dyn Positioned>>>> {
     let file = std::fs::File::open(path)?;
     let mut reader = std::io::BufReader::new(file);
     let (format, compression) = detect_file_format(&mut reader, path)?;
+    // TODO: useful to get header
     match format {
         FileFormat::VCF => {
             let br = Box::new(reader);
@@ -55,26 +48,18 @@ pub fn open_file(
                 .build_from_reader(br)?;
             let hdr = vcf.read_header()?;
             let bed_vcf = BedderVCF::new(Box::new(vcf), hdr)?;
-            // let chrom_order = hdr
-            //     .contigs()
-            //     .iter()
-            //     .enumerate()
-            //     .map(|(i, c)| (c.0.to_string(), i))
-            //     .collect();
-            // let x = crate::intersection::IntersectionIterator::new(
-            //     Box::new(bed_vcf),
-            //     vec![],
-            //     &chrom_order,
-            // )?;
-
             Ok(Box::new(bed_vcf))
         }
-        /*
         FileFormat::BED => {
+            let reader: Box<dyn BufRead> = match compression {
+                Compression::None => Box::new(reader),
+                Compression::GZ => Box::new(std::io::BufReader::new(GzDecoder::new(reader))),
+                Compression::BGZF => Box::new(std::io::BufReader::new(bgzf::Reader::new(reader))),
+                Compression::RAZF => unimplemented!(),
+            };
             let reader = BedderBed::new(reader);
             Ok(Box::new(reader))
-        },
-        */
+        }
         _ => unimplemented!(),
     }
 }
