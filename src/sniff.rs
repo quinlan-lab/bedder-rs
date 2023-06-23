@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use crate::bedder_bed::BedderBed;
 use crate::bedder_vcf::BedderVCF;
 use crate::position::{Positioned, PositionedIterator};
+use crate::string::String;
 use noodles::bcf;
 use noodles::vcf;
 
