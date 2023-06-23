@@ -1,8 +1,8 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use rand::Rng;
 use bedder::intersection::{Intersection, IntersectionIterator};
 use bedder::position::{Field, FieldError, Positioned, PositionedIterator, Value};
 use bedder::string::String;
+use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use rand::Rng;
 use std::collections::HashMap;
 use std::io;
 
@@ -53,7 +53,7 @@ impl Intervals {
 }
 
 impl PositionedIterator for Intervals {
-    type Item = Interval;
+    type Item = Box<dyn Positioned>;
 
     fn name(&self) -> String {
         String::from(format!("{}:{}", self.name, self.i))
@@ -65,11 +65,11 @@ impl PositionedIterator for Intervals {
             let r: f64 = self.rng.gen();
             self.curr_max *= r.powf(self.i as f64);
             let start = ((1.0 - self.curr_max) * (MAX_POSITION as f64)) as u64;
-            Some(Ok(Interval {
+            Some(Ok(Box::new(Interval {
                 chrom: self.saved_chrom.clone(),
                 start: start,
                 stop: start + self.interval_len,
-            }))
+            })))
         } else {
             None
         }
@@ -83,8 +83,8 @@ pub fn intersection_benchmark(c: &mut Criterion) {
 
     c.bench_function("simple intersection", |b| {
         b.iter(|| {
-            let a_ivs = Intervals::new(String::from("a"), 100, 1000);
-            let b_ivs = Intervals::new(String::from("b"), 100_000, 100);
+            let a_ivs = Box::new(Intervals::new(String::from("a"), 100, 1000));
+            let b_ivs = Box::new(Intervals::new(String::from("b"), 100_000, 100));
             let iter = IntersectionIterator::new(a_ivs, vec![b_ivs], &chrom_order)
                 .expect("error getting iterator");
 
