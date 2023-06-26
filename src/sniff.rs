@@ -50,7 +50,13 @@ where
     P: AsRef<Path>,
 {
     let mut reader = std::io::BufReader::new(reader);
-    let (format, compression) = detect_file_format(&mut reader, path)?;
+    let (format, compression) = detect_file_format(&mut reader, &path)?;
+    log::info!(
+        "path: {:?}, format: {:?} compression: {:?}",
+        path.as_ref(),
+        format,
+        compression
+    );
     match format {
         FileFormat::VCF => {
             let br = Box::new(reader);
@@ -139,7 +145,35 @@ pub fn detect_file_format<R: BufRead, P: AsRef<Path>>(
         }
     };
 
+    if matches!(format, FileFormat::Unknown) {
+        let s = String::from_utf8_lossy(dec_buf);
+        let mut lines = s
+            .lines()
+            .filter(|l| !l.is_empty() && !l.starts_with('#'))
+            .collect::<Vec<_>>();
+        if lines.last().map(|l| !l.ends_with('\n')).unwrap_or(false) {
+            // drop the final incomplete line
+            lines.pop();
+        }
+
+        if lines.len() > 0 && lines.iter().all(|&line| is_bed_line(line)) {
+            return Ok((FileFormat::BED, compression));
+        }
+    }
+
     Ok((format, compression))
+}
+
+fn is_bed_line(s: &str) -> bool {
+    if s.starts_with('#') {
+        return true;
+    }
+    let cols: Vec<_> = s.split('\t').collect();
+    if cols.len() < 3 {
+        return false;
+    }
+    // check that 2nd and 3rd cols are integers
+    cols[1].parse::<i32>().is_ok() && cols[2].parse::<i32>().is_ok()
 }
 
 #[cfg(test)]
@@ -181,5 +215,24 @@ mod tests {
             let r = r.expect("error reading record");
             eprintln!("{:?}", r);
         }
+    }
+
+    #[test]
+    fn test_is_bed_line() {
+        // Test valid BED line
+        let valid_bed_line = "chr1\t100\t200\tname\t0\t+\t50\t150\t0\t2\t10,20\t0,80";
+        assert!(is_bed_line(valid_bed_line));
+
+        // Test invalid BED line with missing columns
+        let invalid_bed_line = "chr1\t100";
+        assert!(!is_bed_line(invalid_bed_line));
+
+        // Test invalid BED line with non-integer columns
+        let invalid_bed_line = "chr1\ta\tb\tname\t0\t+\t50\t150\t0\t2\t10,20\t0,80";
+        assert!(!is_bed_line(invalid_bed_line));
+
+        // Test comment line
+        let comment_line = "# This is a comment";
+        assert!(is_bed_line(comment_line));
     }
 }
