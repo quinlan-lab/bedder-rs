@@ -57,12 +57,14 @@ where
         format,
         compression
     );
-    // TODO: for example BAM will appear as bgzf so we don't want to do this outside
-    // of the format match once that is implemented.
     let br: Box<dyn BufRead> = match compression {
         Compression::None => Box::new(reader),
         Compression::GZ => Box::new(std::io::BufReader::new(GzDecoder::new(reader))),
-        Compression::BGZF => Box::new(bgzf::Reader::new(reader)),
+        Compression::BGZF => match format {
+            // BCF|BAM will appear as bgzf so we don't want to do this outside
+            FileFormat::BCF | FileFormat::BAM => Box::new(reader),
+            _ => Box::new(bgzf::Reader::new(reader)),
+        },
         Compression::RAZF => unimplemented!(),
     };
     match format {

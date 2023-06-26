@@ -76,7 +76,11 @@ impl<'a, P: Positioned> Ord for ReverseOrderPosition<'a, P> {
             return self
                 .chromosome_order
                 .get(self.position.chrom())
-                .expect("Invalid chromosome")
+                .expect(&format!(
+                    "Invalid chromosome: \"{}\" from file {} not found in chromosome order.",
+                    self.position.chrom(),
+                    self.id + 1
+                ))
                 .cmp(self.chromosome_order.get(other.position.chrom()).unwrap())
                 .reverse();
         }
@@ -202,7 +206,6 @@ impl<'a> IntersectionIterator<'a> {
         })
     }
 
-    // TODO: this may not have to be Rc anymore?
     fn init_heap(&mut self, base_interval: Rc<Box<dyn Positioned>>) -> io::Result<()> {
         assert!(!self.heap_initialized);
         for (i, iter) in self.other_iterators.iter_mut().enumerate() {
