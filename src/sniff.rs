@@ -77,7 +77,7 @@ where
             let reader = BedderBed::new(reader);
             Ok(Box::new(reader))
         }
-        _ => unimplemented!(),
+        _ => unimplemented!("{format:?} not yet supported"),
     }
 }
 
