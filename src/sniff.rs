@@ -60,7 +60,7 @@ where
     match format {
         FileFormat::VCF => {
             let br = Box::new(reader);
-            let mut vcf = vcf::reader::Builder::default()
+            let mut vcf = vcf::reader::Builder
                 //.set_index(index)
                 .build_from_reader(br)?;
             let hdr = vcf.read_header()?;
@@ -121,19 +121,20 @@ pub fn detect_file_format<R: BufRead, P: AsRef<Path>>(
         )
     };
 
-    let format = if &dec_buf[0..4] == b"BAM\x01" {
+    let format = if dec_buf.starts_with(b"BAM\x01") {
         FileFormat::BAM
     } else if &dec_buf[0..3] == b"BCF" && (dec_buf[3] == 0x2 || dec_buf[3] == 0x4) {
         FileFormat::BCF
-    } else if &dec_buf[0..16] == b"##fileformat=VCF" {
+    } else if dec_buf.starts_with(b"##fileformat=VCF") {
         FileFormat::VCF
-    } else if &dec_buf[0..4] == b"CRAM" {
+    } else if dec_buf.starts_with(b"CRAM") {
         FileFormat::CRAM
-    } else if &dec_buf[0..4] == b"@HD\t"
-        || &dec_buf[0..4] == b"@SQ\t"
-        || &dec_buf[0..4] == b"@RG\t"
-        || &dec_buf[0..4] == b"@PG\t"
-        || &dec_buf[0..4] == b"@CO\t"
+    } else if dec_buf.len() > 3
+        && (&dec_buf[0..4] == b"@HD\t"
+            || &dec_buf[0..4] == b"@SQ\t"
+            || &dec_buf[0..4] == b"@RG\t"
+            || &dec_buf[0..4] == b"@PG\t"
+            || &dec_buf[0..4] == b"@CO\t")
     {
         FileFormat::SAM
     } else {
@@ -151,12 +152,16 @@ pub fn detect_file_format<R: BufRead, P: AsRef<Path>>(
             .lines()
             .filter(|l| !l.is_empty() && !l.starts_with('#'))
             .collect::<Vec<_>>();
-        if lines.last().map(|l| !l.ends_with('\n')).unwrap_or(false) {
+        if lines
+            .last()
+            .map(|l| !l.ends_with('\n') && l.split('\t').collect::<Vec<_>>().len() < 3)
+            .unwrap_or(false)
+        {
             // drop the final incomplete line
             lines.pop();
         }
 
-        if lines.len() > 0 && lines.iter().all(|&line| is_bed_line(line)) {
+        if !lines.is_empty() && lines.iter().all(|&line| is_bed_line(line)) {
             return Ok((FileFormat::BED, compression));
         }
     }

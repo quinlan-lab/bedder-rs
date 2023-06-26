@@ -10,7 +10,7 @@ where
     let mut genome = HashMap::new();
     let mut line = std::string::String::new();
     while reader.read_line(&mut line)? > 0 {
-        if line.trim().len() == 0 || line.starts_with('#') {
+        if line.trim().is_empty() || line.starts_with('#') {
             line.clear();
             continue;
         }

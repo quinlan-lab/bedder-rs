@@ -214,7 +214,7 @@ pub fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         .contigs()
         .iter()
         .enumerate()
-        .map(|(i, c)| (String::from(c.0.to_string()), i))
+        .map(|(i, c)| (c.0.to_string().into(), i))
         .collect::<HashMap<String, usize>>();
 
     let it = IntersectionIterator::new(Box::new(_br), vec![], &chrom_order).unwrap();

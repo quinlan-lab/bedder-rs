@@ -81,7 +81,7 @@ where
             return match self.reader.read_line(&mut self.buf) {
                 Ok(0) => None,
                 Ok(_) => {
-                    if self.buf.starts_with('#') {
+                    if self.buf.starts_with('#') || self.buf.is_empty() {
                         continue;
                     }
                     let record: bed::record::Record<3> = match self.buf.parse() {
