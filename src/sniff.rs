@@ -57,24 +57,30 @@ where
         format,
         compression
     );
+    // TODO: for example BAM will appear as bgzf so we don't want to do this outside
+    // of the format match once that is implemented.
+    let br: Box<dyn BufRead> = match compression {
+        Compression::None => Box::new(reader),
+        Compression::GZ => Box::new(std::io::BufReader::new(GzDecoder::new(reader))),
+        Compression::BGZF => Box::new(bgzf::Reader::new(reader)),
+        Compression::RAZF => unimplemented!(),
+    };
     match format {
         FileFormat::VCF => {
-            let br = Box::new(reader);
-            let mut vcf = vcf::reader::Builder
-                //.set_index(index)
-                .build_from_reader(br)?;
+            let mut vcf = vcf::reader::Builder.build_from_reader(br)?;
             let hdr = vcf.read_header()?;
             let bed_vcf = BedderVCF::new(Box::new(vcf), hdr)?;
             Ok(Box::new(bed_vcf))
         }
+        FileFormat::BCF => {
+            let mut bcf = noodles::bcf::Reader::new(br);
+            let hdr = bcf.read_header()?;
+            let bed_vcf = BedderVCF::new(Box::new(bcf), hdr)?;
+            Ok(Box::new(bed_vcf))
+        }
+
         FileFormat::BED => {
-            let reader: Box<dyn BufRead> = match compression {
-                Compression::None => Box::new(reader),
-                Compression::GZ => Box::new(std::io::BufReader::new(GzDecoder::new(reader))),
-                Compression::BGZF => Box::new(std::io::BufReader::new(bgzf::Reader::new(reader))),
-                Compression::RAZF => unimplemented!(),
-            };
-            let reader = BedderBed::new(reader);
+            let reader = BedderBed::new(br);
             Ok(Box::new(reader))
         }
         _ => unimplemented!("{format:?} not yet supported"),

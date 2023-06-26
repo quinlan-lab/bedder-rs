@@ -1,11 +1,8 @@
-use crate::intersection::IntersectionIterator;
 use crate::position::{Field, FieldError, Positioned, Result, Value};
 use crate::string::String;
 use noodles::bcf;
-use noodles::csi;
 use noodles::vcf::{self, record::Chromosome};
-use std::fs::File;
-use std::io::{self, BufRead, BufReader};
+use std::io::{self, BufRead};
 use vcf::record::info::field;
 use vcf::record::QualityScore;
 
@@ -183,63 +180,6 @@ impl<'a> crate::position::PositionedIterator for BedderVCF<'a> {
     fn name(&self) -> String {
         String::from("vcf")
     }
-}
-
-pub fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
-    use std::collections::HashMap;
-    let vcf_path = "sample.vcf.gz";
-    let index_path = "sample.vcf.gz.csi";
-
-    // Open the VCF file
-    let vcf_file = File::open(vcf_path).unwrap();
-    let vcf_file_reader = BufReader::new(vcf_file);
-    //let mut vcf_reader = vcf::Reader::new(vcf_file_reader);
-
-    // Read the VCF header
-    //let header = vcf_reader.read_header().unwrap();
-
-    // Open the index
-    let index = csi::read(index_path).unwrap();
-
-    // Build an indexed VCF reader
-    let mut reader = vcf::indexed_reader::Builder::default()
-        .set_index(index)
-        .build_from_reader(vcf_file_reader)
-        .unwrap();
-
-    let header = reader.read_header()?;
-    let b = Box::new(reader);
-    let _br = BedderVCF::new(b, header.clone())?;
-    let chrom_order = header
-        .contigs()
-        .iter()
-        .enumerate()
-        .map(|(i, c)| (c.0.to_string().into(), i))
-        .collect::<HashMap<String, usize>>();
-
-    let it = IntersectionIterator::new(Box::new(_br), vec![], &chrom_order).unwrap();
-
-    for r in it {
-        let r = r.unwrap();
-        println!("{:?}", r.overlapping);
-    }
-
-    /*
-    // Define the region to query
-    let start = Position::try_from(1)?;
-    let stop = Position::try_from(1_000_000)?;
-    let region = Region::new("chr1", start..=stop);
-
-    // Query the region
-    let query = reader.query(&header, &region)?;
-
-    // Iterate over variants in the region
-    for result in query {
-        let record = result.unwrap();
-        println!("{:?}", record);
-    }
-    */
-    Ok(())
 }
 
 // tests
