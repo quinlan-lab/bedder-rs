@@ -56,21 +56,21 @@ pub trait Positioned: Debug {
 }
 
 // Delegate the boxed version of this trait object to the inner object.
-impl<T: Positioned + ?Sized> Positioned for Box<T> {
+impl Positioned for Box<dyn Positioned> {
     fn chrom(&self) -> &str {
-        (**self).chrom()
+        self.as_ref().chrom()
     }
 
     fn start(&self) -> u64 {
-        (**self).start()
+        self.as_ref().start()
     }
 
     fn stop(&self) -> u64 {
-        (**self).stop()
+        self.as_ref().stop()
     }
 
     fn value(&self, b: Field) -> Result {
-        (**self).value(b)
+        self.as_ref().value(b)
     }
 }
 
