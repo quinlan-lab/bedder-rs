@@ -247,5 +247,9 @@ mod tests {
         // Test comment line
         let comment_line = "# This is a comment";
         assert!(is_bed_line(comment_line));
+
+        // single interval with no newline.
+        let valid_bed_line = "chr1\t100\t200";
+        assert!(is_bed_line(valid_bed_line));
     }
 }
