@@ -76,11 +76,13 @@ impl<'a, P: Positioned> Ord for ReverseOrderPosition<'a, P> {
             return self
                 .chromosome_order
                 .get(self.position.chrom())
-                .expect(&format!(
-                    "Invalid chromosome: \"{}\" from file {} not found in chromosome order.",
-                    self.position.chrom(),
-                    self.id + 1
-                ))
+                .unwrap_or_else(|| {
+                    panic!(
+                        "Invalid chromosome: \"{}\" from file {} not found in chromosome order.",
+                        self.position.chrom(),
+                        self.id + 1
+                    )
+                })
                 .cmp(self.chromosome_order.get(other.position.chrom()).unwrap())
                 .reverse();
         }
