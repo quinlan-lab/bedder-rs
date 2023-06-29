@@ -332,7 +332,8 @@ impl<'a> IntersectionIterator<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::position::{Field, FieldError, Result, Value};
+    use crate::position::{Field, FieldError, Value};
+    use std::result;
 
     #[derive(Debug, Clone)]
     struct Interval {
@@ -352,7 +353,7 @@ mod tests {
             &self.chrom
         }
 
-        fn value(&self, b: Field) -> Result {
+        fn value(&self, b: Field) -> result::Result<Value, FieldError> {
             match b {
                 Field::Int(i) => match i {
                     0 => Ok(Value::Strings(vec![self.chrom.clone()])),

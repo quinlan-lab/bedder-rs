@@ -1,6 +1,7 @@
 use crate::string::String;
 use std::fmt::{self, Debug};
 use std::io;
+use std::result;
 
 /// A Value is a vector of integers, floats, or strings.
 /// Often this will be a single value.
@@ -37,8 +38,6 @@ impl fmt::Display for FieldError {
 
 impl std::error::Error for FieldError {}
 
-pub type Result = std::result::Result<Value, FieldError>;
-
 /// A Positioned has a position in the genome. It is a bed-like (half-open) interval.
 /// It also has a means to extract values from integer or string columns.
 pub trait Positioned: Debug {
@@ -49,7 +48,7 @@ pub trait Positioned: Debug {
     fn stop(&self) -> u64;
 
     // extract a value from the Positioned object Col
-    fn value(&self, b: Field) -> Result;
+    fn value(&self, b: Field) -> result::Result<Value, FieldError>;
 
     // get back the original line?
     //fn line(&self) -> &'a str;
@@ -69,7 +68,7 @@ impl Positioned for Box<dyn Positioned> {
         self.as_ref().stop()
     }
 
-    fn value(&self, b: Field) -> Result {
+    fn value(&self, b: Field) -> result::Result<Value, FieldError> {
         self.as_ref().value(b)
     }
 }

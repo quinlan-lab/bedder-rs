@@ -1,8 +1,8 @@
-use crate::position::{Field, FieldError, Positioned, Result, Value};
+use crate::position::{Field, FieldError, Positioned, Value};
 use crate::string::String;
 pub use noodles::bed;
-use std::io;
-use std::io::BufRead;
+use std::io::{self, BufRead};
+use std::result;
 
 impl crate::position::Positioned for bed::record::Record<3> {
     #[inline]
@@ -21,7 +21,7 @@ impl crate::position::Positioned for bed::record::Record<3> {
         self.end_position().get() as u64
     }
 
-    fn value(&self, v: crate::position::Field) -> Result {
+    fn value(&self, v: crate::position::Field) -> result::Result<Value, FieldError> {
         match v {
             Field::String(s) => Ok(Value::Strings(vec![s])),
             Field::Int(i) => match i {

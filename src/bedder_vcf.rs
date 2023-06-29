@@ -1,8 +1,9 @@
-use crate::position::{Field, FieldError, Positioned, Result, Value};
+use crate::position::{Field, FieldError, Positioned, Value};
 use crate::string::String;
 use noodles::bcf;
 use noodles::vcf::{self, record::Chromosome};
 use std::io::{self, BufRead};
+use std::result;
 use vcf::record::info::field;
 use vcf::record::QualityScore;
 
@@ -58,7 +59,7 @@ impl<'a> BedderVCF<'a> {
     }
 }
 
-fn match_info_value(info: &vcf::record::Info, name: &str) -> Result {
+fn match_info_value(info: &vcf::record::Info, name: &str) -> result::Result<Value, FieldError> {
     //let info = record.info();
     let key: vcf::record::info::field::Key = name
         .parse()
@@ -97,7 +98,7 @@ fn match_info_value(info: &vcf::record::Info, name: &str) -> Result {
     }
 }
 
-fn match_value(record: &vcf::record::Record, f: Field) -> Result {
+fn match_value(record: &vcf::record::Record, f: Field) -> result::Result<Value, FieldError> {
     match f {
         Field::String(s) => match s.as_str() {
             "chrom" => Ok(Value::Strings(vec![String::from(Positioned::chrom(
@@ -153,7 +154,7 @@ impl Positioned for vcf::record::Record {
         usize::from(self.end().expect("error getting end from vcf record")) as u64
     }
 
-    fn value(&self, f: crate::position::Field) -> Result {
+    fn value(&self, f: crate::position::Field) -> result::Result<Value, FieldError> {
         // TODO: implement this!
         match_value(self, f)
     }
