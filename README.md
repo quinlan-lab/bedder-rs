@@ -10,6 +10,9 @@ cargo test --release --target $target \
 
 # bedder (tools)
 
+This is an early release of the library for feedback, especially from rust practitioners. If interested,
+read below and then, for example, have a look at #15 and #14.
+
 This library aims to provide:
 
 - [x] an abstraction so any interval types from sorted sources can be intersected together
@@ -96,5 +99,5 @@ We use `Rc` because each database interval may be attached to more than one quer
 
 # Acknowledgements
 
-- We received very valuable `rust` feedback from @sstadick.
+- We received very valuable `rust` feedback and code from @sstadick.
 - We leverage the excellent [noodles](https://github.com/zaeleus/noodles) library.
