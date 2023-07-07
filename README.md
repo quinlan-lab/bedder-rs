@@ -6,12 +6,12 @@ cargo test --release --target $target \
 && cargo build --release --target $target
 --->
 
-[![status](https://github.com/brentp/bedder-rs/actions/workflows/rust.yml/badge.svg)](https://github.com/brentp/bedder-rs/actions/)
+[![status](https://github.com/quinlan-lab/bedder-rs/actions/workflows/rust.yml/badge.svg)](https://github.com/quinlan-lab/bedder-rs/actions/)
 
 # bedder (tools)
 
 This is an early release of the library for feedback, especially from rust practitioners. If interested,
-read below and then, for example, have a look at #15 and #14.
+read below and then, for example, have a look at [issue 2](https://github.com/quinlan-lab/bedder-rs/issues/2) and the associated [discussion](https://github.com/quinlan-lab/bedder-rs/discussions/3)
 
 This library aims to provide:
 
