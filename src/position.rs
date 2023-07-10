@@ -54,6 +54,45 @@ pub trait Positioned: Debug {
     //fn line(&self) -> &'a str;
 }
 
+#[derive(Debug)]
+enum Position {
+    Bed(crate::bedder_bed::Record<3>),
+    Vcf(crate::bedder_vcf::Record),
+    Other(Box<dyn Positioned>),
+}
+
+impl Positioned for Position {
+    fn chrom(&self) -> &str {
+        match self {
+            Position::Bed(b) => b.chrom(),
+            Position::Vcf(v) => v.chrom(),
+            Position::Other(o) => o.chrom(),
+        }
+    }
+    fn start(&self) -> u64 {
+        match self {
+            Position::Bed(b) => b.start(),
+            Position::Vcf(v) => v.start(),
+            Position::Other(o) => o.start(),
+        }
+    }
+    fn stop(&self) -> u64 {
+        match self {
+            Position::Bed(b) => b.stop(),
+            Position::Vcf(v) => v.stop(),
+            Position::Other(o) => o.stop(),
+        }
+    }
+
+    fn value(&self, f: Field) -> result::Result<Value, FieldError> {
+        match self {
+            Position::Bed(b) => b.value(f),
+            Position::Vcf(v) => v.value(f),
+            Position::Other(o) => o.value(f),
+        }
+    }
+}
+
 // Delegate the boxed version of this trait object to the inner object.
 impl Positioned for Box<dyn Positioned> {
     fn chrom(&self) -> &str {

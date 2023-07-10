@@ -1,5 +1,6 @@
 use crate::position::{Field, FieldError, Positioned, Value};
 use crate::string::String;
+pub use bed::record::Record;
 pub use noodles::bed;
 use std::io::{self, BufRead};
 use std::result;

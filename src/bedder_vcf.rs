@@ -6,6 +6,7 @@ use std::io::{self, BufRead};
 use std::result;
 use vcf::record::info::field;
 use vcf::record::QualityScore;
+pub use vcf::Record;
 
 pub trait VCFReader {
     fn read_record(&mut self, header: &vcf::Header, v: &mut vcf::Record) -> io::Result<usize>;
