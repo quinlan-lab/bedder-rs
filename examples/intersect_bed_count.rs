@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use bedder::sniff;
 use clap::Parser;
 extern crate bedder;
+use crate::bedder::genome_file::parse_genome;
 use crate::bedder::intersection::IntersectionIterator;
 use crate::bedder::position::Positioned;
 use crate::bedder::string::String;
@@ -28,12 +29,7 @@ fn main() -> io::Result<()> {
 
     // bedder always requires a hashmap that indicates the chromosome order
     let fh = BufReader::new(fs::File::open(args.fai)?);
-    let mut h = HashMap::new();
-    fh.lines().enumerate().for_each(|(i, line)| {
-        let line = line.expect("error reading line from fai");
-        let chrom = line.split("\t").next().expect("error getting line");
-        h.insert(String::from(chrom), i);
-    });
+    let h = parse_genome(fh)?;
 
     // we can have any number of b (other_iterators).
     let it = IntersectionIterator::new(ai, vec![bi], &h)?;
