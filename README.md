@@ -92,8 +92,8 @@ same interval will be called with `q` of `None`. The implementer must:
 # Implementation Brief
 
 All Positioned structs are pulled through a min-heap. Each time an interval (with the smallest genomic position) is pulled from the min heap,
-a new struct is pulled from the file where that interval originated. Then the pulled interval is pushed onto a `dequeue`.
-We then know the dequeue is in order. For each query interval, we drop from the dequeue any interval that is strictly _before_ the interval,
+a new struct is pulled from the file where that interval originated. Then the pulled interval is pushed onto a `queue` (actually a deque becase that's what is in the rust standard library).
+We then know the queue is in order. For each query interval, we drop from the queue any interval that is strictly _before_ the interval,
 then pull into the Intersection result any interval that is not _after_ the interval. Then return the result from the `next` call.
 We use `Rc` because each database interval may be attached to more than one query interval.
 
