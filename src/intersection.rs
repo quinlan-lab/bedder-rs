@@ -6,22 +6,22 @@ use std::io::{Error, ErrorKind};
 use std::rc::Rc;
 //use std::sync::Arc as Rc;
 
-use crate::position::{Positioned, PositionedIterator};
+use crate::position::{Position, Positioned, PositionedIterator};
 
 /// An iterator that returns the intersection of multiple iterators.
 pub struct IntersectionIterator<'a> {
-    base_iterator: Box<dyn PositionedIterator<Item = Box<dyn Positioned>>>,
-    other_iterators: Vec<Box<dyn PositionedIterator<Item = Box<dyn Positioned>>>>,
-    min_heap: BinaryHeap<ReverseOrderPosition<'a, Box<dyn Positioned>>>,
+    base_iterator: Box<dyn PositionedIterator<Item = Position>>,
+    other_iterators: Vec<Box<dyn PositionedIterator<Item = Position>>>,
+    min_heap: BinaryHeap<ReverseOrderPosition<'a, Position>>,
     chromosome_order: &'a HashMap<String, usize>,
     // because multiple intervals from each stream can overlap a single base interval
     // and each interval from others may overlap many base intervals, we must keep a cache (Q)
     // we always add intervals in order with push_back and therefore remove with pop_front.
     // As soon as the front interval in cache is stricly less than the query interval, then we can pop it.
-    dequeue: VecDeque<Intersection<Box<dyn Positioned>>>,
+    dequeue: VecDeque<Intersection<Position>>,
 
     // this is only kept for error checking so we can track if intervals are out of order.
-    previous_interval: Option<Rc<Box<dyn Positioned>>>,
+    previous_interval: Option<Rc<Position>>,
 
     // this tracks which iterators have been called with Some(Positioned) for a given interval
     // so that calls after the first are called with None.
@@ -116,13 +116,13 @@ fn cmp(
     Ordering::Equal
 }
 
-fn region_str<P: Positioned>(p: &P) -> std::string::String {
+fn region_str(p: &Position) -> std::string::String {
     format!("{}:{}-{}", p.chrom(), p.start() + 1, p.stop())
 }
 
 /// An iterator that returns the intersection of multiple iterators for each query interval
 impl<'a> Iterator for IntersectionIterator<'a> {
-    type Item = io::Result<Intersections<Box<dyn Positioned>>>;
+    type Item = io::Result<Intersections<Position>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let bi = self.base_iterator.next_position(None)?;
@@ -141,7 +141,7 @@ impl<'a> Iterator for IntersectionIterator<'a> {
             let msg = format!(
                 "intervals from {} out of order {} should be before {}",
                 self.base_iterator.name(),
-                region_str(p.as_ref()),
+                region_str(p),
                 region_str(base_interval.as_ref()),
             );
             return Some(Err(Error::new(ErrorKind::Other, msg)));
@@ -190,8 +190,8 @@ impl<'a> Iterator for IntersectionIterator<'a> {
 /// Create a new IntersectionIterator given a query (base) and a vector of other positioned iterators.
 impl<'a> IntersectionIterator<'a> {
     pub fn new(
-        base_iterator: Box<dyn PositionedIterator<Item = Box<dyn Positioned>>>,
-        other_iterators: Vec<Box<dyn PositionedIterator<Item = Box<dyn Positioned>>>>,
+        base_iterator: Box<dyn PositionedIterator<Item = Position>>,
+        other_iterators: Vec<Box<dyn PositionedIterator<Item = Position>>>,
         chromosome_order: &'a HashMap<String, usize>,
     ) -> io::Result<Self> {
         let min_heap = BinaryHeap::new();
@@ -208,7 +208,7 @@ impl<'a> IntersectionIterator<'a> {
         })
     }
 
-    fn init_heap(&mut self, base_interval: Rc<Box<dyn Positioned>>) -> io::Result<()> {
+    fn init_heap(&mut self, base_interval: Rc<Position>) -> io::Result<()> {
         assert!(!self.heap_initialized);
         for (i, iter) in self.other_iterators.iter_mut().enumerate() {
             if let Some(positioned) = iter.next_position(Some(base_interval.as_ref())) {
@@ -225,7 +225,7 @@ impl<'a> IntersectionIterator<'a> {
     }
 
     /// drop intervals from Q that are strictly before the base interval.
-    fn pop_front(&mut self, base_interval: Rc<Box<dyn Positioned>>) {
+    fn pop_front(&mut self, base_interval: Rc<Position>) {
         while !self.dequeue.is_empty()
             && Ordering::Less
                 == cmp(
@@ -238,7 +238,7 @@ impl<'a> IntersectionIterator<'a> {
         }
     }
 
-    fn out_of_order(&self, interval: Rc<Box<dyn Positioned>>) -> bool {
+    fn out_of_order(&self, interval: Rc<Position>) -> bool {
         return match &self.previous_interval {
             None => false, // first interval in file.
             Some(previous_interval) => {
@@ -259,7 +259,7 @@ impl<'a> IntersectionIterator<'a> {
         unsafe { ptr.write_bytes(0, self.called.len()) };
     }
 
-    fn pull_through_heap(&mut self, base_interval: Rc<Box<dyn Positioned>>) -> io::Result<()> {
+    fn pull_through_heap(&mut self, base_interval: Rc<Position>) -> io::Result<()> {
         self.zero_called();
         if !self.heap_initialized {
             // we wait til first iteration here to call init heap
@@ -377,17 +377,17 @@ mod tests {
     struct Intervals {
         i: usize,
         name: String,
-        ivs: Vec<Interval>,
+        ivs: Vec<Box<Interval>>,
     }
 
     impl Intervals {
-        fn new(name: String, ivs: Vec<Interval>) -> Self {
+        fn new(name: String, ivs: Vec<Box<Interval>>) -> Self {
             Intervals { i: 0, name, ivs }
         }
     }
 
     impl PositionedIterator for Intervals {
-        type Item = Box<dyn Positioned>;
+        type Item = Box<Interval>;
 
         fn name(&self) -> String {
             String::from(format!("{}:{}", self.name, self.i))
@@ -397,7 +397,7 @@ mod tests {
             if self.i >= self.ivs.len() {
                 return None;
             }
-            Some(Ok(Box::new(self.ivs.remove(0))))
+            Some(Ok(self.ivs.remove(0)))
         }
     }
 
@@ -407,11 +407,11 @@ mod tests {
         let mut ivs = Vec::new();
         let n_intervals = 100;
         for i in 0..n_intervals {
-            ivs.push(Interval {
+            ivs.push(Box::new(Interval {
                 chrom: String::from("chr1"),
                 start: i,
                 stop: i + 1,
-            })
+            }))
         }
 
         let a_ivs = Intervals::new(String::from("A"), ivs.clone());
@@ -419,18 +419,18 @@ mod tests {
         let times = 3;
         for _ in 0..times {
             for i in 0..n_intervals {
-                ivs.push(Interval {
+                ivs.push(Box::new(Interval {
                     chrom: String::from("chr1"),
                     start: i,
                     stop: i + 1,
-                })
+                }))
             }
         }
-        ivs.push(Interval {
+        ivs.push(Box::new(Interval {
             chrom: String::from("chr1"),
             start: n_intervals + 9,
             stop: n_intervals + 10,
-        });
+        }));
         ivs.sort_by(|a, b| a.start.cmp(&b.start));
 
         let b_ivs = Intervals::new(String::from("B"), ivs.clone());

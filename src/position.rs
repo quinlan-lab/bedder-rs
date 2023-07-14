@@ -55,7 +55,7 @@ pub trait Positioned: Debug {
 }
 
 #[derive(Debug)]
-enum Position {
+pub enum Position {
     Bed(crate::bedder_bed::Record<3>),
     Vcf(crate::bedder_vcf::Record),
     Other(Box<dyn Positioned>),
