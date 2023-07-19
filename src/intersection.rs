@@ -450,7 +450,7 @@ mod tests {
                 .overlapping
                 .iter()
                 .all(|p| p.interval.start() == intersection.base_interval.start()));
-            intersection.overlapping.len() == times + 1
+            intersection.overlapping.len() == times
         }));
         assert_eq!(n, n_intervals)
     }
