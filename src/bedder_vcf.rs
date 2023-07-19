@@ -1,4 +1,4 @@
-use crate::position::{Field, FieldError, Positioned, Value};
+use crate::position::{Field, FieldError, Position, Positioned, Value};
 use crate::string::String;
 use noodles::bcf;
 use noodles::vcf::{self, record::Chromosome};
@@ -156,13 +156,12 @@ impl Positioned for vcf::record::Record {
     }
 
     fn value(&self, f: crate::position::Field) -> result::Result<Value, FieldError> {
-        // TODO: implement this!
         match_value(self, f)
     }
 }
 
 impl<'a> crate::position::PositionedIterator for BedderVCF<'a> {
-    type Item = Box<dyn Positioned>;
+    type Item = Position;
 
     fn next_position(
         &mut self,
@@ -174,7 +173,7 @@ impl<'a> crate::position::PositionedIterator for BedderVCF<'a> {
             Ok(0) => None, // EOF
             Ok(_) => {
                 self.record_number += 1;
-                Some(Ok(Box::new(v)))
+                Some(Ok(Position::Vcf(v)))
             }
             Err(e) => Some(Err(e)),
         }

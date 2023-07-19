@@ -397,7 +397,7 @@ mod tests {
         }
     }
     impl PositionedIterator for Intervals {
-        type Item = Box<dyn Positioned>;
+        type Item = Position;
 
         fn name(&self) -> String {
             String::from(format!("{}:{}", self.name, self.i))
@@ -408,7 +408,7 @@ mod tests {
                 return None;
             }
             let p: Box<dyn Positioned> = Box::new(self.ivs.remove(0));
-            Some(Ok(p))
+            Some(Ok(Position::Other(p)))
         }
     }
 
@@ -438,9 +438,10 @@ mod tests {
 
         b_ivs.ivs.sort_by(|a, b| a.start().cmp(&b.start()));
 
-        let mut iter =
-            IntersectionIterator::new(Box::new(a_ivs), vec![Box::new(b_ivs)], &chrom_order)
-                .expect("error getting iterator");
+        let a_ivs: Box<dyn PositionedIterator<Item = Position>> = Box::new(a_ivs);
+
+        let mut iter = IntersectionIterator::new(a_ivs, vec![Box::new(b_ivs)], &chrom_order)
+            .expect("error getting iterator");
         let mut n = 0;
         assert!(iter.all(|intersection| {
             let intersection = intersection.expect("error getting intersection");

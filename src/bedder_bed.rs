@@ -1,4 +1,4 @@
-use crate::position::{Field, FieldError, Positioned, Value};
+use crate::position::{Field, FieldError, Position, Positioned, Value};
 use crate::string::String;
 pub use bed::record::Record;
 pub use noodles::bed;
@@ -69,7 +69,7 @@ impl<R> crate::position::PositionedIterator for BedderBed<R>
 where
     R: BufRead,
 {
-    type Item = bed::record::Record<3>;
+    type Item = Position;
 
     fn next_position(
         &mut self,
@@ -112,7 +112,7 @@ where
                         }
                     }
 
-                    Some(Ok(record))
+                    Some(Ok(Position::Bed(record)))
                 }
                 Err(e) => Some(Err(e)),
             };
