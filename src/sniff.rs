@@ -4,7 +4,7 @@ use std::path::Path;
 
 use crate::bedder_bed::BedderBed;
 use crate::bedder_vcf::BedderVCF;
-use crate::position::{Position, Positioned, PositionedIterator};
+use crate::position::{Position, PositionedIterator};
 use noodles::bgzf;
 use noodles::vcf;
 

@@ -62,6 +62,7 @@ pub enum Position {
 }
 
 impl Positioned for Position {
+    #[inline]
     fn chrom(&self) -> &str {
         match self {
             Position::Bed(b) => b.chrom(),
@@ -69,6 +70,8 @@ impl Positioned for Position {
             Position::Other(o) => o.chrom(),
         }
     }
+
+    #[inline]
     fn start(&self) -> u64 {
         match self {
             Position::Bed(b) => b.start(),
@@ -76,6 +79,8 @@ impl Positioned for Position {
             Position::Other(o) => o.start(),
         }
     }
+
+    #[inline]
     fn stop(&self) -> u64 {
         match self {
             Position::Bed(b) => b.stop(),
@@ -84,6 +89,7 @@ impl Positioned for Position {
         }
     }
 
+    #[inline]
     fn value(&self, f: Field) -> result::Result<Value, FieldError> {
         match self {
             Position::Bed(b) => b.value(f),

@@ -1,6 +1,5 @@
-use std::collections::HashMap;
 use std::fs;
-use std::io::{self, BufRead, BufReader};
+use std::io::{self, BufReader};
 use std::path::PathBuf;
 
 use bedder::sniff;
@@ -9,7 +8,6 @@ extern crate bedder;
 use crate::bedder::genome_file::parse_genome;
 use crate::bedder::intersection::IntersectionIterator;
 use crate::bedder::position::Positioned;
-use crate::bedder::string::String;
 
 #[derive(Parser, Debug)]
 struct Args {

@@ -1,5 +1,5 @@
 use bedder::intersection::IntersectionIterator;
-use bedder::position::{Field, FieldError, Positioned, PositionedIterator, Value};
+use bedder::position::{Field, FieldError, Position, Positioned, PositionedIterator, Value};
 use bedder::string::String;
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use rand::Rng;
@@ -14,16 +14,20 @@ struct Interval {
 }
 
 impl Positioned for Interval {
+    #[inline]
     fn start(&self) -> u64 {
         self.start
     }
+    #[inline]
     fn stop(&self) -> u64 {
         self.stop
     }
+    #[inline]
     fn chrom(&self) -> &str {
         &self.chrom
     }
 
+    #[inline]
     fn value(&self, _v: Field) -> Result<Value, FieldError> {
         Ok(Value::Strings(vec![String::from("foo")]))
     }
@@ -53,7 +57,7 @@ impl Intervals {
 }
 
 impl PositionedIterator for Intervals {
-    type Item = Box<dyn Positioned>;
+    type Item = Position;
 
     fn name(&self) -> String {
         String::from(format!("{}:{}", self.name, self.i))
@@ -65,11 +69,11 @@ impl PositionedIterator for Intervals {
             let r: f64 = self.rng.gen();
             self.curr_max *= r.powf(self.i as f64);
             let start = ((1.0 - self.curr_max) * (MAX_POSITION as f64)) as u64;
-            Some(Ok(Box::new(Interval {
+            Some(Ok(Position::Other(Box::new(Interval {
                 chrom: self.saved_chrom.clone(),
                 start: start,
                 stop: start + self.interval_len,
-            })))
+            }))))
         } else {
             None
         }
