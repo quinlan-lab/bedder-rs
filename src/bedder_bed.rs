@@ -69,8 +69,7 @@ impl<R> crate::position::PositionedIterator for BedderBed<R>
 where
     R: BufRead,
 {
-    // type Item = bed::record::Record<3>;
-    type Item = Box<dyn Positioned>;
+    type Item = bed::record::Record<3>;
 
     fn next_position(
         &mut self,
@@ -113,7 +112,7 @@ where
                         }
                     }
 
-                    Some(Ok(Box::new(record)))
+                    Some(Ok(record))
                 }
                 Err(e) => Some(Err(e)),
             };

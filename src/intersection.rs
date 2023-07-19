@@ -377,17 +377,27 @@ mod tests {
     struct Intervals {
         i: usize,
         name: String,
-        ivs: Vec<Box<Interval>>,
+        ivs: Vec<Position>,
     }
 
     impl Intervals {
-        fn new(name: String, ivs: Vec<Box<Interval>>) -> Self {
-            Intervals { i: 0, name, ivs }
+        fn new(name: String, ivs: Vec<Interval>) -> Self {
+            Intervals {
+                i: 0,
+                name,
+                ivs: ivs
+                    .into_iter()
+                    .map(|i| Position::Other(Box::new(i) as Box<dyn Positioned>))
+                    .collect::<Vec<Position>>(),
+            }
+        }
+        fn add(&mut self, iv: Interval) {
+            self.ivs
+                .push(Position::Other(Box::new(iv) as Box<dyn Positioned>))
         }
     }
-
     impl PositionedIterator for Intervals {
-        type Item = Box<Interval>;
+        type Item = Box<dyn Positioned>;
 
         fn name(&self) -> String {
             String::from(format!("{}:{}", self.name, self.i))
@@ -397,43 +407,37 @@ mod tests {
             if self.i >= self.ivs.len() {
                 return None;
             }
-            Some(Ok(self.ivs.remove(0)))
+            let p: Box<dyn Positioned> = Box::new(self.ivs.remove(0));
+            Some(Ok(p))
         }
     }
 
     #[test]
     fn many_intervals() {
         let chrom_order = HashMap::from([(String::from("chr1"), 0), (String::from("chr2"), 1)]);
-        let mut ivs = Vec::new();
+        let mut a_ivs = Intervals::new(String::from("A"), Vec::new());
+        let mut b_ivs = Intervals::new(String::from("B"), Vec::new());
         let n_intervals = 100;
+        let times = 3;
         for i in 0..n_intervals {
-            ivs.push(Box::new(Interval {
+            let iv = Interval {
                 chrom: String::from("chr1"),
                 start: i,
                 stop: i + 1,
-            }))
-        }
-
-        let a_ivs = Intervals::new(String::from("A"), ivs.clone());
-
-        let times = 3;
-        for _ in 0..times {
-            for i in 0..n_intervals {
-                ivs.push(Box::new(Interval {
+            };
+            a_ivs.add(iv);
+            for _ in 0..times {
+                let iv = Interval {
                     chrom: String::from("chr1"),
                     start: i,
                     stop: i + 1,
-                }))
+                };
+                b_ivs.add(iv);
             }
         }
-        ivs.push(Box::new(Interval {
-            chrom: String::from("chr1"),
-            start: n_intervals + 9,
-            stop: n_intervals + 10,
-        }));
-        ivs.sort_by(|a, b| a.start.cmp(&b.start));
 
-        let b_ivs = Intervals::new(String::from("B"), ivs.clone());
+        b_ivs.ivs.sort_by(|a, b| a.start().cmp(&b.start()));
+
         let mut iter =
             IntersectionIterator::new(Box::new(a_ivs), vec![Box::new(b_ivs)], &chrom_order)
                 .expect("error getting iterator");
