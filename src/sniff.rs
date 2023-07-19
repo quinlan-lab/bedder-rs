@@ -4,7 +4,7 @@ use std::path::Path;
 
 use crate::bedder_bed::BedderBed;
 use crate::bedder_vcf::BedderVCF;
-use crate::position::{Position, PositionedIterator};
+use crate::position::PositionedIterator;
 use noodles::bgzf;
 use noodles::vcf;
 
@@ -30,7 +30,7 @@ pub enum Compression {
     RAZF,
 }
 
-pub fn open_file<P>(path: P) -> std::io::Result<Box<dyn PositionedIterator<Item = Position>>>
+pub fn open_file<P>(path: P) -> std::io::Result<Box<dyn PositionedIterator>>
 where
     P: AsRef<Path>,
 {
@@ -39,10 +39,7 @@ where
     r
 }
 
-pub fn open_reader<R, P>(
-    reader: R,
-    path: P,
-) -> std::io::Result<Box<dyn PositionedIterator<Item = Position>>>
+pub fn open_reader<R, P>(reader: R, path: P) -> std::io::Result<Box<dyn PositionedIterator>>
 where
     R: Read + 'static,
     P: AsRef<Path>,

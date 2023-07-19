@@ -128,8 +128,6 @@ impl PartialEq for dyn Positioned {
 
 /// PositionedIterator is an iterator over Positioned objects.
 pub trait PositionedIterator {
-    type Item: Positioned;
-
     /// A name for the iterator. This is most often the file path, perhaps with the line number appended.
     /// Used to provide informative messages to the user.
     fn name(&self) -> String;
@@ -146,5 +144,5 @@ pub trait PositionedIterator {
     fn next_position(
         &mut self,
         q: Option<&dyn Positioned>,
-    ) -> Option<std::result::Result<Self::Item, io::Error>>;
+    ) -> Option<std::result::Result<Position, io::Error>>;
 }

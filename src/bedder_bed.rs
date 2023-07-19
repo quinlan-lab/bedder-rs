@@ -69,12 +69,10 @@ impl<R> crate::position::PositionedIterator for BedderBed<R>
 where
     R: BufRead,
 {
-    type Item = Position;
-
     fn next_position(
         &mut self,
         _q: Option<&dyn crate::position::Positioned>,
-    ) -> Option<std::result::Result<Self::Item, std::io::Error>> {
+    ) -> Option<std::result::Result<Position, std::io::Error>> {
         self.buf.clear();
         loop {
             self.line_number += 1;

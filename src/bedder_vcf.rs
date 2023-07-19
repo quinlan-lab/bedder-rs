@@ -161,12 +161,10 @@ impl Positioned for vcf::record::Record {
 }
 
 impl<'a> crate::position::PositionedIterator for BedderVCF<'a> {
-    type Item = Position;
-
     fn next_position(
         &mut self,
         _q: Option<&dyn crate::position::Positioned>,
-    ) -> Option<std::result::Result<Self::Item, std::io::Error>> {
+    ) -> Option<std::result::Result<Position, std::io::Error>> {
         let mut v = vcf::Record::default();
 
         match self.reader.read_record(&self.header, &mut v) {

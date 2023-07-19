@@ -10,8 +10,8 @@ use crate::position::{Position, Positioned, PositionedIterator};
 
 /// An iterator that returns the intersection of multiple iterators.
 pub struct IntersectionIterator<'a> {
-    base_iterator: Box<dyn PositionedIterator<Item = Position>>,
-    other_iterators: Vec<Box<dyn PositionedIterator<Item = Position>>>,
+    base_iterator: Box<dyn PositionedIterator>,
+    other_iterators: Vec<Box<dyn PositionedIterator>>,
     min_heap: BinaryHeap<ReverseOrderPosition<'a, Position>>,
     chromosome_order: &'a HashMap<String, usize>,
     // because multiple intervals from each stream can overlap a single base interval
@@ -190,8 +190,8 @@ impl<'a> Iterator for IntersectionIterator<'a> {
 /// Create a new IntersectionIterator given a query (base) and a vector of other positioned iterators.
 impl<'a> IntersectionIterator<'a> {
     pub fn new(
-        base_iterator: Box<dyn PositionedIterator<Item = Position>>,
-        other_iterators: Vec<Box<dyn PositionedIterator<Item = Position>>>,
+        base_iterator: Box<dyn PositionedIterator>,
+        other_iterators: Vec<Box<dyn PositionedIterator>>,
         chromosome_order: &'a HashMap<String, usize>,
     ) -> io::Result<Self> {
         let min_heap = BinaryHeap::new();
@@ -397,13 +397,11 @@ mod tests {
         }
     }
     impl PositionedIterator for Intervals {
-        type Item = Position;
-
         fn name(&self) -> String {
             String::from(format!("{}:{}", self.name, self.i))
         }
 
-        fn next_position(&mut self, _o: Option<&dyn Positioned>) -> Option<io::Result<Self::Item>> {
+        fn next_position(&mut self, _o: Option<&dyn Positioned>) -> Option<io::Result<Position>> {
             if self.i >= self.ivs.len() {
                 return None;
             }
@@ -438,7 +436,7 @@ mod tests {
 
         b_ivs.ivs.sort_by(|a, b| a.start().cmp(&b.start()));
 
-        let a_ivs: Box<dyn PositionedIterator<Item = Position>> = Box::new(a_ivs);
+        let a_ivs: Box<dyn PositionedIterator> = Box::new(a_ivs);
 
         let mut iter = IntersectionIterator::new(a_ivs, vec![Box::new(b_ivs)], &chrom_order)
             .expect("error getting iterator");
