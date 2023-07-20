@@ -334,46 +334,8 @@ impl<'a> IntersectionIterator<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::position::{Field, FieldError, Value};
-    use std::result;
+    use crate::interval::Interval;
 
-    #[derive(Debug, Clone)]
-    struct Interval {
-        chrom: String,
-        start: u64,
-        stop: u64,
-    }
-
-    impl Positioned for Interval {
-        fn start(&self) -> u64 {
-            self.start
-        }
-        fn stop(&self) -> u64 {
-            self.stop
-        }
-        fn chrom(&self) -> &str {
-            &self.chrom
-        }
-
-        fn value(&self, b: Field) -> result::Result<Value, FieldError> {
-            match b {
-                Field::Int(i) => match i {
-                    0 => Ok(Value::Strings(vec![self.chrom.clone()])),
-                    1 => Ok(Value::Ints(vec![self.start as i64])),
-                    2 => Ok(Value::Ints(vec![self.stop as i64])),
-                    3 => Ok(Value::Strings(vec![String::from("hello")])),
-                    _ => Err(FieldError::InvalidFieldIndex(i)),
-                },
-                Field::String(s) => match s.as_str() {
-                    "chrom" => Ok(Value::Strings(vec![self.chrom.clone()])),
-                    "start" => Ok(Value::Ints(vec![self.start as i64])),
-                    "stop" => Ok(Value::Ints(vec![self.stop as i64])),
-                    "name" => Ok(Value::Strings(vec![String::from("hello")])),
-                    _ => Err(FieldError::InvalidFieldName(s)),
-                },
-            }
-        }
-    }
     struct Intervals {
         i: usize,
         name: String,
@@ -387,13 +349,12 @@ mod tests {
                 name,
                 ivs: ivs
                     .into_iter()
-                    .map(|i| Position::Other(Box::new(i) as Box<dyn Positioned>))
+                    .map(|i| Position::Interval(i))
                     .collect::<Vec<Position>>(),
             }
         }
         fn add(&mut self, iv: Interval) {
-            self.ivs
-                .push(Position::Other(Box::new(iv) as Box<dyn Positioned>))
+            self.ivs.push(Position::Interval(iv));
         }
     }
     impl PositionedIterator for Intervals {
@@ -405,8 +366,8 @@ mod tests {
             if self.i >= self.ivs.len() {
                 return None;
             }
-            let p: Box<dyn Positioned> = Box::new(self.ivs.remove(0));
-            Some(Ok(Position::Other(p)))
+            let p = self.ivs.remove(0);
+            Some(Ok(p))
         }
     }
 
@@ -422,6 +383,7 @@ mod tests {
                 chrom: String::from("chr1"),
                 start: i,
                 stop: i + 1,
+                ..Default::default()
             };
             a_ivs.add(iv);
             for _ in 0..times {
@@ -429,6 +391,7 @@ mod tests {
                     chrom: String::from("chr1"),
                     start: i,
                     stop: i + 1,
+                    ..Default::default()
                 };
                 b_ivs.add(iv);
             }
@@ -464,11 +427,13 @@ mod tests {
                     chrom: chrom.clone(),
                     start: 0,
                     stop: 10,
+                    ..Default::default()
                 },
                 Interval {
                     chrom: chrom.clone(),
                     start: 0,
                     stop: 10,
+                    ..Default::default()
                 },
             ],
         );
@@ -480,23 +445,27 @@ mod tests {
                     chrom: chrom.clone(),
                     start: 0,
                     stop: 5,
+                    ..Default::default()
                 },
                 Interval {
                     chrom: chrom.clone(),
                     start: 0,
                     stop: 10,
+                    ..Default::default()
                 },
                 Interval {
                     // this interval should not overlap.
                     chrom: chrom.clone(),
                     start: 10,
                     stop: 20,
+                    ..Default::default()
                 },
                 Interval {
                     // this interval should not overlap.
                     chrom: String::from("chr2"),
                     start: 1,
                     stop: 20,
+                    ..Default::default()
                 },
             ],
         );
@@ -523,11 +492,13 @@ mod tests {
                     chrom: String::from("chr1"),
                     start: 10,
                     stop: 1,
+                    ..Default::default()
                 },
                 Interval {
                     chrom: String::from("chr1"),
                     start: 1,
                     stop: 2,
+                    ..Default::default()
                 },
             ],
         );
@@ -547,11 +518,13 @@ mod tests {
                     chrom: String::from("chr1"),
                     start: 1,
                     stop: 2,
+                    ..Default::default()
                 },
                 Interval {
                     chrom: String::from("chr1"),
                     start: 1,
                     stop: 2,
+                    ..Default::default()
                 },
             ],
         );
@@ -563,11 +536,13 @@ mod tests {
                     chrom: String::from("chr1"),
                     start: 1,
                     stop: 2,
+                    ..Default::default()
                 },
                 Interval {
                     chrom: String::from("chr1"),
                     start: 0,
                     stop: 2,
+                    ..Default::default()
                 },
             ],
         );
@@ -590,6 +565,7 @@ mod tests {
                 chrom: String::from("chr1"),
                 start: 0,
                 stop: 1,
+                ..Default::default()
             }],
         );
         let b_ivs = Intervals::new(
@@ -598,6 +574,7 @@ mod tests {
                 chrom: String::from("chr1"),
                 start: 0,
                 stop: 1,
+                ..Default::default()
             }],
         );
         let c_ivs = Intervals::new(
@@ -606,6 +583,7 @@ mod tests {
                 chrom: String::from("chr1"),
                 start: 0,
                 stop: 1,
+                ..Default::default()
             }],
         );
         let iter = IntersectionIterator::new(
@@ -640,6 +618,7 @@ mod tests {
                 chrom: String::from("chr1"),
                 start: 1,
                 stop: 1,
+                ..Default::default()
             }],
         );
         let b_ivs = Intervals::new(
@@ -648,6 +627,7 @@ mod tests {
                 chrom: String::from("chr1"),
                 start: 1,
                 stop: 1,
+                ..Default::default()
             }],
         );
         let iter = IntersectionIterator::new(Box::new(a_ivs), vec![Box::new(b_ivs)], &chrom_order)

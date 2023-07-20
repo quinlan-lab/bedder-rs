@@ -60,6 +60,8 @@ pub enum Position {
     // Note: we use a Box here because a vcf Record is large.
     Vcf(Box<crate::bedder_vcf::Record>),
     Interval(crate::interval::Interval),
+    // catch-all in case we have another interval type.
+    #[cfg(feature = "dyn_positioned")]
     Other(Box<dyn Positioned>),
 }
 
@@ -70,6 +72,7 @@ impl Positioned for Position {
             Position::Bed(b) => b.chrom(),
             Position::Vcf(v) => v.chrom(),
             Position::Interval(i) => &i.chrom,
+            #[cfg(feature = "dyn_positioned")]
             Position::Other(o) => o.chrom(),
         }
     }
@@ -80,6 +83,7 @@ impl Positioned for Position {
             Position::Bed(b) => b.start(),
             Position::Vcf(v) => v.start(),
             Position::Interval(i) => i.start,
+            #[cfg(feature = "dyn_positioned")]
             Position::Other(o) => o.start(),
         }
     }
@@ -90,6 +94,7 @@ impl Positioned for Position {
             Position::Bed(b) => b.stop(),
             Position::Vcf(v) => v.stop(),
             Position::Interval(i) => i.stop,
+            #[cfg(feature = "dyn_positioned")]
             Position::Other(o) => o.stop(),
         }
     }
@@ -100,6 +105,7 @@ impl Positioned for Position {
             Position::Bed(b) => b.value(f),
             Position::Vcf(v) => v.value(f),
             Position::Interval(i) => i.value(f),
+            #[cfg(feature = "dyn_positioned")]
             Position::Other(o) => o.value(f),
         }
     }

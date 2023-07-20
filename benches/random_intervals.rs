@@ -1,6 +1,6 @@
 use bedder::intersection::IntersectionIterator;
 use bedder::interval::Interval;
-use bedder::position::{Field, FieldError, Position, Positioned, PositionedIterator, Value};
+use bedder::position::{Position, Positioned, PositionedIterator};
 use bedder::string::String;
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use rand::Rng;
