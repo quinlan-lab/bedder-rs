@@ -6,6 +6,9 @@ pub mod intersection;
 /// Position traits.
 pub mod position;
 
+// Interval type
+pub mod interval;
+
 /// a std::String::String unless other string features are enabled.
 pub mod string;
 

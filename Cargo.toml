@@ -24,6 +24,7 @@ flate2 = "1.0.26"
 clap = {version="4.2.7", features=['derive']}
 env_logger = "0.10.0"
 log = "0.4.19"
+linear-map = "1.2.0"
 
 [features]
 default = ["bed", "vcf", "bcf", "csi", "core", "bam", "sam", "bgzf"]

@@ -171,7 +171,7 @@ impl<'a> crate::position::PositionedIterator for BedderVCF<'a> {
             Ok(0) => None, // EOF
             Ok(_) => {
                 self.record_number += 1;
-                Some(Ok(Position::Vcf(v)))
+                Some(Ok(Position::Vcf(Box::new(v))))
             }
             Err(e) => Some(Err(e)),
         }
