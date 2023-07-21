@@ -1,3 +1,4 @@
+use crate::chrom_ordering::Chromosome;
 use crate::string::String;
 use hashbrown::HashMap;
 use std::cmp::Ordering;
@@ -14,7 +15,7 @@ pub struct IntersectionIterator<'a> {
     base_iterator: Box<dyn PositionedIterator>,
     other_iterators: Vec<Box<dyn PositionedIterator>>,
     min_heap: BinaryHeap<ReverseOrderPosition<'a, Position>>,
-    chromosome_order: &'a HashMap<String, usize>,
+    chromosome_order: &'a HashMap<String, Chromosome>,
     // because multiple intervals from each stream can overlap a single base interval
     // and each interval from others may overlap many base intervals, we must keep a cache (Q)
     // we always add intervals in order with push_back and therefore remove with pop_front.
@@ -51,11 +52,12 @@ pub struct Intersections<P: Positioned> {
 
 struct ReverseOrderPosition<'a, P: Positioned> {
     position: P,
-    chromosome_order: &'a HashMap<String, usize>,
+    chromosome_order: &'a HashMap<String, Chromosome>,
     id: usize, // file_index
 }
 
 impl<'a, P: Positioned> PartialEq for ReverseOrderPosition<'a, P> {
+    #[inline]
     fn eq(&self, other: &Self) -> bool {
         self.position.start() == other.position.start()
             && self.position.stop() == other.position.stop()
@@ -66,12 +68,14 @@ impl<'a, P: Positioned> PartialEq for ReverseOrderPosition<'a, P> {
 impl<'a, P: Positioned> Eq for ReverseOrderPosition<'a, P> {}
 
 impl<'a, P: Positioned> PartialOrd for ReverseOrderPosition<'a, P> {
+    #[inline]
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
 impl<'a, P: Positioned> Ord for ReverseOrderPosition<'a, P> {
+    #[inline]
     fn cmp(&self, other: &Self) -> Ordering {
         if self.position.chrom() != other.position.chrom() {
             return self
@@ -101,10 +105,12 @@ impl<'a, P: Positioned> Ord for ReverseOrderPosition<'a, P> {
 fn cmp(
     a: &dyn Positioned,
     b: &dyn Positioned,
-    chromosome_order: &HashMap<String, usize>,
+    chromosome_order: &HashMap<String, Chromosome>,
 ) -> Ordering {
     if a.chrom() != b.chrom() {
-        return chromosome_order[a.chrom()].cmp(&chromosome_order[b.chrom()]);
+        return chromosome_order[a.chrom()]
+            .index
+            .cmp(&chromosome_order[b.chrom()].index);
     }
     // same chrom.
     if a.stop() <= b.start() {
@@ -133,6 +139,17 @@ impl<'a> Iterator for IntersectionIterator<'a> {
             Err(e) => return Some(Err(e)),
             Ok(p) => Rc::new(p),
         };
+        if let Some(chrom) = self.chromosome_order.get(base_interval.chrom()) {
+            if let Some(chrom_len) = chrom.length {
+                if base_interval.stop() > chrom_len as u64 {
+                    let msg = format!(
+                        "interval beyond end of chromosome: {}",
+                        region_str(base_interval.as_ref())
+                    );
+                    return Some(Err(Error::new(ErrorKind::Other, msg)));
+                }
+            }
+        }
 
         if self.out_of_order(base_interval.clone()) {
             let p = self
@@ -193,7 +210,7 @@ impl<'a> IntersectionIterator<'a> {
     pub fn new(
         base_iterator: Box<dyn PositionedIterator>,
         other_iterators: Vec<Box<dyn PositionedIterator>>,
-        chromosome_order: &'a HashMap<String, usize>,
+        chromosome_order: &'a HashMap<String, Chromosome>,
     ) -> io::Result<Self> {
         let min_heap = BinaryHeap::new();
         let called = vec![false; other_iterators.len()];
@@ -335,6 +352,7 @@ impl<'a> IntersectionIterator<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::chrom_ordering::parse_genome;
     use crate::interval::Interval;
 
     struct Intervals {
@@ -374,7 +392,22 @@ mod tests {
 
     #[test]
     fn many_intervals() {
-        let chrom_order = HashMap::from([(String::from("chr1"), 0), (String::from("chr2"), 1)]);
+        let chrom_order = HashMap::from([
+            (
+                String::from("chr1"),
+                Chromosome {
+                    index: 0,
+                    length: None,
+                },
+            ),
+            (
+                String::from("chr2"),
+                Chromosome {
+                    index: 1,
+                    length: None,
+                },
+            ),
+        ]);
         let mut a_ivs = Intervals::new(String::from("A"), Vec::new());
         let mut b_ivs = Intervals::new(String::from("B"), Vec::new());
         let n_intervals = 100;
@@ -419,7 +452,8 @@ mod tests {
 
     #[test]
     fn bookend_and_chrom() {
-        let chrom_order = HashMap::from([(String::from("chr1"), 0), (String::from("chr2"), 1)]);
+        let genome_str = "chr1\nchr2\nchr3\n";
+        let chrom_order = parse_genome(genome_str.as_bytes()).unwrap();
         let chrom = String::from("chr1");
         let a_ivs = Intervals::new(
             String::from("A"),
@@ -484,8 +518,39 @@ mod tests {
     }
 
     #[test]
+    fn interval_beyond_end_of_chrom() {
+        let genome_str = "chr1\t22\n";
+        let chrom_order = parse_genome(genome_str.as_bytes()).unwrap();
+        let a_ivs = Intervals::new(
+            String::from("A"),
+            vec![
+                Interval {
+                    chrom: String::from("chr1"),
+                    start: 10,
+                    stop: 22,
+                    ..Default::default()
+                },
+                Interval {
+                    chrom: String::from("chr1"),
+                    start: 1,
+                    stop: 23,
+                    ..Default::default()
+                },
+            ],
+        );
+        let mut iter = IntersectionIterator::new(Box::new(a_ivs), vec![], &chrom_order)
+            .expect("error getting iterator");
+
+        let e = iter.nth(1).expect("error getting next");
+        assert!(e.is_err());
+        let e = e.err().unwrap();
+        assert!(e.to_string().contains("beyond end of chromosome"));
+    }
+
+    #[test]
     fn ordering_error() {
-        let chrom_order = HashMap::from([(String::from("chr1"), 0), (String::from("chr2"), 1)]);
+        let genome_str = "chr1\nchr2\nchr3\n";
+        let chrom_order = parse_genome(genome_str.as_bytes()).unwrap();
         let a_ivs = Intervals::new(
             String::from("A"),
             vec![
@@ -559,7 +624,8 @@ mod tests {
 
     #[test]
     fn multiple_sources() {
-        let chrom_order = HashMap::from([(String::from("chr1"), 0), (String::from("chr2"), 1)]);
+        let genome_str = "chr1\nchr2\nchr3\n";
+        let chrom_order = parse_genome(genome_str.as_bytes()).unwrap();
         let a_ivs = Intervals::new(
             String::from("A"),
             vec![Interval {
@@ -612,7 +678,8 @@ mod tests {
     #[test]
     #[ignore]
     fn zero_length() {
-        let chrom_order = HashMap::from([(String::from("chr1"), 0), (String::from("chr2"), 1)]);
+        let genome_str = "chr1\nchr2\nchr3\n";
+        let chrom_order = parse_genome(genome_str.as_bytes()).unwrap();
         let a_ivs = Intervals::new(
             String::from("A"),
             vec![Interval {

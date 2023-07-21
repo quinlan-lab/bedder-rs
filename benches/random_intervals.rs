@@ -1,9 +1,9 @@
+use bedder::chrom_ordering::parse_genome;
 use bedder::intersection::IntersectionIterator;
 use bedder::interval::Interval;
 use bedder::position::{Position, Positioned, PositionedIterator};
 use bedder::string::String;
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use hashbrown::HashMap;
 use rand::Rng;
 use std::io;
 
@@ -57,7 +57,8 @@ impl PositionedIterator for Intervals {
 const MAX_POSITION: u64 = 10_000;
 
 pub fn intersection_benchmark(c: &mut Criterion) {
-    let chrom_order = HashMap::from([(String::from("chr1"), 0), (String::from("chr2"), 1)]);
+    let genome_str = "chr1\nchr2\n";
+    let chrom_order = parse_genome(genome_str.as_bytes()).unwrap();
 
     c.bench_function("simple intersection", |b| {
         b.iter_with_large_drop(|| {

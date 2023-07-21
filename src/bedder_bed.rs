@@ -125,6 +125,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::chrom_ordering::Chromosome;
     use crate::intersection::IntersectionIterator;
     use hashbrown::HashMap;
     use std::io::Cursor;
@@ -136,8 +137,20 @@ mod tests {
         let br = BedderBed::new(Cursor::new("chr1\t21\t30\nchr1\t22\t33"));
 
         let chrom_order = HashMap::from([
-            (String::from("chr1"), 0usize),
-            (String::from("chr2"), 1usize),
+            (
+                String::from("chr1"),
+                Chromosome {
+                    index: 0usize,
+                    length: None,
+                },
+            ),
+            (
+                String::from("chr2"),
+                Chromosome {
+                    index: 1usize,
+                    length: None,
+                },
+            ),
         ]);
 
         let it = IntersectionIterator::new(Box::new(ar), vec![Box::new(br)], &chrom_order)

@@ -27,7 +27,8 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     log::info!("starting up");
     let args = Args::parse();
 
-    let chrom_order = bedder::genome_file::parse_genome(std::fs::File::open(&args.genome_file)?)?;
+    let chrom_order =
+        bedder::chrom_ordering::parse_genome(std::fs::File::open(&args.genome_file)?)?;
 
     let a_iter = sniff::open_file(&args.query_path)?;
     let b_iters: Vec<_> = args

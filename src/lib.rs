@@ -14,7 +14,7 @@ pub mod string;
 
 pub mod sniff;
 
-pub mod genome_file;
+pub mod chrom_ordering;
 
 #[cfg(feature = "bed")]
 /// Bed parser implementing the PositionedIterator trait.

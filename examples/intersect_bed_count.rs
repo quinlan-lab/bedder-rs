@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use bedder::sniff;
 use clap::Parser;
 extern crate bedder;
-use crate::bedder::genome_file::parse_genome;
+use crate::bedder::chrom_ordering::parse_genome;
 use crate::bedder::intersection::IntersectionIterator;
 use crate::bedder::position::Positioned;
 
