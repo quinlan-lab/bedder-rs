@@ -14,13 +14,13 @@ use crate::position::{Position, Positioned, PositionedIterator};
 pub struct IntersectionIterator<'a> {
     base_iterator: Box<dyn PositionedIterator>,
     other_iterators: Vec<Box<dyn PositionedIterator>>,
-    min_heap: BinaryHeap<ReverseOrderPosition<'a, Position>>,
+    min_heap: BinaryHeap<ReverseOrderPosition<'a>>,
     chromosome_order: &'a HashMap<String, Chromosome>,
     // because multiple intervals from each stream can overlap a single base interval
     // and each interval from others may overlap many base intervals, we must keep a cache (Q)
     // we always add intervals in order with push_back and therefore remove with pop_front.
     // As soon as the front interval in cache is stricly less than the query interval, then we can pop it.
-    dequeue: VecDeque<Intersection<Position>>,
+    dequeue: VecDeque<Intersection>,
 
     // this is only kept for error checking so we can track if intervals are out of order.
     previous_interval: Option<Rc<Position>>,
@@ -36,27 +36,27 @@ pub struct IntersectionIterator<'a> {
 /// An Intersection wraps the Positioned that was intersected with a unique identifier.
 /// The u32 identifier matches the index of the database that was intersected.
 #[derive(Debug)]
-pub struct Intersection<P: Positioned> {
+pub struct Intersection {
     /// the Positioned that was intersected
-    pub interval: Rc<P>,
+    pub interval: Rc<Position>,
     /// a unique identifier indicating the source of this interval.
     pub id: u32,
 }
 
 /// An Intersections wraps the base interval and a vector of overlapping intervals.
 #[derive(Debug)]
-pub struct Intersections<P: Positioned> {
-    pub base_interval: Rc<P>,
-    pub overlapping: Vec<Intersection<P>>,
+pub struct Intersections {
+    pub base_interval: Rc<Position>,
+    pub overlapping: Vec<Intersection>,
 }
 
-struct ReverseOrderPosition<'a, P: Positioned> {
-    position: P,
+struct ReverseOrderPosition<'a> {
+    position: Position,
     chromosome_order: &'a HashMap<String, Chromosome>,
     id: usize, // file_index
 }
 
-impl<'a, P: Positioned> PartialEq for ReverseOrderPosition<'a, P> {
+impl<'a> PartialEq for ReverseOrderPosition<'a> {
     #[inline]
     fn eq(&self, other: &Self) -> bool {
         self.position.start() == other.position.start()
@@ -65,16 +65,16 @@ impl<'a, P: Positioned> PartialEq for ReverseOrderPosition<'a, P> {
     }
 }
 
-impl<'a, P: Positioned> Eq for ReverseOrderPosition<'a, P> {}
+impl<'a> Eq for ReverseOrderPosition<'a> {}
 
-impl<'a, P: Positioned> PartialOrd for ReverseOrderPosition<'a, P> {
+impl<'a> PartialOrd for ReverseOrderPosition<'a> {
     #[inline]
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl<'a, P: Positioned> Ord for ReverseOrderPosition<'a, P> {
+impl<'a> Ord for ReverseOrderPosition<'a> {
     #[inline]
     fn cmp(&self, other: &Self) -> Ordering {
         if self.position.chrom() != other.position.chrom() {
@@ -102,11 +102,7 @@ impl<'a, P: Positioned> Ord for ReverseOrderPosition<'a, P> {
 
 /// cmp will return Less if a is before b, Greater if a is after b, Equal if they overlap.
 #[inline(always)]
-fn cmp(
-    a: &dyn Positioned,
-    b: &dyn Positioned,
-    chromosome_order: &HashMap<String, Chromosome>,
-) -> Ordering {
+fn cmp(a: &Position, b: &Position, chromosome_order: &HashMap<String, Chromosome>) -> Ordering {
     if a.chrom() != b.chrom() {
         return chromosome_order[a.chrom()]
             .index
@@ -129,7 +125,7 @@ fn region_str(p: &Position) -> std::string::String {
 
 /// An iterator that returns the intersection of multiple iterators for each query interval
 impl<'a> Iterator for IntersectionIterator<'a> {
-    type Item = io::Result<Intersections<Position>>;
+    type Item = io::Result<Intersections>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let bi = self.base_iterator.next_position(None)?;
