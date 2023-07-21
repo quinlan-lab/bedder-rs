@@ -1,7 +1,7 @@
 use bedder::chrom_ordering::parse_genome;
 use bedder::intersection::IntersectionIterator;
 use bedder::interval::Interval;
-use bedder::position::{Position, Positioned, PositionedIterator};
+use bedder::position::{Position, PositionedIterator};
 use bedder::string::String;
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use rand::Rng;
@@ -36,7 +36,7 @@ impl PositionedIterator for Intervals {
         String::from(format!("{}:{}", self.name, self.i))
     }
 
-    fn next_position(&mut self, _q: Option<&dyn Positioned>) -> Option<io::Result<Position>> {
+    fn next_position(&mut self, _q: Option<&Position>) -> Option<io::Result<Position>> {
         if self.i < self.n_intervals {
             self.i += 1;
             let r: f64 = self.rng.gen();

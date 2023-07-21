@@ -1,4 +1,4 @@
-use crate::position::{Field, FieldError, Positioned, Value};
+use crate::position::{Field, FieldError, Value};
 use crate::string::String;
 /// Interval type is a simple struct that can be used as a default interval type.
 /// It has a chromosome, start, and stop field along with a (linear) HashMap of Values.
@@ -13,22 +13,22 @@ pub struct Interval {
     pub fields: LinearMap<String, Value>,
 }
 
-impl Positioned for Interval {
+impl Interval {
     #[inline]
-    fn start(&self) -> u64 {
+    pub fn start(&self) -> u64 {
         self.start
     }
     #[inline]
-    fn stop(&self) -> u64 {
+    pub fn stop(&self) -> u64 {
         self.stop
     }
     #[inline]
-    fn chrom(&self) -> &str {
+    pub fn chrom(&self) -> &str {
         &self.chrom
     }
 
     #[inline]
-    fn value(&self, f: Field) -> Result<Value, FieldError> {
+    pub fn value(&self, f: Field) -> Result<Value, FieldError> {
         match f {
             Field::String(name) => match self.fields.get(&name) {
                 None => Err(FieldError::InvalidFieldName(name)),

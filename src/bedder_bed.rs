@@ -71,7 +71,7 @@ where
 {
     fn next_position(
         &mut self,
-        _q: Option<&dyn crate::position::Positioned>,
+        _q: Option<&crate::position::Position>,
     ) -> Option<std::result::Result<Position, std::io::Error>> {
         self.buf.clear();
         loop {

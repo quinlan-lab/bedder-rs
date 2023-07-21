@@ -163,7 +163,7 @@ impl Positioned for vcf::record::Record {
 impl<'a> crate::position::PositionedIterator for BedderVCF<'a> {
     fn next_position(
         &mut self,
-        _q: Option<&dyn crate::position::Positioned>,
+        _q: Option<&crate::position::Position>,
     ) -> Option<std::result::Result<Position, std::io::Error>> {
         let mut v = vcf::Record::default();
 
@@ -177,7 +177,7 @@ impl<'a> crate::position::PositionedIterator for BedderVCF<'a> {
         }
     }
     fn name(&self) -> String {
-        String::from("vcf")
+        String::from("vcf line number:") + &self.record_number.to_string()
     }
 }
 

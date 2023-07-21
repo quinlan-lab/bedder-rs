@@ -7,7 +7,6 @@ use clap::Parser;
 extern crate bedder;
 use crate::bedder::chrom_ordering::parse_genome;
 use crate::bedder::intersection::IntersectionIterator;
-use crate::bedder::position::Positioned;
 
 #[derive(Parser, Debug)]
 struct Args {

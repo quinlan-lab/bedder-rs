@@ -8,7 +8,7 @@ use std::io::{Error, ErrorKind};
 use std::rc::Rc;
 //use std::sync::Arc as Rc;
 
-use crate::position::{Position, Positioned, PositionedIterator};
+use crate::position::{Position, PositionedIterator};
 
 /// An iterator that returns the intersection of multiple iterators.
 pub struct IntersectionIterator<'a> {
@@ -299,7 +299,7 @@ impl<'a> IntersectionIterator<'a> {
                 .expect("expected interval iterator at file index");
             // for a given base_interval, we make sure to call next_position with Some, only once.
             // subsequent calls will be with None.
-            let arg: Option<&dyn Positioned> = if !self.called[file_index] {
+            let arg: Option<&Position> = if !self.called[file_index] {
                 self.called[file_index] = true;
                 Some(base_interval.as_ref())
             } else {
@@ -392,7 +392,7 @@ mod tests {
             String::from(format!("{}:{}", self.name, self.i))
         }
 
-        fn next_position(&mut self, _o: Option<&dyn Positioned>) -> Option<io::Result<Position>> {
+        fn next_position(&mut self, _o: Option<&Position>) -> Option<io::Result<Position>> {
             if self.i >= self.ivs.len() {
                 return None;
             }

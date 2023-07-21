@@ -65,9 +65,9 @@ pub enum Position {
     Other(Box<dyn Positioned>),
 }
 
-impl Positioned for Position {
+impl Position {
     #[inline]
-    fn chrom(&self) -> &str {
+    pub fn chrom(&self) -> &str {
         match self {
             Position::Bed(b) => b.chrom(),
             Position::Vcf(v) => v.chrom(),
@@ -78,7 +78,7 @@ impl Positioned for Position {
     }
 
     #[inline]
-    fn start(&self) -> u64 {
+    pub fn start(&self) -> u64 {
         match self {
             Position::Bed(b) => b.start(),
             Position::Vcf(v) => v.start(),
@@ -89,7 +89,7 @@ impl Positioned for Position {
     }
 
     #[inline]
-    fn stop(&self) -> u64 {
+    pub fn stop(&self) -> u64 {
         match self {
             Position::Bed(b) => b.stop(),
             Position::Vcf(v) => v.stop(),
@@ -100,7 +100,7 @@ impl Positioned for Position {
     }
 
     #[inline]
-    fn value(&self, f: Field) -> result::Result<Value, FieldError> {
+    pub fn value(&self, f: Field) -> result::Result<Value, FieldError> {
         match self {
             Position::Bed(b) => b.value(f),
             Position::Vcf(v) => v.value(f),
@@ -155,6 +155,6 @@ pub trait PositionedIterator {
     /// returned position (Positioned equal to previously returned position should have already been returned).
     fn next_position(
         &mut self,
-        q: Option<&dyn Positioned>,
+        q: Option<&Position>,
     ) -> Option<std::result::Result<Position, io::Error>>;
 }
