@@ -14,7 +14,7 @@ use crate::position::{Position, Positioned, PositionedIterator};
 pub struct IntersectionIterator<'a> {
     base_iterator: Box<dyn PositionedIterator>,
     other_iterators: Vec<Box<dyn PositionedIterator>>,
-    min_heap: BinaryHeap<ReverseOrderPosition<'a>>,
+    min_heap: BinaryHeap<ReverseOrderPosition>,
     chromosome_order: &'a HashMap<String, Chromosome>,
     // because multiple intervals from each stream can overlap a single base interval
     // and each interval from others may overlap many base intervals, we must keep a cache (Q)
@@ -27,7 +27,7 @@ pub struct IntersectionIterator<'a> {
 
     // this tracks which iterators have been called with Some(Positioned) for a given interval
     // so that calls after the first are called with None.
-    called: Vec<bool>, // TODO: use bitset
+    called: Vec<bool>,
 
     // we call this on the first iteration of pull_through_heap
     heap_initialized: bool,
@@ -50,46 +50,35 @@ pub struct Intersections {
     pub overlapping: Vec<Intersection>,
 }
 
-struct ReverseOrderPosition<'a> {
+struct ReverseOrderPosition {
     position: Position,
-    chromosome_order: &'a HashMap<String, Chromosome>,
-    id: usize, // file_index
+    chromosome_index: usize, // index order of chrom.
+    id: usize,               // file_index
 }
 
-impl<'a> PartialEq for ReverseOrderPosition<'a> {
+impl PartialEq for ReverseOrderPosition {
     #[inline]
     fn eq(&self, other: &Self) -> bool {
         self.position.start() == other.position.start()
             && self.position.stop() == other.position.stop()
-            && self.position.chrom() == other.position.chrom()
+            && self.chromosome_index == other.chromosome_index
     }
 }
 
-impl<'a> Eq for ReverseOrderPosition<'a> {}
+impl Eq for ReverseOrderPosition {}
 
-impl<'a> PartialOrd for ReverseOrderPosition<'a> {
+impl PartialOrd for ReverseOrderPosition {
     #[inline]
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl<'a> Ord for ReverseOrderPosition<'a> {
+impl Ord for ReverseOrderPosition {
     #[inline]
     fn cmp(&self, other: &Self) -> Ordering {
-        if self.position.chrom() != other.position.chrom() {
-            return self
-                .chromosome_order
-                .get(self.position.chrom())
-                .unwrap_or_else(|| {
-                    panic!(
-                        "Invalid chromosome: \"{}\" from file {} not found in chromosome order.",
-                        self.position.chrom(),
-                        self.id + 1
-                    )
-                })
-                .cmp(self.chromosome_order.get(other.position.chrom()).unwrap())
-                .reverse();
+        if self.chromosome_index != other.chromosome_index {
+            return self.chromosome_index.cmp(&other.chromosome_index).reverse();
         }
 
         let so = self.position.start().cmp(&other.position.start()).reverse();
@@ -145,6 +134,9 @@ impl<'a> Iterator for IntersectionIterator<'a> {
                     return Some(Err(Error::new(ErrorKind::Other, msg)));
                 }
             }
+        } else {
+            let msg = format!("invalid chromosome: {}", region_str(base_interval.as_ref()));
+            return Some(Err(Error::new(ErrorKind::Other, msg)));
         }
 
         if self.out_of_order(base_interval.clone()) {
@@ -227,9 +219,20 @@ impl<'a> IntersectionIterator<'a> {
         for (i, iter) in self.other_iterators.iter_mut().enumerate() {
             if let Some(positioned) = iter.next_position(Some(base_interval.as_ref())) {
                 let positioned = positioned?;
+                let chromosome_index = match self.chromosome_order.get(positioned.chrom()) {
+                    Some(c) => c.index,
+                    None => {
+                        let msg = format!(
+                            "invalid chromosome: {} in iterator {}",
+                            region_str(&positioned),
+                            self.other_iterators[i].name()
+                        );
+                        return Err(Error::new(ErrorKind::Other, msg));
+                    }
+                };
                 self.min_heap.push(ReverseOrderPosition {
                     position: positioned,
-                    chromosome_order: self.chromosome_order,
+                    chromosome_index,
                     id: i,
                 });
             }
@@ -256,12 +259,13 @@ impl<'a> IntersectionIterator<'a> {
         return match &self.previous_interval {
             None => false, // first interval in file.
             Some(previous_interval) => {
-                let pci = self.chromosome_order[previous_interval.chrom()];
-                let ici = self.chromosome_order[interval.chrom()];
-                pci > ici
-                    || (pci == ici && previous_interval.start() > interval.start())
-                    || (pci == ici
-                        && previous_interval.start() == interval.start()
+                if previous_interval.chrom() != interval.chrom() {
+                    let pci = self.chromosome_order[previous_interval.chrom()].index;
+                    let ici = self.chromosome_order[interval.chrom()].index;
+                    return pci > ici;
+                }
+                previous_interval.start() > interval.start()
+                    || (previous_interval.start() == interval.start()
                         && previous_interval.stop() > interval.stop())
             }
         };
@@ -284,6 +288,7 @@ impl<'a> IntersectionIterator<'a> {
 
         while let Some(ReverseOrderPosition {
             position,
+            chromosome_index,
             id: file_index,
             ..
         }) = self.min_heap.pop()
@@ -302,11 +307,21 @@ impl<'a> IntersectionIterator<'a> {
             };
             if let Some(next_position) = f.next_position(arg) {
                 let next_position = next_position?;
+                let next_chromosome = match self.chromosome_order.get(next_position.chrom()) {
+                    Some(c) => c,
+                    None => {
+                        let msg = format!(
+                            "invalid chromosome: {} in iterator {}",
+                            region_str(&next_position),
+                            other_iterators[file_index].name()
+                        );
+                        return Err(Error::new(ErrorKind::Other, msg));
+                    }
+                };
 
                 // check that intervals within a file are in order.
                 if !(position.start() <= next_position.start()
-                    || self.chromosome_order[position.chrom()]
-                        < self.chromosome_order[next_position.chrom()])
+                    || chromosome_index < next_chromosome.index)
                 {
                     let msg = format!(
                         "database intervals out of order ({} -> {}) in iterator: {}",
@@ -318,18 +333,18 @@ impl<'a> IntersectionIterator<'a> {
                 }
                 self.min_heap.push(ReverseOrderPosition {
                     position: next_position,
-                    chromosome_order: self.chromosome_order,
+                    chromosome_index,
                     id: file_index,
                 });
             }
 
             // and we must always add the position to the Q
             let rc_pos = Rc::new(position);
-            let int = Intersection {
+            let intersection = Intersection {
                 interval: rc_pos.clone(),
                 id: file_index as u32,
             };
-            self.dequeue.push_back(int);
+            self.dequeue.push_back(intersection);
 
             // if this position is after base_interval, we can stop pulling through heap.
             if cmp(

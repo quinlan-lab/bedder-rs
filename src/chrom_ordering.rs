@@ -2,7 +2,7 @@ use crate::string::String;
 use hashbrown::HashMap;
 use std::io::{self, BufRead, Read};
 
-#[derive(Debug, Ord, PartialEq, Eq, PartialOrd, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct Chromosome {
     pub(crate) index: usize,
     pub(crate) length: Option<usize>,
