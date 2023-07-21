@@ -1,5 +1,5 @@
 use std::fs;
-use std::io::{self, BufReader};
+use std::io::{self, BufReader, BufWriter, Write};
 use std::path::PathBuf;
 
 use bedder::sniff;
@@ -31,15 +31,20 @@ fn main() -> io::Result<()> {
     // we can have any number of b (other_iterators).
     let it = IntersectionIterator::new(ai, vec![bi], &h)?;
 
+    // we need to use buffered stdout or performance is determined by
+    // file IO
+    let mut stdout = BufWriter::new(io::stdout());
+
     for intersection in it {
         let intersection = intersection?;
-        println!(
+        writeln!(
+            &mut stdout,
             "{}\t{}\t{}\t{}",
             intersection.base_interval.chrom(),
             intersection.base_interval.start(),
             intersection.base_interval.stop(),
             intersection.overlapping.len()
-        );
+        )?;
     }
 
     Ok(())
