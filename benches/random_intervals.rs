@@ -3,8 +3,8 @@ use bedder::interval::Interval;
 use bedder::position::{Position, Positioned, PositionedIterator};
 use bedder::string::String;
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use hashbrown::HashMap;
 use rand::Rng;
-use std::collections::HashMap;
 use std::io;
 
 struct Intervals {

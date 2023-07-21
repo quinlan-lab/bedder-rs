@@ -1,5 +1,5 @@
 use crate::string::String;
-use std::collections::HashMap;
+use hashbrown::HashMap;
 use std::io::{self, BufRead, Read};
 
 pub fn parse_genome<R>(reader: R) -> io::Result<HashMap<String, usize>>
@@ -7,7 +7,7 @@ where
     R: Read,
 {
     let mut reader = io::BufReader::new(reader);
-    let mut genome = HashMap::new();
+    let mut genome = HashMap::default();
     let mut line = std::string::String::new();
     while reader.read_line(&mut line)? > 0 {
         if line.trim().is_empty() || line.starts_with('#') {

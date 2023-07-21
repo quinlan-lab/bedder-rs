@@ -126,7 +126,7 @@ where
 mod tests {
     use super::*;
     use crate::intersection::IntersectionIterator;
-    use std::collections::HashMap;
+    use hashbrown::HashMap;
     use std::io::Cursor;
 
     #[test]
@@ -135,7 +135,10 @@ mod tests {
         let ar = BedderBed::new(Cursor::new("chr1\t20\t30\nchr1\t21\t33"));
         let br = BedderBed::new(Cursor::new("chr1\t21\t30\nchr1\t22\t33"));
 
-        let chrom_order = HashMap::from([(String::from("chr1"), 0), (String::from("chr2"), 1)]);
+        let chrom_order = HashMap::from([
+            (String::from("chr1"), 0usize),
+            (String::from("chr2"), 1usize),
+        ]);
 
         let it = IntersectionIterator::new(Box::new(ar), vec![Box::new(br)], &chrom_order)
             .expect("error creating iterator");

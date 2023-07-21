@@ -1,6 +1,7 @@
 use crate::string::String;
+use hashbrown::HashMap;
 use std::cmp::Ordering;
-use std::collections::{vec_deque::VecDeque, BinaryHeap, HashMap};
+use std::collections::{vec_deque::VecDeque, BinaryHeap};
 use std::io;
 use std::io::{Error, ErrorKind};
 use std::rc::Rc;
