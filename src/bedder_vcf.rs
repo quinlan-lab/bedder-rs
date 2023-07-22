@@ -64,7 +64,7 @@ fn match_info_value(info: &vcf::record::Info, name: &str) -> result::Result<Valu
     //let info = record.info();
     let key: vcf::record::info::field::Key = name
         .parse()
-        .map_err(|_| FieldError::InvalidFieldName(String::from(name)))?;
+        .map_err(|_| FieldError::InvalidFieldName(String::from(name.clone())))?;
 
     match info.get(&key) {
         Some(value) => match value {
@@ -177,7 +177,7 @@ impl<'a> crate::position::PositionedIterator for BedderVCF<'a> {
         }
     }
     fn name(&self) -> String {
-        String::from("vcf line number:") + &self.record_number.to_string()
+        String::from("vcf line number:".to_owned() + self.record_number.to_string().as_str())
     }
 }
 
