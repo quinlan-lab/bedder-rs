@@ -1,6 +1,7 @@
 use crate::position::{Field, FieldError, Position, Positioned, Value};
 use crate::string::String;
 use noodles::bcf;
+use noodles::core::Region;
 use noodles::vcf::{self, record::Chromosome};
 use std::io::{self, BufRead};
 use std::result;
@@ -10,7 +11,7 @@ pub use vcf::Record;
 
 pub trait VCFReader {
     fn read_record(&mut self, header: &vcf::Header, v: &mut vcf::Record) -> io::Result<usize>;
-    // fn queryable
+    fn query(&mut self, header: &vcf::Header, region: &Region) -> io::Result<()>;
 }
 
 impl<R> VCFReader for vcf::Reader<R>
@@ -20,6 +21,11 @@ where
     #[inline]
     fn read_record(&mut self, header: &vcf::Header, v: &mut vcf::Record) -> io::Result<usize> {
         self.read_record(header, v)
+    }
+
+    #[inline]
+    fn query(&mut self, header: &vcf::Header, region: &Region) -> io::Result<()> {
+        Ok(())
     }
 }
 
@@ -40,6 +46,10 @@ where
     #[inline]
     fn read_record(&mut self, header: &vcf::Header, v: &mut vcf::Record) -> io::Result<usize> {
         self.read_record(header, v)
+    }
+    #[inline]
+    fn query(&mut self, header: &vcf::Header, region: &Region) -> io::Result<()> {
+        Ok(())
     }
 }
 
