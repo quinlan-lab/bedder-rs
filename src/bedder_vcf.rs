@@ -1,7 +1,10 @@
 use crate::position::{Field, FieldError, Position, Positioned, Value};
 use crate::string::String;
 use noodles::bcf;
+pub use noodles::bcf::indexed_reader::IndexedReader as IndexedBCFReader;
+use noodles::bgzf::gzi::Index;
 use noodles::core::Region;
+use noodles::csi;
 use noodles::vcf::{self, record::Chromosome};
 use std::io::{self, BufRead};
 use std::result;
@@ -29,6 +32,7 @@ where
     }
 }
 
+/*
 impl<R> VCFReader for vcf::indexed_reader::IndexedReader<R>
 where
     R: BufRead,
@@ -38,8 +42,9 @@ where
         self.read_record(header, v)
     }
 }
+*/
 
-impl<R> VCFReader for bcf::Reader<R>
+impl<R> VCFReader for IndexedBCFReader<R>
 where
     R: BufRead,
 {
@@ -49,6 +54,8 @@ where
     }
     #[inline]
     fn query(&mut self, header: &vcf::Header, region: &Region) -> io::Result<()> {
+        let q = self.query(header, region);
+        // NOTE: this doesn't actually set the file position. need to actually iterate over the returned query.
         Ok(())
     }
 }
