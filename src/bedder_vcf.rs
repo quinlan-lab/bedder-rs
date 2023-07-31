@@ -6,6 +6,7 @@ use noodles::bgzf::gzi::Index;
 use noodles::core::Region;
 use noodles::csi;
 use noodles::vcf::{self, record::Chromosome};
+use noodles_util::variant;
 use std::io::{self, BufRead};
 use std::result;
 use vcf::record::info::field;
@@ -17,7 +18,7 @@ pub trait VCFReader {
     fn query(&mut self, header: &vcf::Header, region: &Region) -> io::Result<()>;
 }
 
-impl<R> VCFReader for vcf::Reader<R>
+impl<R> VCFReader for variant::IndexedReader<R>
 where
     R: BufRead,
 {
@@ -27,9 +28,7 @@ where
     }
 
     #[inline]
-    fn query(&mut self, header: &vcf::Header, region: &Region) -> io::Result<()> {
-        Ok(())
-    }
+    fn query(&mut self, header: &vcf::Header, region: &Region) -> io::Result<()> {}
 }
 
 /*
