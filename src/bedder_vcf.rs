@@ -1,60 +1,51 @@
 use crate::position::{Field, FieldError, Position, Positioned, Value};
 use crate::string::String;
-use noodles::bcf;
 pub use noodles::bcf::indexed_reader::IndexedReader as IndexedBCFReader;
-use noodles::bgzf::gzi::Index;
 use noodles::core::Region;
-use noodles::csi;
-use noodles::vcf::{self, record::Chromosome};
+pub use noodles::vcf::record::Record;
+use noodles::vcf::{
+    self,
+    header::Header,
+    record::{info::field, Chromosome, QualityScore},
+};
 use noodles_util::variant;
-use std::io::{self, BufRead};
+use std::io::Seek;
+use std::io::{self, Read};
 use std::result;
-use vcf::record::info::field;
-use vcf::record::QualityScore;
-pub use vcf::Record;
 
 pub trait VCFReader {
-    fn read_record(&mut self, header: &vcf::Header, v: &mut vcf::Record) -> io::Result<usize>;
-    fn query(&mut self, header: &vcf::Header, region: &Region) -> io::Result<()>;
+    fn read_record(&mut self, header: &Header, v: &mut Record) -> io::Result<usize>;
+    fn query(&mut self, header: &Header, region: &Region) -> io::Result<()>;
 }
 
-impl<R> VCFReader for variant::IndexedReader<R>
+pub(crate) struct VCFWrapper<R> {
+    reader: variant::IndexedReader<R>,
+    header: vcf::Header,
+    variant: Option<vcf::Record>,
+}
+
+impl<R> VCFReader for VCFWrapper<R>
 where
-    R: BufRead,
+    R: Read + Seek,
 {
     #[inline]
     fn read_record(&mut self, header: &vcf::Header, v: &mut vcf::Record) -> io::Result<usize> {
-        self.read_record(header, v)
+        // if self.variant is present, return it and set to None
+        if let Some(variant) = self.variant.take() {
+            *v = variant;
+            return Ok(1);
+        }
+        VCFReader::read_record(self, header, v)
     }
 
     #[inline]
-    fn query(&mut self, header: &vcf::Header, region: &Region) -> io::Result<()> {}
-}
-
-/*
-impl<R> VCFReader for vcf::indexed_reader::IndexedReader<R>
-where
-    R: BufRead,
-{
-    #[inline]
-    fn read_record(&mut self, header: &vcf::Header, v: &mut vcf::Record) -> io::Result<usize> {
-        self.read_record(header, v)
-    }
-}
-*/
-
-impl<R> VCFReader for IndexedBCFReader<R>
-where
-    R: BufRead,
-{
-    #[inline]
-    fn read_record(&mut self, header: &vcf::Header, v: &mut vcf::Record) -> io::Result<usize> {
-        self.read_record(header, v)
-    }
-    #[inline]
-    fn query(&mut self, header: &vcf::Header, region: &Region) -> io::Result<()> {
-        let q = self.query(header, region);
-        // NOTE: this doesn't actually set the file position. need to actually iterate over the returned query.
+    fn query(&mut self, header: &Header, region: &Region) -> io::Result<()> {
+        let mut q = self.reader.query(header, region)?;
+        if let Some(variant) = q.next() {
+            if let Ok(variant) = variant {
+                self.variant = Some(variant);
+            }
+        }
         Ok(())
     }
 }

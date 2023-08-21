@@ -1,12 +1,12 @@
 use flate2::read::GzDecoder;
-use std::io::{BufRead, Read};
+use std::io::{BufRead, Read, Seek};
 use std::path::Path;
 
 use crate::bedder_bed::BedderBed;
-use crate::bedder_vcf::BedderVCF;
+use crate::bedder_vcf;
 use crate::position::PositionedIterator;
-use noodles::bgzf;
-use noodles::vcf;
+use noodles::{bgzf, vcf};
+use noodles_util::variant::{self, Reader};
 
 /// File formats supported by this file detector.
 #[derive(Debug, PartialEq)]
@@ -41,7 +41,7 @@ where
 
 pub fn open_reader<R, P>(reader: R, path: P) -> std::io::Result<Box<dyn PositionedIterator>>
 where
-    R: Read + 'static,
+    R: Read + Seek + 'static,
     P: AsRef<Path>,
 {
     let mut reader = std::io::BufReader::new(reader);
@@ -63,19 +63,27 @@ where
         Compression::RAZF => unimplemented!(),
     };
     match format {
-        FileFormat::VCF => {
-            let mut vcf = vcf::reader::Builder.build_from_reader(br)?;
-            let hdr = vcf.read_header()?;
-            let bed_vcf = BedderVCF::new(Box::new(vcf), hdr)?;
+        FileFormat::VCF | FileFormat::BCF => {
+            // TODO: we'll need to check for index before doing this.
+            let mut vcf_reader =
+                variant::indexed_reader::Builder::default().build_from_reader(br)?;
+            let hdr = vcf_reader.read_header()?;
+            let wrapper = bedder_vcf::VCFWrapper {
+                reader: vcf_reader,
+                header: hdr.clone(),
+                variant: None,
+            };
+            let bed_vcf = bedder_vcf::BedderVCF::new(Box::new(wrapper), hdr)?;
             Ok(Box::new(bed_vcf))
         }
-        FileFormat::BCF => {
-            let mut bcf = noodles::bcf::Reader::new(br);
-            let hdr = bcf.read_header()?;
-            let bed_vcf = BedderVCF::new(Box::new(bcf), hdr)?;
-            Ok(Box::new(bed_vcf))
+        /*
+        FileFormat::BAM => {
+            let mut bam = noodles::bam::Reader::new(br);
+            let hdr = bam.read_header()?;
+            let bed_bam = crate::bedder_bam::BedderBAM::new(Box::new(bam), hdr)?;
+            Ok(Box::new(bed_bam))
         }
-
+        */
         FileFormat::BED => {
             let reader = BedderBed::new(br);
             Ok(Box::new(reader))
