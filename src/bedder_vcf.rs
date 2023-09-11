@@ -13,44 +13,35 @@ pub trait VCFReader {
     // fn queryable
 }
 
-impl<R> VCFReader for vcf::Reader<R>
+pub enum VCF<R> {
+    VCF(vcf::Reader<R>),
+    IndexedVCF(vcf::indexed_reader::IndexedReader<R>),
+    BCF(bcf::Reader<R>),
+    IndexedBCF(bcf::indexed_reader::IndexedReader<R>),
+}
+
+impl<R> VCFReader for VCF<R>
 where
     R: BufRead,
 {
-    #[inline]
     fn read_record(&mut self, header: &vcf::Header, v: &mut vcf::Record) -> io::Result<usize> {
-        self.read_record(header, v)
+        match self {
+            VCF::VCF(r) => r.read_record(header, v),
+            VCF::IndexedVCF(r) => r.read_record(header, v),
+            VCF::BCF(r) => r.read_record(header, v),
+            VCF::IndexedBCF(r) => r.read_record(header, v),
+        }
     }
 }
 
-impl<R> VCFReader for vcf::indexed_reader::IndexedReader<R>
-where
-    R: BufRead,
-{
-    #[inline]
-    fn read_record(&mut self, header: &vcf::Header, v: &mut vcf::Record) -> io::Result<usize> {
-        self.read_record(header, v)
-    }
-}
-
-impl<R> VCFReader for bcf::Reader<R>
-where
-    R: BufRead,
-{
-    #[inline]
-    fn read_record(&mut self, header: &vcf::Header, v: &mut vcf::Record) -> io::Result<usize> {
-        self.read_record(header, v)
-    }
-}
-
-pub struct BedderVCF<'a> {
-    reader: Box<dyn VCFReader + 'a>,
+pub struct BedderVCF<R> {
+    reader: VCF<R>,
     header: vcf::Header,
     record_number: u64,
 }
 
-impl<'a> BedderVCF<'a> {
-    pub fn new(r: Box<dyn VCFReader + 'a>, header: vcf::Header) -> io::Result<BedderVCF<'a>> {
+impl<R> BedderVCF<R> {
+    pub fn new(r: VCF<R>, header: vcf::Header) -> io::Result<BedderVCF<R>> {
         let v = BedderVCF {
             reader: r,
             header,
@@ -160,7 +151,10 @@ impl Positioned for vcf::record::Record {
     }
 }
 
-impl<'a> crate::position::PositionedIterator for BedderVCF<'a> {
+impl<R> crate::position::PositionedIterator for BedderVCF<R>
+where
+    R: BufRead,
+{
     fn next_position(
         &mut self,
         _q: Option<&crate::position::Position>,

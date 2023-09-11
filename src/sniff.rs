@@ -3,7 +3,7 @@ use std::io::{BufRead, Read};
 use std::path::Path;
 
 use crate::bedder_bed::BedderBed;
-use crate::bedder_vcf::BedderVCF;
+use crate::bedder_vcf::{BedderVCF, VCF};
 use crate::position::PositionedIterator;
 use noodles::bgzf;
 use noodles::vcf;
@@ -66,13 +66,13 @@ where
         FileFormat::VCF => {
             let mut vcf = vcf::reader::Builder.build_from_reader(br)?;
             let hdr = vcf.read_header()?;
-            let bed_vcf = BedderVCF::new(Box::new(vcf), hdr)?;
+            let bed_vcf = BedderVCF::new(VCF::VCF(vcf), hdr)?;
             Ok(Box::new(bed_vcf))
         }
         FileFormat::BCF => {
             let mut bcf = noodles::bcf::Reader::new(br);
             let hdr = bcf.read_header()?;
-            let bed_vcf = BedderVCF::new(Box::new(bcf), hdr)?;
+            let bed_vcf = BedderVCF::new(VCF::BCF(bcf), hdr)?;
             Ok(Box::new(bed_vcf))
         }
 
