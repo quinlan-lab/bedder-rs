@@ -2,53 +2,34 @@ use crate::position::{Field, FieldError, Position, Positioned, Value};
 use crate::string::String;
 use noodles::bcf;
 use noodles::vcf::{self, record::Chromosome};
-use std::io::{self, BufRead};
+use std::io::{self, BufRead, Read};
 use std::result;
 use vcf::record::info::field;
 use vcf::record::QualityScore;
 pub use vcf::Record;
-
-pub trait VCFReader {
-    fn read_record(&mut self, header: &vcf::Header, v: &mut vcf::Record) -> io::Result<usize>;
-    // fn queryable
-}
-
-pub enum VCF<R> {
-    VCF(vcf::Reader<R>),
-    IndexedVCF(vcf::indexed_reader::IndexedReader<R>),
-    BCF(bcf::Reader<R>),
-    IndexedBCF(bcf::indexed_reader::IndexedReader<R>),
-}
-
-impl<R> VCFReader for VCF<R>
-where
-    R: BufRead,
-{
-    fn read_record(&mut self, header: &vcf::Header, v: &mut vcf::Record) -> io::Result<usize> {
-        match self {
-            VCF::VCF(r) => r.read_record(header, v),
-            VCF::IndexedVCF(r) => r.read_record(header, v),
-            VCF::BCF(r) => r.read_record(header, v),
-            VCF::IndexedBCF(r) => r.read_record(header, v),
-        }
-    }
-}
+pub use xvcf;
 
 pub struct BedderVCF<R> {
-    reader: VCF<R>,
-    header: vcf::Header,
+    reader: xvcf::Reader<R>,
     record_number: u64,
 }
 
-impl<R> BedderVCF<R> {
-    pub fn new(r: VCF<R>, header: vcf::Header) -> io::Result<BedderVCF<R>> {
+impl<R> BedderVCF<R>
+where
+    R: Read + 'static,
+{
+    pub fn new(r: xvcf::Reader<R>) -> io::Result<BedderVCF<R>> {
         let v = BedderVCF {
             reader: r,
-            header,
             record_number: 0,
         };
         Ok(v)
     }
+}
+
+pub fn from_reader<R: Read>(r: Box<R>) -> io::Result<BedderVCF<R>> {
+    let reader = xvcf::Reader::from_reader(r, None)?;
+    BedderVCF::new(reader)
 }
 
 fn match_info_value(info: &vcf::record::Info, name: &str) -> result::Result<Value, FieldError> {
@@ -153,7 +134,7 @@ impl Positioned for vcf::record::Record {
 
 impl<R> crate::position::PositionedIterator for BedderVCF<R>
 where
-    R: BufRead,
+    R: Read + 'static,
 {
     fn next_position(
         &mut self,
@@ -161,7 +142,7 @@ where
     ) -> Option<std::result::Result<Position, std::io::Error>> {
         let mut v = vcf::Record::default();
 
-        match self.reader.read_record(&self.header, &mut v) {
+        match self.reader.next_record(&self.reader.header(), &mut v) {
             Ok(0) => None, // EOF
             Ok(_) => {
                 self.record_number += 1;
