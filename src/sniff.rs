@@ -3,10 +3,9 @@ use std::io::{BufRead, Read};
 use std::path::Path;
 
 use crate::bedder_bed::BedderBed;
-use crate::bedder_vcf::{BedderVCF, VCF};
+use crate::bedder_vcf::BedderVCF;
 use crate::position::PositionedIterator;
 use noodles::bgzf;
-use noodles::vcf;
 
 /// File formats supported by this file detector.
 #[derive(Debug, PartialEq)]
@@ -52,35 +51,36 @@ where
         format,
         compression
     );
-    let br: Box<dyn BufRead> = match compression {
-        Compression::None => Box::new(reader),
-        Compression::GZ => Box::new(std::io::BufReader::new(GzDecoder::new(reader))),
-        Compression::BGZF => match format {
-            // BCF|BAM will appear as bgzf so we don't want to do this outside
-            FileFormat::BCF | FileFormat::BAM => Box::new(reader),
-            _ => Box::new(bgzf::Reader::new(reader)),
-        },
-        Compression::RAZF => unimplemented!(),
-    };
+    /*
+     */
     match format {
-        FileFormat::VCF => {
-            let mut vcf = vcf::reader::Builder.build_from_reader(br)?;
-            let hdr = vcf.read_header()?;
-            let bed_vcf = BedderVCF::new(VCF::VCF(vcf), hdr)?;
+        FileFormat::VCF | FileFormat::BCF => {
+            // get &str from path
+            let path = path.as_ref().to_str().unwrap();
+            let x = xvcf::Reader::from_reader(Box::new(reader), Some(path))?;
+            let bed_vcf = BedderVCF::new(x)?;
             Ok(Box::new(bed_vcf))
         }
-        FileFormat::BCF => {
-            let mut bcf = noodles::bcf::Reader::new(br);
-            let hdr = bcf.read_header()?;
-            let bed_vcf = BedderVCF::new(VCF::BCF(bcf), hdr)?;
-            Ok(Box::new(bed_vcf))
-        }
+        _ => {
+            let br: Box<dyn BufRead> = match compression {
+                Compression::None => Box::new(reader),
+                Compression::GZ => Box::new(std::io::BufReader::new(GzDecoder::new(reader))),
+                Compression::BGZF => match format {
+                    // BCF|BAM will appear as bgzf so we don't want to do this outside
+                    FileFormat::BCF | FileFormat::BAM => Box::new(reader),
+                    _ => Box::new(bgzf::Reader::new(reader)),
+                },
+                Compression::RAZF => unimplemented!(),
+            };
 
-        FileFormat::BED => {
-            let reader = BedderBed::new(br);
-            Ok(Box::new(reader))
+            match format {
+                FileFormat::BED => {
+                    let reader = BedderBed::new(br);
+                    Ok(Box::new(reader))
+                }
+                _ => unimplemented!("{format:?} not yet supported"),
+            }
         }
-        _ => unimplemented!("{format:?} not yet supported"),
     }
 }
 

@@ -1,3 +1,5 @@
+#![allow(clippy::useless_conversion)] // these are needed to support e.g. smartstring
+
 use crate::position::{Field, FieldError, Position, Positioned, Value};
 use crate::string::String;
 pub use bed::record::Record;

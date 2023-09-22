@@ -1,8 +1,8 @@
+#![allow(clippy::useless_conversion)] // these are needed to support e.g. smartstring
 use crate::position::{Field, FieldError, Position, Positioned, Value};
 use crate::string::String;
-use noodles::bcf;
 use noodles::vcf::{self, record::Chromosome};
-use std::io::{self, BufRead, Read};
+use std::io::{self, Read};
 use std::result;
 use vcf::record::info::field;
 use vcf::record::QualityScore;
@@ -12,6 +12,7 @@ pub use xvcf;
 pub struct BedderVCF<R> {
     reader: xvcf::Reader<R>,
     record_number: u64,
+    header: vcf::Header,
 }
 
 impl<R> BedderVCF<R>
@@ -19,24 +20,28 @@ where
     R: Read + 'static,
 {
     pub fn new(r: xvcf::Reader<R>) -> io::Result<BedderVCF<R>> {
+        let h = r.header().clone();
         let v = BedderVCF {
             reader: r,
             record_number: 0,
+            header: h,
         };
         Ok(v)
     }
 }
 
-pub fn from_reader<R: Read>(r: Box<R>) -> io::Result<BedderVCF<R>> {
+/*
+pub fn _from_reader<R: Read>(r: Box<R>) -> io::Result<BedderVCF<R>> {
     let reader = xvcf::Reader::from_reader(r, None)?;
     BedderVCF::new(reader)
 }
+*/
 
 fn match_info_value(info: &vcf::record::Info, name: &str) -> result::Result<Value, FieldError> {
     //let info = record.info();
     let key: vcf::record::info::field::Key = name
         .parse()
-        .map_err(|_| FieldError::InvalidFieldName(String::from(name.clone())))?;
+        .map_err(|_| FieldError::InvalidFieldName(String::from(name)))?;
 
     match info.get(&key) {
         Some(value) => match value {
@@ -142,7 +147,7 @@ where
     ) -> Option<std::result::Result<Position, std::io::Error>> {
         let mut v = vcf::Record::default();
 
-        match self.reader.next_record(&self.reader.header(), &mut v) {
+        match self.reader.next_record(&self.header, &mut v) {
             Ok(0) => None, // EOF
             Ok(_) => {
                 self.record_number += 1;
