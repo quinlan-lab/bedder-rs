@@ -1,6 +1,6 @@
 #![allow(clippy::useless_conversion)] // these are needed to support e.g. smartstring
 
-use crate::position::{Field, FieldError, Position, Positioned, Value};
+use crate::position::{Field, FieldError, Position, Positioned, Value, Valued};
 use crate::string::String;
 pub use bed::record::Record;
 pub use noodles::bed;
@@ -23,7 +23,9 @@ impl crate::position::Positioned for bed::record::Record<3> {
     fn stop(&self) -> u64 {
         self.end_position().get() as u64
     }
+}
 
+impl Valued for bed::record::Record<3> {
     fn value(&self, v: crate::position::Field) -> result::Result<Value, FieldError> {
         match v {
             Field::String(s) => Ok(Value::Strings(vec![s])),

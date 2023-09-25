@@ -47,11 +47,13 @@ pub trait Positioned: Debug {
     /// non-inclusive end;
     fn stop(&self) -> u64;
 
-    // extract a value from the Positioned object Col
-    fn value(&self, b: Field) -> result::Result<Value, FieldError>;
-
     // get back the original line?
     //fn line(&self) -> &'a str;
+}
+
+pub trait Valued {
+    // extract a value from the Positioned object Col
+    fn value(&self, b: Field) -> result::Result<Value, FieldError>;
 }
 
 #[derive(Debug)]
@@ -98,16 +100,13 @@ impl Position {
             Position::Other(o) => o.stop(),
         }
     }
+}
 
+#[cfg(feature = "dyn_positioned")]
+impl Valued for Box<dyn Positioned> {
     #[inline]
-    pub fn value(&self, f: Field) -> result::Result<Value, FieldError> {
-        match self {
-            Position::Bed(b) => b.value(f),
-            Position::Vcf(v) => v.value(f),
-            Position::Interval(i) => i.value(f),
-            #[cfg(feature = "dyn_positioned")]
-            Position::Other(o) => o.value(f),
-        }
+    fn value(&self, f: Field) -> result::Result<Value, FieldError> {
+        self.value(f)
     }
 }
 
@@ -123,10 +122,6 @@ impl Positioned for Box<dyn Positioned> {
 
     fn stop(&self) -> u64 {
         self.as_ref().stop()
-    }
-
-    fn value(&self, b: Field) -> result::Result<Value, FieldError> {
-        self.as_ref().value(b)
     }
 }
 

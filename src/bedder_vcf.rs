@@ -30,14 +30,7 @@ where
     }
 }
 
-/*
-pub fn _from_reader<R: Read>(r: Box<R>) -> io::Result<BedderVCF<R>> {
-    let reader = xvcf::Reader::from_reader(r, None)?;
-    BedderVCF::new(reader)
-}
-*/
-
-fn match_info_value(info: &vcf::record::Info, name: &str) -> result::Result<Value, FieldError> {
+pub fn match_info_value(info: &vcf::record::Info, name: &str) -> result::Result<Value, FieldError> {
     //let info = record.info();
     let key: vcf::record::info::field::Key = name
         .parse()
@@ -76,7 +69,7 @@ fn match_info_value(info: &vcf::record::Info, name: &str) -> result::Result<Valu
     }
 }
 
-fn match_value(record: &vcf::record::Record, f: Field) -> result::Result<Value, FieldError> {
+pub fn match_value(record: &vcf::record::Record, f: Field) -> result::Result<Value, FieldError> {
     match f {
         Field::String(s) => match s.as_str() {
             "chrom" => Ok(Value::Strings(vec![String::from(Positioned::chrom(
@@ -130,10 +123,6 @@ impl Positioned for vcf::record::Record {
     #[inline]
     fn stop(&self) -> u64 {
         usize::from(self.end().expect("error getting end from vcf record")) as u64
-    }
-
-    fn value(&self, f: crate::position::Field) -> result::Result<Value, FieldError> {
-        match_value(self, f)
     }
 }
 
