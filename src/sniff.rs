@@ -1,5 +1,5 @@
 use flate2::read::GzDecoder;
-use std::io::{BufRead, Read};
+use std::io::{BufRead, Read, Seek};
 use std::path::Path;
 
 use crate::bedder_bed::BedderBed;
@@ -40,7 +40,7 @@ where
 
 pub fn open_reader<R, P>(reader: R, path: P) -> std::io::Result<Box<dyn PositionedIterator>>
 where
-    R: Read + 'static,
+    R: Read + Seek + 'static,
     P: AsRef<Path>,
 {
     let mut reader = std::io::BufReader::new(reader);

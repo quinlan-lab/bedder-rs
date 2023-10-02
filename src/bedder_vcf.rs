@@ -1,13 +1,15 @@
 #![allow(clippy::useless_conversion)] // these are needed to support e.g. smartstring
 use crate::position::{Field, FieldError, Position, Positioned, Value};
 use crate::string::String;
+use noodles::core::Region;
 use noodles::vcf::{self, record::Chromosome};
-use std::io::{self, Read};
+use std::io::{self, Read, Seek};
 use std::result;
 use vcf::record::info::field;
 use vcf::record::QualityScore;
 pub use vcf::Record;
 pub use xvcf;
+use xvcf::Skip;
 
 pub struct BedderVCF<R> {
     reader: xvcf::Reader<R>,
@@ -128,12 +130,28 @@ impl Positioned for vcf::record::Record {
 
 impl<R> crate::position::PositionedIterator for BedderVCF<R>
 where
-    R: Read + 'static,
+    R: Read + Seek + 'static,
 {
     fn next_position(
         &mut self,
-        _q: Option<&crate::position::Position>,
+        q: Option<&crate::position::Position>,
     ) -> Option<std::result::Result<Position, std::io::Error>> {
+        if let Some(q) = q {
+            let s = noodles::core::Position::new(q.start() as usize + 1)?;
+            let e = noodles::core::Position::new(q.stop() as usize + 1)?;
+            let region = Region::new(q.chrom(), s..=e);
+            match self.reader.skip_to(&self.header, &region) {
+                Ok(_) => (),
+                Err(e) => return Some(Err(e)),
+            }
+        }
+
+        // take self.reader.variant if it's there
+        if let Some(v) = self.reader.take() {
+            self.record_number += 1;
+            return Some(Ok(Position::Vcf(Box::new(v))));
+        }
+
         let mut v = vcf::Record::default();
 
         match self.reader.next_record(&self.header, &mut v) {
