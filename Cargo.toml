@@ -27,6 +27,7 @@ log = "0.4.19"
 linear-map = "1.2.0"
 hashbrown = "0.14.0"
 xvcf = { version = "0.1.4", git = "https://github.com/brentp/xvcf-rs" }
+mimalloc = "0.1.39"
 
 [features]
 default = ["bed", "vcf", "bcf", "csi", "core", "bam", "sam", "bgzf"]
@@ -44,7 +45,8 @@ dyn_positioned = []
 
 [dev-dependencies]
 criterion = { version = "0.4", features = ["html_reports"] }
-clap = { version = "4.2.7", features = ["derive"] }
+clap = { version = "4.3.0", features = ["derive"] }
+mlua = {version = "0.9.1", features=["luau", "send", "parking_lot"]}
 
 [[bench]]
 name = "random_intervals"

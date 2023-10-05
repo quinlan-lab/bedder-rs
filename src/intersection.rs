@@ -5,8 +5,8 @@ use std::cmp::Ordering;
 use std::collections::{vec_deque::VecDeque, BinaryHeap};
 use std::io;
 use std::io::{Error, ErrorKind};
-use std::rc::Rc;
-//use std::sync::Arc as Rc;
+//use std::rc::Rc;
+use std::sync::Arc as Rc;
 
 use crate::position::{Position, PositionedIterator};
 
