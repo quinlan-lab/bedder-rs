@@ -3,6 +3,9 @@
 /// Intersection iterators and data structures.
 pub mod intersection;
 
+/// What to do with the intersections
+pub mod intersections;
+
 /// Position traits.
 pub mod position;
 
