@@ -1,5 +1,6 @@
 use crate::intersection::{Intersection, Intersections};
 use crate::position::{Position, Positioned};
+use bitflags::bitflags;
 
 /// Simple interval is used to return only the chrom, start, end.
 #[derive(Debug)]
@@ -21,46 +22,64 @@ impl<'a> Positioned for SimpleInterval<'a> {
     }
 }
 
-/// IntersectionMode determines what part of overlap is returned.
-/// The f32 is the proportion of overlap required.
-pub enum IntersectionMode {
-    // https://bedtools.readthedocs.io/en/latest/content/tools/intersect.html#usage-and-option-summary
-    /// Return Chunks of A(B) that overlap B(A)
-    Chunks(f32),
-    /// Return All of A(B) that overlaps B(A)
-    All(f32),
-    /// Return A(B) if it does not overlap B(A)
-    None(f32),
+pub enum IntersectionOutput {
+    /// Don't report the intersection.
+    /// This is commonly used for -b to not report b intervals.
+    None,
+    /// Report each portion of A that overlaps B
+    Part,
+    /// Report the whole interval of A that overlaps B
+    Whole,
+}
+
+bitflags! {
+    /// IntersectionMode indicates requirements for the intersection.
+    /// And extra fields that might be reported.
+    pub struct IntersectionMode: u8 {
+        // https://bedtools.readthedocs.io/en/latest/content/tools/intersect.html#usage-and-option-summary
+
+        /// Default without extra requirements.
+        const Empty = 0b00000000;
+
+        /// Return A(B) if it does *not* overlap B(A). Bedtools -v
+        const Not = 0b00000001;
+
+        /// Report bases of overlap (-c)
+        const Bases = 0b00000010;
+
+        /// Report count of overlaps (-C)
+        const Count = 0b00000100;
+    }
+}
+
+impl Default for IntersectionMode {
+    fn default() -> Self {
+        Self::Empty
+    }
+}
+
+#[derive(Debug)]
+pub enum OverlapAmount {
+    Bases(u64),
+    Fraction(f32),
+}
+
+impl Default for OverlapAmount {
+    fn default() -> Self {
+        Self::Bases(1)
+    }
 }
 
 impl Intersections {
     pub fn intersections<'a>(
         &'a self,
-        a_mode: Option<IntersectionMode>,
-        b_mode: Option<IntersectionMode>,
-        count: bool,
+        a_mode: IntersectionMode,
+        b_mode: IntersectionMode,
+        a_output: IntersectionOutput,
+        b_output: IntersectionOutput,
+        a_requirements: OverlapAmount,
+        b_requirements: OverlapAmount,
     ) -> Vec<SimpleInterval<'a>> {
-        match (a_mode, b_mode) {
-            (None, None) => self.a_chunks(None),
-            (Some(a_fraction), None) => unimplemented!(),
-            (None, Some(b_fraction)) => unimplemented!(),
-            (Some(a_fraction), Some(b_fraction)) => unimplemented!(),
-        }
-    }
-
-    pub fn a_chunks<'a>(&'a self, mode: Option<IntersectionMode>) -> Vec<SimpleInterval<'a>> {
-        todo!("handle mode fraction of overlap");
-        self.overlapping
-            .iter()
-            .map(|inter| {
-                let start = inter.interval.start().max(self.base_interval.start());
-                let stop = inter.interval.stop().min(self.base_interval.stop());
-                SimpleInterval {
-                    chrom: inter.interval.chrom(),
-                    start: start,
-                    stop: stop,
-                }
-            })
-            .collect()
+        unimplemented!("Intersections::intersections")
     }
 }

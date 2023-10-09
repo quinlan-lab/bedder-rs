@@ -28,6 +28,7 @@ linear-map = "1.2.0"
 hashbrown = "0.14.0"
 xvcf = { version = "0.1.4", git = "https://github.com/brentp/xvcf-rs" }
 mimalloc = "0.1.39"
+bitflags = "2.4.0"
 
 [features]
 default = ["bed", "vcf", "bcf", "csi", "core", "bam", "sam", "bgzf"]
