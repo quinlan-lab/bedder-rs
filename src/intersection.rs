@@ -5,8 +5,7 @@ use std::cmp::Ordering;
 use std::collections::{vec_deque::VecDeque, BinaryHeap};
 use std::io;
 use std::io::{Error, ErrorKind};
-//use std::rc::Rc;
-use std::sync::Arc as Rc;
+use std::sync::Arc;
 
 use crate::position::{Position, PositionedIterator};
 
@@ -23,7 +22,7 @@ pub struct IntersectionIterator<'a> {
     dequeue: VecDeque<Intersection>,
 
     // this is only kept for error checking so we can track if intervals are out of order.
-    previous_interval: Option<Rc<Position>>,
+    previous_interval: Option<Arc<Position>>,
 
     // this tracks which iterators have been called with Some(Positioned) for a given interval
     // so that calls after the first are called with None.
@@ -38,7 +37,7 @@ pub struct IntersectionIterator<'a> {
 #[derive(Debug)]
 pub struct Intersection {
     /// the Positioned that was intersected
-    pub interval: Rc<Position>,
+    pub interval: Arc<Position>,
     /// a unique identifier indicating the source of this interval.
     pub id: u32,
 }
@@ -46,7 +45,7 @@ pub struct Intersection {
 /// An Intersections wraps the base interval and a vector of overlapping intervals.
 #[derive(Debug)]
 pub struct Intersections {
-    pub base_interval: Rc<Position>,
+    pub base_interval: Arc<Position>,
     pub overlapping: Vec<Intersection>,
 }
 
@@ -122,7 +121,7 @@ impl<'a> Iterator for IntersectionIterator<'a> {
         // if bi is an error return the Result here
         let base_interval = match bi {
             Err(e) => return Some(Err(e)),
-            Ok(p) => Rc::new(p),
+            Ok(p) => Arc::new(p),
         };
         if let Some(chrom) = self.chromosome_order.get(base_interval.chrom()) {
             if let Some(chrom_len) = chrom.length {
@@ -178,9 +177,9 @@ impl<'a> Iterator for IntersectionIterator<'a> {
                 Ordering::Less => continue,
                 Ordering::Greater => break,
                 Ordering::Equal => overlapping_positions.push(Intersection {
-                    // NOTE: we're effectively making a copy here, but it's only incrementing the Rc and a u32...
-                    // we could avoid by by keeping entire intersection in Rc.
-                    interval: Rc::clone(&o.interval),
+                    // NOTE: we're effectively making a copy here, but it's only incrementing the Arc and a u32...
+                    // we could avoid by by keeping entire intersection in Arc.
+                    interval: Arc::clone(&o.interval),
                     id: o.id,
                 }),
             }
@@ -214,7 +213,7 @@ impl<'a> IntersectionIterator<'a> {
         })
     }
 
-    fn init_heap(&mut self, base_interval: Rc<Position>) -> io::Result<()> {
+    fn init_heap(&mut self, base_interval: Arc<Position>) -> io::Result<()> {
         assert!(!self.heap_initialized);
         for (i, iter) in self.other_iterators.iter_mut().enumerate() {
             if let Some(positioned) = iter.next_position(Some(base_interval.as_ref())) {
@@ -242,7 +241,7 @@ impl<'a> IntersectionIterator<'a> {
     }
 
     /// drop intervals from Q that are strictly before the base interval.
-    fn pop_front(&mut self, base_interval: Rc<Position>) {
+    fn pop_front(&mut self, base_interval: Arc<Position>) {
         while !self.dequeue.is_empty()
             && Ordering::Less
                 == cmp(
@@ -255,7 +254,7 @@ impl<'a> IntersectionIterator<'a> {
         }
     }
 
-    fn out_of_order(&self, interval: Rc<Position>) -> bool {
+    fn out_of_order(&self, interval: Arc<Position>) -> bool {
         return match &self.previous_interval {
             None => false, // first interval in file.
             Some(previous_interval) => {
@@ -277,12 +276,12 @@ impl<'a> IntersectionIterator<'a> {
         unsafe { ptr.write_bytes(0, self.called.len()) };
     }
 
-    fn pull_through_heap(&mut self, base_interval: Rc<Position>) -> io::Result<()> {
+    fn pull_through_heap(&mut self, base_interval: Arc<Position>) -> io::Result<()> {
         self.zero_called();
         if !self.heap_initialized {
             // we wait til first iteration here to call init heap
             // because we need the base interval.
-            self.init_heap(Rc::clone(&base_interval))?;
+            self.init_heap(Arc::clone(&base_interval))?;
         }
         let other_iterators = self.other_iterators.as_mut_slice();
 
@@ -339,7 +338,7 @@ impl<'a> IntersectionIterator<'a> {
             }
 
             // and we must always add the position to the Q
-            let rc_pos = Rc::new(position);
+            let rc_pos = Arc::new(position);
             let intersection = Intersection {
                 interval: rc_pos.clone(),
                 id: file_index as u32,

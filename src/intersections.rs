@@ -71,15 +71,75 @@ impl Default for OverlapAmount {
 }
 
 impl Intersections {
-    pub fn intersections<'a>(
-        &'a self,
+    pub fn intersections(
+        &self,
         a_mode: IntersectionMode,
         b_mode: IntersectionMode,
         a_output: IntersectionOutput,
         b_output: IntersectionOutput,
         a_requirements: OverlapAmount,
         b_requirements: OverlapAmount,
-    ) -> Vec<SimpleInterval<'a>> {
-        unimplemented!("Intersections::intersections")
+    ) -> Vec<SimpleInterval> {
+        // now, given the arguments that determine what is reported (output)
+        // and what is required (mode), we collect the intersections
+        let mut results = Vec::new();
+        let base = self.base_interval.clone();
+        // iterate over the intersections and check the requirements
+        self.overlapping.iter().for_each(|o| {
+            // check o vs base
+            let bases_overlapping =
+                o.interval.stop().min(base.stop()) - o.interval.start().max(base.start());
+        });
+        results
+    }
+}
+
+// write some tests
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+
+    #[test]
+    fn test_simple() {
+        // make a single Intersections
+        let base = SimpleInterval {
+            chrom: "chr1",
+            start: 1,
+            stop: 10,
+        };
+        let other = SimpleInterval {
+            chrom: "chr1",
+            start: 3,
+            stop: 6,
+        };
+        let p = Position::Other(Box::new(base));
+        let oi1 = Intersection {
+            interval: Arc::new(Position::Other(Box::new(other))),
+            id: 0,
+        };
+        let oi2 = Intersection {
+            interval: Arc::new(Position::Other(Box::new(SimpleInterval {
+                chrom: "chr1",
+                start: 8,
+                stop: 12,
+            }))),
+            id: 1,
+        };
+        let intersections = Intersections {
+            base_interval: Arc::new(p),
+            overlapping: vec![oi1, oi2],
+        };
+
+        intersections
+            .overlapping
+            .iter()
+            .map(|o| o.interval.clone())
+            .for_each(|i| {
+                let overlap = i.stop().min(intersections.base_interval.stop())
+                    - i.start().max(intersections.base_interval.start());
+                println!("overlap: {:?}", overlap);
+                println!("i: {:?}", i);
+            })
     }
 }

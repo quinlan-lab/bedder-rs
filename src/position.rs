@@ -63,7 +63,7 @@ pub enum Position {
     Vcf(Box<crate::bedder_vcf::Record>),
     Interval(crate::interval::Interval),
     // catch-all in case we have another interval type.
-    #[cfg(feature = "dyn_positioned")]
+    // #[cfg(feature = "dyn_positioned")]
     Other(Box<dyn Positioned>),
 }
 
@@ -74,7 +74,7 @@ impl Position {
             Position::Bed(b) => b.chrom(),
             Position::Vcf(v) => v.chrom(),
             Position::Interval(i) => &i.chrom,
-            #[cfg(feature = "dyn_positioned")]
+            // #[cfg(feature = "dyn_positioned")]
             Position::Other(o) => o.chrom(),
         }
     }
@@ -85,7 +85,7 @@ impl Position {
             Position::Bed(b) => b.start(),
             Position::Vcf(v) => v.start(),
             Position::Interval(i) => i.start,
-            #[cfg(feature = "dyn_positioned")]
+            // #[cfg(feature = "dyn_positioned")]
             Position::Other(o) => o.start(),
         }
     }
@@ -96,17 +96,9 @@ impl Position {
             Position::Bed(b) => b.stop(),
             Position::Vcf(v) => v.stop(),
             Position::Interval(i) => i.stop,
-            #[cfg(feature = "dyn_positioned")]
+            // #[cfg(feature = "dyn_positioned")]
             Position::Other(o) => o.stop(),
         }
-    }
-}
-
-#[cfg(feature = "dyn_positioned")]
-impl Valued for Box<dyn Positioned> {
-    #[inline]
-    fn value(&self, f: Field) -> result::Result<Value, FieldError> {
-        self.value(f)
     }
 }
 
