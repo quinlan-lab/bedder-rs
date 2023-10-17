@@ -4,6 +4,7 @@ use crate::position::{Field, FieldError, Position, Positioned, Value, Valued};
 use crate::string::String;
 pub use bed::record::Record;
 pub use noodles::bed;
+use noodles::core;
 use std::io::{self, BufRead};
 use std::result;
 
@@ -17,6 +18,32 @@ impl crate::position::Positioned for bed::record::Record<3> {
     fn start(&self) -> u64 {
         // noodles position is 1-based.
         self.start_position().get() as u64 - 1
+    }
+
+    fn set_start(&mut self, start: u64) {
+        // must build a new record to set start.
+        let pstart = core::Position::try_from(start as usize).expect("invalid start");
+        let record = bed::Record::<3>::builder()
+            .set_reference_sequence_name(self.reference_sequence_name())
+            .set_start_position(pstart)
+            .set_end_position(self.end_position())
+            .set_optional_fields(self.optional_fields().clone())
+            .build()
+            .expect("error building record");
+        *self = record;
+    }
+
+    fn set_stop(&mut self, start: u64) {
+        // must build a new record to set start.
+        let pstop = core::Position::try_from(start as usize + 1).expect("invalid start");
+        let record = bed::Record::<3>::builder()
+            .set_reference_sequence_name(self.reference_sequence_name())
+            .set_start_position(self.start_position())
+            .set_end_position(pstop)
+            .set_optional_fields(self.optional_fields().clone())
+            .build()
+            .expect("error building record");
+        *self = record;
     }
 
     #[inline]

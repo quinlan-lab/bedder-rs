@@ -126,6 +126,16 @@ impl Positioned for vcf::record::Record {
     fn stop(&self) -> u64 {
         usize::from(self.end().expect("error getting end from vcf record")) as u64
     }
+
+    fn set_start(&mut self, start: u64) {
+        let mut p = self.position_mut();
+        *p = vcf::record::Position::try_from((start + 1) as usize)
+            .expect("error setting start position in vcf record");
+    }
+
+    fn set_stop(&mut self, stop: u64) {
+        // set_stop in vcf is currently a no-op
+    }
 }
 
 impl<R> crate::position::PositionedIterator for BedderVCF<R>

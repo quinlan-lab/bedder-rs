@@ -40,12 +40,20 @@ impl std::error::Error for FieldError {}
 
 /// A Positioned has a position in the genome. It is a bed-like (half-open) interval.
 /// It also has a means to extract values from integer or string columns.
-pub trait Positioned: Debug {
+pub trait Positioned: Debug + Send {
     fn chrom(&self) -> &str;
+
     /// 0-based start position.
     fn start(&self) -> u64;
-    /// non-inclusive end;
+
+    /// non-inclusive end.
     fn stop(&self) -> u64;
+
+    /// set the start position.
+    fn set_start(&mut self, start: u64);
+
+    /// set the stop position.
+    fn set_stop(&mut self, start: u64);
 
     // get back the original line?
     //fn line(&self) -> &'a str;
@@ -100,6 +108,26 @@ impl Position {
             Position::Other(o) => o.stop(),
         }
     }
+
+    pub fn set_start(&mut self, start: u64) {
+        match self {
+            Position::Bed(b) => b.set_start(start),
+            Position::Vcf(v) => v.set_start(start),
+            Position::Interval(i) => i.set_start(start),
+            // #[cfg(feature = "dyn_positioned")]
+            Position::Other(o) => o.set_start(start),
+        }
+    }
+
+    pub fn set_stop(&mut self, stop: u64) {
+        match self {
+            Position::Bed(b) => b.set_stop(stop),
+            Position::Vcf(v) => v.set_stop(stop),
+            Position::Interval(i) => i.set_stop(stop),
+            // #[cfg(feature = "dyn_positioned")]
+            Position::Other(o) => o.set_stop(stop),
+        }
+    }
 }
 
 // Delegate the boxed version of this trait object to the inner object.
@@ -114,6 +142,14 @@ impl Positioned for Box<dyn Positioned> {
 
     fn stop(&self) -> u64 {
         self.as_ref().stop()
+    }
+
+    fn set_start(&mut self, start: u64) {
+        self.as_mut().set_start(start)
+    }
+
+    fn set_stop(&mut self, stop: u64) {
+        self.as_mut().set_stop(stop)
     }
 }
 

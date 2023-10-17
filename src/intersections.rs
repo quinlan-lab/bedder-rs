@@ -20,6 +20,13 @@ impl<'a> Positioned for SimpleInterval<'a> {
     fn stop(&self) -> u64 {
         self.stop
     }
+
+    fn set_start(&mut self, start: u64) {
+        self.start = start;
+    }
+    fn set_stop(&mut self, stop: u64) {
+        self.stop = stop;
+    }
 }
 
 pub enum IntersectionOutput {
@@ -86,7 +93,6 @@ impl Intersections {
         let base = self.base_interval.clone();
         // iterate over the intersections and check the requirements
         self.overlapping.iter().for_each(|o| {
-            // check o vs base
             let bases_overlapping =
                 o.interval.stop().min(base.stop()) - o.interval.start().max(base.start());
         });
@@ -98,7 +104,7 @@ impl Intersections {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Arc;
+    use std::{ops::Deref, sync::Arc};
 
     #[test]
     fn test_simple() {
@@ -140,6 +146,20 @@ mod tests {
                     - i.start().max(intersections.base_interval.start());
                 println!("overlap: {:?}", overlap);
                 println!("i: {:?}", i);
-            })
+            });
+
+        // clip a.start, end
+        let interval = intersections.base_interval.clone();
+        let mut pieces = vec![];
+        intersections.overlapping.iter().for_each(|o| {
+            let mut piece = *interval.as_ref();
+            if piece.start() > o.interval.start() {
+                piece.set_start(o.interval.start());
+            }
+            if piece.stop() > o.interval.stop() {
+                piece.set_stop(o.interval.stop());
+            }
+            pieces.push(piece)
+        });
     }
 }

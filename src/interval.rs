@@ -22,6 +22,15 @@ impl Interval {
     pub fn stop(&self) -> u64 {
         self.stop
     }
+
+    pub fn set_start(&mut self, start: u64) {
+        self.start = start;
+    }
+
+    pub fn set_stop(&mut self, stop: u64) {
+        self.stop = stop;
+    }
+
     #[inline]
     pub fn chrom(&self) -> &str {
         &self.chrom
