@@ -40,7 +40,7 @@ impl std::error::Error for FieldError {}
 
 /// A Positioned has a position in the genome. It is a bed-like (half-open) interval.
 /// It also has a means to extract values from integer or string columns.
-pub trait Positioned: Debug + Send {
+pub trait Positioned: Debug + Sync + Send {
     fn chrom(&self) -> &str;
 
     /// 0-based start position.

@@ -77,32 +77,36 @@ impl Intersections {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::{ops::Deref, sync::Arc};
+    use crate::interval::Interval;
+    use std::sync::Arc;
 
     #[test]
     fn test_simple() {
         // make a single Intersections
-        let base = SimpleInterval {
-            chrom: "chr1",
+        let base = Interval {
+            chrom: String::from("chr1"),
             start: 1,
             stop: 10,
+            fields: Default::default(),
         };
-        let other = SimpleInterval {
-            chrom: "chr1",
+        let other = Interval {
+            chrom: String::from("chr1"),
             start: 3,
             stop: 6,
+            fields: Default::default(),
         };
-        let p = Position::Other(Box::new(base));
+        let p = Position::Interval(base);
         let oi1 = Intersection {
-            interval: Arc::new(Position::Other(Box::new(other))),
+            interval: Arc::new(Position::Interval(other)),
             id: 0,
         };
         let oi2 = Intersection {
-            interval: Arc::new(Position::Other(Box::new(SimpleInterval {
-                chrom: "chr1",
+            interval: Arc::new(Position::Interval(Interval {
+                chrom: String::from("chr1"),
                 start: 8,
                 stop: 12,
-            }))),
+                fields: Default::default(),
+            })),
             id: 1,
         };
         let intersections = Intersections {
