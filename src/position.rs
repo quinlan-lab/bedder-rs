@@ -5,7 +5,7 @@ use std::result;
 
 /// A Value is a vector of integers, floats, or strings.
 /// Often this will be a single value.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Value {
     Ints(Vec<i64>),
     Floats(Vec<f64>),
@@ -57,6 +57,9 @@ pub trait Positioned: Debug + Send {
 
     // get back the original line?
     //fn line(&self) -> &'a str;
+
+    /// return a copy of the Positioned object.
+    fn dup(&self) -> Box<dyn Positioned>;
 }
 
 pub trait Valued {
@@ -128,36 +131,15 @@ impl Position {
             Position::Other(o) => o.set_stop(stop),
         }
     }
-}
 
-// Delegate the boxed version of this trait object to the inner object.
-impl Positioned for Box<dyn Positioned> {
-    fn chrom(&self) -> &str {
-        self.as_ref().chrom()
-    }
-
-    fn start(&self) -> u64 {
-        self.as_ref().start()
-    }
-
-    fn stop(&self) -> u64 {
-        self.as_ref().stop()
-    }
-
-    fn set_start(&mut self, start: u64) {
-        self.as_mut().set_start(start)
-    }
-
-    fn set_stop(&mut self, stop: u64) {
-        self.as_mut().set_stop(stop)
-    }
-}
-
-impl PartialEq for dyn Positioned {
-    fn eq(&self, other: &dyn Positioned) -> bool {
-        self.start() == other.start()
-            && self.stop() == other.stop()
-            && self.chrom() == other.chrom()
+    pub fn dup(&self) -> Position {
+        match self {
+            Position::Bed(b) => Position::Bed(b.to_owned()),
+            Position::Vcf(v) => Position::Vcf(v.to_owned()),
+            Position::Interval(i) => Position::Interval(i.dup()),
+            // #[cfg(feature = "dyn_positioned")]
+            Position::Other(o) => Position::Other(o.dup()),
+        }
     }
 }
 

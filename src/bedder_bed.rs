@@ -50,6 +50,10 @@ impl crate::position::Positioned for bed::record::Record<3> {
     fn stop(&self) -> u64 {
         self.end_position().get() as u64
     }
+
+    fn dup(&self) -> Box<dyn Positioned> {
+        Box::new(self.clone())
+    }
 }
 
 impl Valued for bed::record::Record<3> {

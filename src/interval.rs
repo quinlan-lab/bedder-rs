@@ -31,6 +31,15 @@ impl Interval {
         self.stop = stop;
     }
 
+    pub fn dup(&self) -> Self {
+        Self {
+            chrom: self.chrom.clone(),
+            start: self.start,
+            stop: self.stop,
+            fields: self.fields.clone(),
+        }
+    }
+
     #[inline]
     pub fn chrom(&self) -> &str {
         &self.chrom

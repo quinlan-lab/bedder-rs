@@ -2,33 +2,6 @@ use crate::intersection::{Intersection, Intersections};
 use crate::position::{Position, Positioned};
 use bitflags::bitflags;
 
-/// Simple interval is used to return only the chrom, start, end.
-#[derive(Debug)]
-pub struct SimpleInterval<'a> {
-    chrom: &'a str,
-    start: u64,
-    stop: u64,
-}
-
-impl<'a> Positioned for SimpleInterval<'a> {
-    fn chrom(&self) -> &str {
-        self.chrom
-    }
-    fn start(&self) -> u64 {
-        self.start
-    }
-    fn stop(&self) -> u64 {
-        self.stop
-    }
-
-    fn set_start(&mut self, start: u64) {
-        self.start = start;
-    }
-    fn set_stop(&mut self, stop: u64) {
-        self.stop = stop;
-    }
-}
-
 pub enum IntersectionOutput {
     /// Don't report the intersection.
     /// This is commonly used for -b to not report b intervals.
@@ -86,7 +59,7 @@ impl Intersections {
         b_output: IntersectionOutput,
         a_requirements: OverlapAmount,
         b_requirements: OverlapAmount,
-    ) -> Vec<SimpleInterval> {
+    ) -> Vec<Position> {
         // now, given the arguments that determine what is reported (output)
         // and what is required (mode), we collect the intersections
         let mut results = Vec::new();
@@ -152,7 +125,7 @@ mod tests {
         let interval = intersections.base_interval.clone();
         let mut pieces = vec![];
         intersections.overlapping.iter().for_each(|o| {
-            let mut piece = *interval.as_ref();
+            let mut piece: Position = interval.as_ref().dup();
             if piece.start() > o.interval.start() {
                 piece.set_start(o.interval.start());
             }

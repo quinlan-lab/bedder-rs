@@ -136,6 +136,10 @@ impl Positioned for vcf::record::Record {
     fn set_stop(&mut self, stop: u64) {
         // set_stop in vcf is currently a no-op
     }
+
+    fn dup(&self) -> Box<dyn Positioned> {
+        Box::new(self.clone())
+    }
 }
 
 impl<R> crate::position::PositionedIterator for BedderVCF<R>
