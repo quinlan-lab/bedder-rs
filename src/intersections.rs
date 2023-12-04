@@ -1,5 +1,5 @@
-use crate::intersection::{Intersection, Intersections};
-use crate::position::{Position, Positioned};
+use crate::intersection::Intersections;
+use crate::position::Position;
 use bitflags::bitflags;
 
 pub enum IntersectionOutput {
@@ -77,6 +77,7 @@ impl Intersections {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::intersection::Intersection;
     use crate::interval::Interval;
     use std::sync::Arc;
 
@@ -127,16 +128,14 @@ mod tests {
 
         // clip a.start, end
         let interval = intersections.base_interval.clone();
+        eprintln!("overlapping: {:?}", intersections.overlapping);
         let mut pieces = vec![];
         intersections.overlapping.iter().for_each(|o| {
             let mut piece: Position = interval.as_ref().dup();
-            if piece.start() > o.interval.start() {
-                piece.set_start(o.interval.start());
-            }
-            if piece.stop() > o.interval.stop() {
-                piece.set_stop(o.interval.stop());
-            }
+            piece.set_start(o.interval.start().max(piece.start()));
+            piece.set_stop(o.interval.stop().min(piece.stop()));
             pieces.push(piece)
         });
+        eprintln!("pieces: {:?}", pieces);
     }
 }
