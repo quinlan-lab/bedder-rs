@@ -18,6 +18,7 @@ pub enum IntersectionOutput {
 bitflags! {
     /// IntersectionMode indicates requirements for the intersection.
     /// And extra fields that might be reported.
+    #[derive(Eq, PartialEq, Debug)]
     pub struct IntersectionMode: u8 {
         // https://bedtools.readthedocs.io/en/latest/content/tools/intersect.html#usage-and-option-summary
 
@@ -67,6 +68,8 @@ impl OverlapAmount {
 }
 
 impl Intersections {
+    /// Given the intersection mode and requirements, return a vector of (a, b) tuples.
+    /// The a and b positions are optional, depending on the intersection mode.
     pub fn intersections(
         &self,
         a_mode: IntersectionMode,
@@ -76,7 +79,8 @@ impl Intersections {
         // Q: overlap fraction is across all overlapping -b intervals?
         a_requirements: OverlapAmount,
         b_requirements: OverlapAmount,
-    ) -> Vec<Position> {
+        // TODO: should the 2nd of tuple be Option<Vec<Position>> ?
+    ) -> Vec<(Option<Position>, Option<Position>)> {
         // now, given the arguments that determine what is reported (output)
         // and what is required (mode), we collect the intersections
         let mut results = Vec::new();
@@ -87,13 +91,18 @@ impl Intersections {
             IntersectionOutput::Part => {}
             IntersectionOutput::Whole => {}
         }
+        // TODO: get pieces here?
         let bases: u64 = self
             .overlapping
             .iter()
             .map(|o| o.interval.stop().min(base.stop()) - o.interval.start().max(base.start()))
             .sum();
-        let total = base.stop() - base.start();
-        if !a_requirements.sufficient_bases(bases, total) {
+        let a_total = base.stop() - base.start();
+        if !a_requirements.sufficient_bases(bases, a_total) {
+            // here handle Not (-v)
+            if matches!(a_mode, IntersectionMode::Not) {
+                results.push((Some(base.as_ref().dup()), None));
+            }
             return results;
         }
         let b_total = self
@@ -102,8 +111,28 @@ impl Intersections {
             .map(|o| o.interval.stop() - o.interval.start())
             .sum();
         if !b_requirements.sufficient_bases(bases, b_total) {
+            if matches!(b_mode, IntersectionMode::Not) {
+                // TODO: what goes here?
+                results.push((Some(base.as_ref().dup()), None));
+            }
             return results;
         }
+
+        //let mut pieces = vec![];
+        // TODO: here we add just the a pieces. Need to check how to add the b pieces.
+        self.overlapping.iter().for_each(|o| {
+            match a_output {
+                IntersectionOutput::Part => {
+                    let mut piece: Position = base.as_ref().dup();
+                    piece.set_start(o.interval.start().max(piece.start()));
+                    piece.set_stop(o.interval.stop().min(piece.stop()));
+                    //pieces.push(piece);
+                    results.push((Some(piece.dup()), None))
+                }
+                IntersectionOutput::Whole => results.push((Some(base.as_ref().dup()), None)),
+                IntersectionOutput::None => {}
+            }
+        });
 
         results
     }
