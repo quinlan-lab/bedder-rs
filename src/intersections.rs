@@ -2,6 +2,7 @@ use crate::intersection::Intersections;
 use crate::position::Position;
 use bitflags::bitflags;
 
+/// IntersectionOutput indicates what to report for the intersection.
 pub enum IntersectionOutput {
     /// Don't report the intersection.
     /// This is commonly used for -b to not report b intervals.
@@ -38,6 +39,8 @@ impl Default for IntersectionMode {
     }
 }
 
+/// OverlapAmount indicates the amount of overlap required.
+/// Either as bases or as a fraction of the total length.
 #[derive(Debug)]
 pub enum OverlapAmount {
     Bases(u64),
@@ -50,6 +53,17 @@ impl Default for OverlapAmount {
     }
 }
 
+impl OverlapAmount {
+    /// sufficient_bases returns true if the bases overlap is sufficient
+    /// relative to the total length.
+    pub fn sufficient_bases(&self, bases: u64, total_len: u64) -> bool {
+        match self {
+            OverlapAmount::Bases(b) => bases >= *b,
+            OverlapAmount::Fraction(f) => bases >= (total_len as f64 * (*f as f64)) as u64,
+        }
+    }
+}
+
 impl Intersections {
     pub fn intersections(
         &self,
@@ -57,6 +71,7 @@ impl Intersections {
         b_mode: IntersectionMode,
         a_output: IntersectionOutput,
         b_output: IntersectionOutput,
+        // Q: overlap fraction is across all overlapping -b intervals?
         a_requirements: OverlapAmount,
         b_requirements: OverlapAmount,
     ) -> Vec<Position> {
@@ -65,15 +80,33 @@ impl Intersections {
         let mut results = Vec::new();
         let base = self.base_interval.clone();
         // iterate over the intersections and check the requirements
-        self.overlapping.iter().for_each(|o| {
-            let bases_overlapping =
-                o.interval.stop().min(base.stop()) - o.interval.start().max(base.start());
-        });
+        match a_output {
+            IntersectionOutput::None => {}
+            IntersectionOutput::Part => {}
+            IntersectionOutput::Whole => {}
+        }
+        let bases: u64 = self
+            .overlapping
+            .iter()
+            .map(|o| o.interval.stop().min(base.stop()) - o.interval.start().max(base.start()))
+            .sum();
+        let total = base.stop() - base.start();
+        if !a_requirements.sufficient_bases(bases, total) {
+            return results;
+        }
+        let b_total = self
+            .overlapping
+            .iter()
+            .map(|o| o.interval.stop() - o.interval.start())
+            .sum();
+        if !b_requirements.sufficient_bases(bases, b_total) {
+            return results;
+        }
+
         results
     }
 }
 
-// write some tests
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -137,5 +170,22 @@ mod tests {
             pieces.push(piece)
         });
         eprintln!("pieces: {:?}", pieces);
+    }
+
+    #[test]
+    fn test_sufficient_bases_with_bases() {
+        let overlap = OverlapAmount::Bases(10);
+        let bases = 15;
+        let total_len = 100;
+        assert!(overlap.sufficient_bases(bases, total_len));
+    }
+
+    #[test]
+    fn test_sufficient_bases_with_fraction() {
+        let overlap = OverlapAmount::Fraction(0.5);
+        let bases = 50;
+        let total_len = 100;
+        assert!(overlap.sufficient_bases(bases, total_len));
+        assert!(!overlap.sufficient_bases(bases - 1, total_len));
     }
 }
