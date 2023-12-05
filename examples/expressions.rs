@@ -3,13 +3,11 @@ use mlua::prelude::*;
 use std::fs;
 use std::io::{self, BufReader, BufWriter, Write};
 use std::path::PathBuf;
-use std::rc::Rc;
 use std::sync::Arc;
 
 use bedder::position::Position;
 use bedder::sniff;
 use clap::Parser;
-use noodles::vcf::record::info;
 extern crate bedder;
 use crate::bedder::chrom_ordering::parse_genome;
 use crate::bedder::intersection::IntersectionIterator;

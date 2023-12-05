@@ -1,5 +1,7 @@
 use crate::intersection::Intersections;
 use crate::position::Position;
+#[allow(unused_imports)]
+use crate::string::String;
 use bitflags::bitflags;
 
 /// IntersectionOutput indicates what to report for the intersection.
