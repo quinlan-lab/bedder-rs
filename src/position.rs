@@ -78,6 +78,14 @@ pub enum Position {
     Other(Box<dyn Positioned>),
 }
 
+impl PartialEq for Position {
+    fn eq(&self, other: &Self) -> bool {
+        return self.chrom() == other.chrom()
+            && self.start() == other.start()
+            && self.stop() == other.stop();
+    }
+}
+
 impl Position {
     #[inline]
     pub fn chrom(&self) -> &str {
