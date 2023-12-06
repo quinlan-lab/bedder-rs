@@ -1,5 +1,3 @@
-use std::ops::ControlFlow;
-
 use crate::intersection::Intersections;
 use crate::position::Position;
 #[allow(unused_imports)]
@@ -66,7 +64,7 @@ impl OverlapAmount {
     pub fn sufficient_bases(&self, bases: u64, total_len: u64) -> bool {
         match self {
             OverlapAmount::Bases(b) => bases >= *b,
-            OverlapAmount::Fraction(f) => bases >= (total_len as f64 * (*f as f64)) as u64,
+            OverlapAmount::Fraction(f) => bases as f64 / total_len as f64 >= *f as f64,
         }
     }
 }
@@ -74,7 +72,7 @@ impl OverlapAmount {
 impl Intersections {
     /// Given the intersection mode and requirements, return a vector of (a, b) tuples.
     /// The a and b positions are optional, depending on the intersection mode.
-    pub fn intersections(
+    pub fn report(
         &self,
         a_mode: IntersectionMode,
         b_mode: IntersectionMode,
@@ -116,7 +114,6 @@ impl Intersections {
             return results;
         }
 
-        //let mut pieces = vec![];
         // TODO: here we add just the a pieces. Need to check how to add the b pieces.
         for o in self.overlapping.iter() {
             match a_output {
@@ -143,7 +140,7 @@ impl Intersections {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::intersection::{self, Intersection};
+    use crate::intersection::Intersection;
     use crate::interval::Interval;
     use std::sync::Arc;
 
@@ -191,9 +188,9 @@ mod tests {
         let intersections = make_example();
         // a: 1-10
         // b: 3-6, 8-12
-        let r = intersections.intersections(
+        let r = intersections.report(
             IntersectionMode::Default,
-            IntersectionMode::Not,
+            IntersectionMode::Default,
             IntersectionOutput::Unique,
             IntersectionOutput::None,
             OverlapAmount::Bases(5),
@@ -218,7 +215,7 @@ mod tests {
         let intersections = make_example();
         // a: 1-10
         // b: 3-6, 8-12
-        let r = intersections.intersections(
+        let r = intersections.report(
             IntersectionMode::Default,
             IntersectionMode::Not,
             IntersectionOutput::Unique,
@@ -229,13 +226,39 @@ mod tests {
         );
         assert_eq!(r.len(), 0);
     }
+    #[test]
+    fn test_simple_unique_fraction() {
+        let intersections = make_example();
+        // a: 1-10
+        // b: 3-6, 8-12
+        let r = intersections.report(
+            IntersectionMode::Default,
+            IntersectionMode::Not,
+            IntersectionOutput::Unique,
+            IntersectionOutput::None,
+            OverlapAmount::Fraction(0.6),
+            OverlapAmount::Bases(1),
+        );
+        // 5 bases of overlap is 0.5555 of the total 9 bases
+        assert_eq!(r.len(), 0);
+
+        let r = intersections.report(
+            IntersectionMode::Default,
+            IntersectionMode::Not,
+            IntersectionOutput::Unique,
+            IntersectionOutput::None,
+            OverlapAmount::Fraction(0.5),
+            OverlapAmount::Bases(1),
+        );
+        assert_eq!(r.len(), 1);
+    }
 
     #[test]
     fn test_simple_whole() {
         let intersections = make_example();
         // a: 1-10
         // b: 3-6, 8-12
-        let r = intersections.intersections(
+        let r = intersections.report(
             IntersectionMode::Default,
             IntersectionMode::Not,
             IntersectionOutput::Whole,
@@ -265,7 +288,7 @@ mod tests {
         let intersections = make_example();
         // a: 1-10
         // b: 3-6, 8-12
-        let r = intersections.intersections(
+        let r = intersections.report(
             IntersectionMode::Default,
             IntersectionMode::Not,
             IntersectionOutput::Part,
