@@ -140,54 +140,16 @@ impl Intersections {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::intersection::Intersection;
     use crate::interval::Interval;
-    use std::sync::Arc;
+    use crate::tests::parse_intersections::parse_intersections;
 
-    fn make_intersections(a: Interval, bs: Vec<Interval>) -> Intersections {
-        let base = Position::Interval(a);
-        let overlapping = bs
-            .into_iter()
-            .enumerate()
-            .map(|(i, b)| Intersection {
-                interval: Arc::new(Position::Interval(b.dup())),
-                id: i as u32,
-            })
-            .collect();
-        Intersections {
-            base_interval: Arc::new(base),
-            overlapping,
-        }
-    }
-
-    fn make_example() -> Intersections {
-        // make a single Intersections
-        let base = Interval {
-            chrom: String::from("chr1"),
-            start: 1,
-            stop: 10,
-            fields: Default::default(),
-        };
-        let o1 = Interval {
-            chrom: String::from("chr1"),
-            start: 3,
-            stop: 6,
-            fields: Default::default(),
-        };
-        let o2 = Interval {
-            chrom: String::from("chr1"),
-            start: 8,
-            stop: 12,
-            fields: Default::default(),
-        };
-        make_intersections(base, vec![o1, o2])
+    fn make_example(def: &str) -> Intersections {
+        parse_intersections(def)
     }
 
     #[test]
     fn test_simple_unique() {
-        let intersections = make_example();
-        // a: 1-10
-        // b: 3-6, 8-12
+        let intersections = make_example("a: 1-10\nb: 3-6, 8-12");
         let r = intersections.report(
             IntersectionMode::Default,
             IntersectionMode::Default,
@@ -212,7 +174,7 @@ mod tests {
     }
     #[test]
     fn test_simple_unique_insufficient_bases() {
-        let intersections = make_example();
+        let intersections = make_example("a: 1-10\nb: 3-6, 8-12");
         // a: 1-10
         // b: 3-6, 8-12
         let r = intersections.report(
@@ -228,7 +190,7 @@ mod tests {
     }
     #[test]
     fn test_simple_unique_fraction() {
-        let intersections = make_example();
+        let intersections = make_example("a: 1-10\nb: 3-6, 8-12");
         // a: 1-10
         // b: 3-6, 8-12
         let r = intersections.report(
@@ -255,7 +217,7 @@ mod tests {
 
     #[test]
     fn test_simple_whole() {
-        let intersections = make_example();
+        let intersections = make_example("a: 1-10\nb: 3-6, 8-12");
         // a: 1-10
         // b: 3-6, 8-12
         let r = intersections.report(
@@ -285,7 +247,7 @@ mod tests {
 
     #[test]
     fn test_simple_parts() {
-        let intersections = make_example();
+        let intersections = make_example("a: 1-10\nb: 3-6, 8-12");
         // a: 1-10
         // b: 3-6, 8-12
         let r = intersections.report(
@@ -338,5 +300,19 @@ mod tests {
         let total_len = 100;
         assert!(overlap.sufficient_bases(bases, total_len));
         assert!(!overlap.sufficient_bases(bases - 1, total_len));
+    }
+
+    #[test]
+    fn test_no_overlaps() {
+        let intersections = make_example("a: 1-10");
+        let r = intersections.report(
+            IntersectionMode::Default,
+            IntersectionMode::Default,
+            IntersectionOutput::Unique,
+            IntersectionOutput::None,
+            OverlapAmount::Bases(5),
+            OverlapAmount::Bases(1),
+        );
+        assert_eq!(r.len(), 0);
     }
 }

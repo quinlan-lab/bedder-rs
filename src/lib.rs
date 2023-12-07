@@ -26,3 +26,5 @@ pub mod bedder_bed;
 #[cfg(feature = "vcf")]
 /// Vcf parser implementing the PositionedIterator trait.
 pub mod bedder_vcf;
+
+mod tests;
