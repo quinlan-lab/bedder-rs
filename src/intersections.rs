@@ -314,5 +314,17 @@ mod tests {
             OverlapAmount::Bases(1),
         );
         assert_eq!(r.len(), 0);
+
+        // check Not. should return A since there are no overlaps
+        let intersections = make_example("a: 1-10");
+        let r = intersections.report(
+            IntersectionMode::Not,
+            IntersectionMode::Default,
+            IntersectionOutput::Unique,
+            IntersectionOutput::None,
+            OverlapAmount::Bases(5),
+            OverlapAmount::Bases(1),
+        );
+        assert_eq!(r.len(), 1);
     }
 }
