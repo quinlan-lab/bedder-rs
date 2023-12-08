@@ -3,9 +3,10 @@ use crate::position::Position;
 #[allow(unused_imports)]
 use crate::string::String;
 use bitflags::bitflags;
+use criterion::measurement::Measurement;
 
-/// IntersectionOutput indicates what to report for the intersection.
-pub enum IntersectionOutput {
+/// IntersectionPart indicates what to report for the intersection.
+pub enum IntersectionPart {
     /// Don't report the intersection.
     /// This is commonly used for -b to not report b intervals.
     None,
@@ -35,6 +36,9 @@ bitflags! {
 
         /// Report count of overlaps (-C)
         const Count = 0b00000100;
+
+        /// The constraint on overlap is per-piece
+        const PerPiece = 0b00001000;
     }
 }
 
@@ -58,13 +62,48 @@ impl Default for OverlapAmount {
     }
 }
 
+pub enum OverlapSufficient {
+    Bool(bool),
+    Which(Vec<usize>),
+}
+
 impl OverlapAmount {
-    /// sufficient_bases returns true if the bases overlap is sufficient
+    /// sufficient returns the bases overlap is sufficient
     /// relative to the total length.
-    pub fn sufficient_bases(&self, bases: u64, total_len: u64) -> bool {
-        match self {
-            OverlapAmount::Bases(b) => bases >= *b,
-            OverlapAmount::Fraction(f) => bases as f64 / total_len as f64 >= *f as f64,
+    /// If per_piece, then return the indices of the pieces that are sufficient.
+    /// If invert, then return the opposite of the sufficient test.
+    pub fn sufficient(
+        &self,
+        bases: &[u64],
+        total_len: u64,
+        per_piece: bool,
+        invert: bool,
+    ) -> OverlapSufficient {
+        // NOTE we use ^ to flip based on the invert flag which simulates -v in bedtools.
+        if per_piece {
+            // return the indices of the pieces that are sufficient
+            OverlapSufficient::Which(
+                bases
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, &b)| match self {
+                        OverlapAmount::Bases(n_bases) => (b >= *n_bases) ^ invert,
+                        OverlapAmount::Fraction(f) => {
+                            (b as f64 / total_len as f64 >= *f as f64) ^ invert
+                        }
+                    })
+                    .map(|(i, _)| i)
+                    .collect(),
+            )
+        } else {
+            // return whether the total bases is sufficient
+            let bases: u64 = bases.iter().sum();
+            OverlapSufficient::Bool(match self {
+                OverlapAmount::Bases(b) => (bases >= *b) ^ invert,
+                OverlapAmount::Fraction(f) => {
+                    (bases as f64 / total_len as f64 >= *f as f64) ^ invert
+                }
+            })
         }
     }
 }
@@ -76,25 +115,33 @@ impl Intersections {
         &self,
         a_mode: IntersectionMode,
         b_mode: IntersectionMode,
-        a_output: IntersectionOutput,
-        b_output: IntersectionOutput,
+        a_part: IntersectionPart,
+        b_part: IntersectionPart,
         // Q: overlap fraction is across all overlapping -b intervals?
         a_requirements: OverlapAmount,
         b_requirements: OverlapAmount,
         // TODO: should the 2nd of tuple be Option<Vec<Position>> ?
+        // or Vec<Option<Position>> ? where each i is for the ith -b file?
     ) -> Vec<(Option<Position>, Option<Position>)> {
         // now, given the arguments that determine what is reported (output)
         // and what is required (mode), we collect the intersections
         let mut results = Vec::new();
         let base = self.base_interval.clone();
         // iterate over the intersections and check the requirements
-        let bases: u64 = self
+        // TODO: do this without allocating.
+        let bases: Vec<u64> = self
             .overlapping
             .iter()
             .map(|o| o.interval.stop().min(base.stop()) - o.interval.start().max(base.start()))
-            .sum();
+            .collect();
         let a_total = base.stop() - base.start();
-        if !a_requirements.sufficient_bases(bases, a_total) {
+        let a_suff = a_requirements.sufficient(
+            &bases,
+            a_total,
+            a_mode.contains(IntersectionMode::PerPiece),
+            a_mode.contains(IntersectionMode::Not),
+        );
+        if a_suff {
             // here handle Not (-v)
             if matches!(a_mode, IntersectionMode::Not) {
                 results.push((Some(base.as_ref().dup()), None));
@@ -106,7 +153,8 @@ impl Intersections {
             .iter()
             .map(|o| o.interval.stop() - o.interval.start())
             .sum();
-        if !b_requirements.sufficient_bases(bases, b_total) {
+        if !b_requirements.sufficient(&bases, b_total, b_mode.contains(IntersectionMode::PerPiece))
+        {
             if matches!(b_mode, IntersectionMode::Not) {
                 // TODO: what goes here?
                 results.push((Some(base.as_ref().dup()), None));
@@ -116,20 +164,20 @@ impl Intersections {
 
         // TODO: here we add just the a pieces. Need to check how to add the b pieces.
         for o in self.overlapping.iter() {
-            match a_output {
-                IntersectionOutput::Part => {
+            match a_part {
+                IntersectionPart::Part => {
                     let mut piece: Position = base.as_ref().dup();
                     piece.set_start(o.interval.start().max(piece.start()));
                     piece.set_stop(o.interval.stop().min(piece.stop()));
                     //pieces.push(piece);
                     results.push((Some(piece.dup()), None))
                 }
-                IntersectionOutput::Whole => results.push((Some(base.as_ref().dup()), None)),
-                IntersectionOutput::Unique => {
+                IntersectionPart::Whole => results.push((Some(base.as_ref().dup()), None)),
+                IntersectionPart::Unique => {
                     results.push((Some(base.as_ref().dup()), None));
                     break;
                 }
-                IntersectionOutput::None => {}
+                IntersectionPart::None => {}
             }
         }
 
@@ -139,6 +187,8 @@ impl Intersections {
 
 #[cfg(test)]
 mod tests {
+    use std::vec;
+
     use super::*;
     use crate::interval::Interval;
     use crate::tests::parse_intersections::parse_intersections;
@@ -153,8 +203,8 @@ mod tests {
         let r = intersections.report(
             IntersectionMode::Default,
             IntersectionMode::Default,
-            IntersectionOutput::Unique,
-            IntersectionOutput::None,
+            IntersectionPart::Unique,
+            IntersectionPart::None,
             OverlapAmount::Bases(5),
             OverlapAmount::Bases(1),
         );
@@ -180,8 +230,8 @@ mod tests {
         let r = intersections.report(
             IntersectionMode::Default,
             IntersectionMode::Not,
-            IntersectionOutput::Unique,
-            IntersectionOutput::None,
+            IntersectionPart::Unique,
+            IntersectionPart::None,
             // note we require 6 bases of overlap but only have 5
             OverlapAmount::Bases(6),
             OverlapAmount::Bases(1),
@@ -196,8 +246,8 @@ mod tests {
         let r = intersections.report(
             IntersectionMode::Default,
             IntersectionMode::Not,
-            IntersectionOutput::Unique,
-            IntersectionOutput::None,
+            IntersectionPart::Unique,
+            IntersectionPart::None,
             OverlapAmount::Fraction(0.6),
             OverlapAmount::Bases(1),
         );
@@ -207,8 +257,8 @@ mod tests {
         let r = intersections.report(
             IntersectionMode::Default,
             IntersectionMode::Not,
-            IntersectionOutput::Unique,
-            IntersectionOutput::None,
+            IntersectionPart::Unique,
+            IntersectionPart::None,
             OverlapAmount::Fraction(0.5),
             OverlapAmount::Bases(1),
         );
@@ -223,8 +273,8 @@ mod tests {
         let r = intersections.report(
             IntersectionMode::Default,
             IntersectionMode::Not,
-            IntersectionOutput::Whole,
-            IntersectionOutput::None,
+            IntersectionPart::Whole,
+            IntersectionPart::None,
             OverlapAmount::Bases(1),
             OverlapAmount::Bases(1),
         );
@@ -253,8 +303,8 @@ mod tests {
         let r = intersections.report(
             IntersectionMode::Default,
             IntersectionMode::Not,
-            IntersectionOutput::Part,
-            IntersectionOutput::None,
+            IntersectionPart::Part,
+            IntersectionPart::None,
             OverlapAmount::Bases(1),
             OverlapAmount::Bases(1),
         );
@@ -288,18 +338,33 @@ mod tests {
     #[test]
     fn test_sufficient_bases_with_bases() {
         let overlap = OverlapAmount::Bases(10);
-        let bases = 15;
+        let bases = vec![15];
         let total_len = 100;
-        assert!(overlap.sufficient_bases(bases, total_len));
+        assert!(overlap.sufficient(&bases, total_len, false));
     }
 
     #[test]
     fn test_sufficient_bases_with_fraction() {
         let overlap = OverlapAmount::Fraction(0.5);
-        let bases = 50;
+        let bases = vec![50];
         let total_len = 100;
-        assert!(overlap.sufficient_bases(bases, total_len));
-        assert!(!overlap.sufficient_bases(bases - 1, total_len));
+        assert!(overlap.sufficient(&bases, total_len, false));
+        let bases = vec![49];
+        assert!(!overlap.sufficient(&bases, total_len, false));
+    }
+
+    #[test]
+    fn test_sufficient_bases_with_fraction_and_pieces() {
+        // any individual piece must have 50% overlap
+        let overlap = OverlapAmount::Fraction(0.5);
+        let mut bases = vec![28, 28];
+        let total_len = 100;
+        // 56 total so OK.
+        assert!(overlap.sufficient(&bases, total_len, false));
+        // neither piece has 50% overlap
+        assert!(!overlap.sufficient(&bases, total_len, true));
+        bases[1] = 51;
+        assert!(overlap.sufficient(&bases, total_len, true));
     }
 
     #[test]
@@ -308,8 +373,8 @@ mod tests {
         let r = intersections.report(
             IntersectionMode::Default,
             IntersectionMode::Default,
-            IntersectionOutput::Unique,
-            IntersectionOutput::None,
+            IntersectionPart::Unique,
+            IntersectionPart::None,
             OverlapAmount::Bases(5),
             OverlapAmount::Bases(1),
         );
@@ -320,8 +385,8 @@ mod tests {
         let r = intersections.report(
             IntersectionMode::Not,
             IntersectionMode::Default,
-            IntersectionOutput::Unique,
-            IntersectionOutput::None,
+            IntersectionPart::Unique,
+            IntersectionPart::None,
             OverlapAmount::Bases(5),
             OverlapAmount::Bases(1),
         );
