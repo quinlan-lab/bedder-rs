@@ -135,6 +135,11 @@ impl Intersections {
             .map(|o| o.interval.stop().min(base.stop()) - o.interval.start().max(base.start()))
             .collect();
         let a_total = base.stop() - base.start();
+        // problem: we probably want to move everything into sufficient so that it returns
+        // somehow the a and b pieces that we need.
+        // so it can accept IntersectionMode.
+        // but then it also needs ot accept a_requirements *and* b_requirements.
+        // how can we break this down?
         let a_suff = a_requirements.sufficient(
             &bases,
             a_total,
