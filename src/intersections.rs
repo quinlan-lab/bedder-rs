@@ -3,20 +3,6 @@ use crate::position::Position;
 #[allow(unused_imports)]
 use crate::string::String;
 use bitflags::bitflags;
-use criterion::measurement::Measurement;
-
-/// IntersectionPart indicates what to report for the intersection.
-pub enum IntersectionPart {
-    /// Don't report the intersection.
-    /// This is commonly used for -b to not report b intervals.
-    None,
-    /// Report each portion of A that overlaps B
-    Part,
-    /// Report the whole interval of A that overlaps B
-    Whole,
-    /// Report Unique As even if multiple Bs overlap
-    Unique,
-}
 
 bitflags! {
     /// IntersectionMode indicates requirements for the intersection.
@@ -31,15 +17,22 @@ bitflags! {
         /// Return A(B) if it does *not* overlap B(A). Bedtools -v
         const Not = 0b00000001;
 
-        /// Report bases of overlap (-c)
-        const Bases = 0b00000010;
+        const PerPiece = 0b00000010;
 
-        /// Report count of overlaps (-C)
-        const Count = 0b00000100;
-
-        /// The constraint on overlap is per-piece
-        const PerPiece = 0b00001000;
     }
+}
+
+/// IntersectionPart indicates what to report for the intersection.
+pub enum IntersectionPart {
+    /// Don't report the intersection.
+    /// This is commonly used for -b to not report b intervals.
+    None,
+    /// Report each portion of A that overlaps B
+    Part,
+    /// Report the whole interval of A that overlaps B
+    Whole,
+    /// Report Unique As even if multiple Bs overlap
+    Unique,
 }
 
 impl Default for IntersectionMode {
@@ -122,7 +115,7 @@ impl Intersections {
         b_requirements: OverlapAmount,
         // TODO: should the 2nd of tuple be Option<Vec<Position>> ?
         // or Vec<Option<Position>> ? where each i is for the ith -b file?
-    ) -> Vec<(Option<Position>, Option<Position>)> {
+    ) -> Vec<(Option<Position>, Vec<Vec<Position>>)> {
         // now, given the arguments that determine what is reported (output)
         // and what is required (mode), we collect the intersections
         let mut results = Vec::new();
@@ -138,7 +131,7 @@ impl Intersections {
         // problem: we probably want to move everything into sufficient so that it returns
         // somehow the a and b pieces that we need.
         // so it can accept IntersectionMode.
-        // but then it also needs ot accept a_requirements *and* b_requirements.
+        // but then it also needs to accept a_requirements *and* b_requirements.
         // how can we break this down?
         let a_suff = a_requirements.sufficient(
             &bases,
