@@ -1,8 +1,9 @@
-use crate::intersection::Intersections;
+use crate::intersection::{Intersection, Intersections};
 use crate::position::Position;
 #[allow(unused_imports)]
 use crate::string::String;
 use bitflags::bitflags;
+use std::sync::Arc;
 
 bitflags! {
     /// IntersectionMode indicates requirements for the intersection.
@@ -55,131 +56,179 @@ impl Default for OverlapAmount {
     }
 }
 
-pub enum OverlapSufficient {
-    Bool(bool),
-    Which(Vec<usize>),
-}
-
-impl OverlapAmount {
-    /// sufficient returns the bases overlap is sufficient
-    /// relative to the total length.
-    /// If per_piece, then return the indices of the pieces that are sufficient.
-    /// If invert, then return the opposite of the sufficient test.
-    pub fn sufficient(
-        &self,
-        bases: &[u64],
-        total_len: u64,
-        per_piece: bool,
-        invert: bool,
-    ) -> OverlapSufficient {
-        // NOTE we use ^ to flip based on the invert flag which simulates -v in bedtools.
-        if per_piece {
-            // return the indices of the pieces that are sufficient
-            OverlapSufficient::Which(
-                bases
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, &b)| match self {
-                        OverlapAmount::Bases(n_bases) => (b >= *n_bases) ^ invert,
-                        OverlapAmount::Fraction(f) => {
-                            (b as f64 / total_len as f64 >= *f as f64) ^ invert
-                        }
-                    })
-                    .map(|(i, _)| i)
-                    .collect(),
-            )
-        } else {
-            // return whether the total bases is sufficient
-            let bases: u64 = bases.iter().sum();
-            OverlapSufficient::Bool(match self {
-                OverlapAmount::Bases(b) => (bases >= *b) ^ invert,
-                OverlapAmount::Fraction(f) => {
-                    (bases as f64 / total_len as f64 >= *f as f64) ^ invert
-                }
-            })
-        }
-    }
-}
-
 impl Intersections {
-    /// Given the intersection mode and requirements, return a vector of (a, b) tuples.
-    /// The a and b positions are optional, depending on the intersection mode.
     pub fn report(
         &self,
         a_mode: IntersectionMode,
         b_mode: IntersectionMode,
         a_part: IntersectionPart,
         b_part: IntersectionPart,
-        // Q: overlap fraction is across all overlapping -b intervals?
         a_requirements: OverlapAmount,
         b_requirements: OverlapAmount,
-        // TODO: should the 2nd of tuple be Option<Vec<Position>> ?
-        // or Vec<Option<Position>> ? where each i is for the ith -b file?
     ) -> Vec<(Option<Position>, Vec<Vec<Position>>)> {
-        // now, given the arguments that determine what is reported (output)
-        // and what is required (mode), we collect the intersections
-        let mut results = Vec::new();
-        let base = self.base_interval.clone();
-        // iterate over the intersections and check the requirements
-        // TODO: do this without allocating.
-        let bases: Vec<u64> = self
-            .overlapping
+        let mut result = Vec::new();
+
+        let max_id = self.overlapping.iter().map(|o| o.id).max().unwrap_or(0);
+        let mut grouped_overlaps = vec![Vec::new(); max_id as usize + 1];
+
+        // Group overlaps by Intersection.id
+        for overlap in &self.overlapping {
+            grouped_overlaps[overlap.id as usize].push(overlap.interval.clone());
+        }
+
+        for (id, overlaps) in grouped_overlaps.iter().enumerate() {
+            if a_mode.contains(IntersectionMode::PerPiece) {
+                // Check each piece individually
+                for b_interval in overlaps {
+                    let bases_overlap =
+                        self.calculate_overlap(self.base_interval.clone(), b_interval);
+                    if self.satisfies_requirements(
+                        bases_overlap,
+                        self.base_interval.stop() - self.base_interval.start(),
+                        &a_requirements,
+                        &a_mode,
+                    ) && self.satisfies_requirements(
+                        bases_overlap,
+                        b_interval.stop() - b_interval.start(),
+                        &b_requirements,
+                        &b_mode,
+                    ) {
+                        self.append_to_result(&mut result, overlaps, &a_part, &b_part, id);
+                    }
+                }
+            } else {
+                // Calculate cumulative overlap and sum of lengths for this group
+                let total_bases_overlap = self.calculate_total_overlap(overlaps);
+                if self.satisfies_requirements(
+                    total_bases_overlap,
+                    self.base_interval.stop() - self.base_interval.start(),
+                    &a_requirements,
+                    &a_mode,
+                ) && self.satisfies_requirements(
+                    total_bases_overlap,
+                    overlaps.iter().map(|o| o.stop() - o.start()).sum(),
+                    &b_requirements,
+                    &b_mode,
+                ) {
+                    self.append_to_result(&mut result, overlaps, &a_part, &b_part, id);
+                }
+            }
+        }
+
+        result
+    }
+
+    fn satisfies_requirements(
+        &self,
+        bases_overlap: u64,
+        interval_length: u64,
+        requirements: &OverlapAmount,
+        mode: &IntersectionMode,
+    ) -> bool {
+        match requirements {
+            OverlapAmount::Bases(bases) => {
+                if mode.contains(IntersectionMode::Not) {
+                    bases_overlap < *bases
+                } else {
+                    bases_overlap >= *bases
+                }
+            }
+            OverlapAmount::Fraction(fraction) => {
+                let required_overlap = (*fraction * interval_length as f32) as u64;
+                if mode.contains(IntersectionMode::Not) {
+                    bases_overlap < required_overlap
+                } else {
+                    bases_overlap >= required_overlap
+                }
+            }
+        }
+    }
+
+    #[inline]
+    fn calculate_overlap(&self, interval_a: Arc<Position>, interval_b: &Arc<Position>) -> u64 {
+        // TODO: we don't handle the case where there is no overlap. possible underflow. But we should
+        // only get overlapping intervals here.
+        interval_a.stop().min(interval_b.stop()) - interval_a.start().max(interval_b.start())
+    }
+
+    #[inline]
+    fn calculate_total_overlap(&self, overlaps: &[Arc<Position>]) -> u64 {
+        // Implement logic to calculate total overlap in bases for a group of intervals
+        overlaps
             .iter()
-            .map(|o| o.interval.stop().min(base.stop()) - o.interval.start().max(base.start()))
-            .collect();
-        let a_total = base.stop() - base.start();
-        // problem: we probably want to move everything into sufficient so that it returns
-        // somehow the a and b pieces that we need.
-        // so it can accept IntersectionMode.
-        // but then it also needs to accept a_requirements *and* b_requirements.
-        // how can we break this down?
-        let a_suff = a_requirements.sufficient(
-            &bases,
-            a_total,
-            a_mode.contains(IntersectionMode::PerPiece),
-            a_mode.contains(IntersectionMode::Not),
+            .map(|o| self.calculate_overlap(self.base_interval.clone(), o))
+            .sum()
+    }
+    fn append_to_result(
+        &self,
+        result: &mut Vec<(Option<Position>, Vec<Vec<Position>>)>,
+        overlaps: &[Arc<Intersection>], // already groups and from id.
+        a_part: &IntersectionPart,
+        b_part: &IntersectionPart,
+        id: usize, // index into result.
+    ) {
+        // Dynamically sized vector to group b_positions by their id
+        let mut b_positions_grouped: Vec<Vec<Position>> = Vec::new();
+
+        // Process overlaps
+        for overlap in overlaps {
+            while overlap.id as usize >= b_positions_grouped.len() {
+                b_positions_grouped.push(Vec::new());
+            }
+
+            let mut b_interval = overlap.interval.dup();
+            if let IntersectionPart::Part = b_part {
+                // Adjust bounds for b_interval if b_part is Part
+                self.adjust_bounds(&mut b_interval, &[overlap.clone()]);
+            }
+            b_positions_grouped[overlap.id as usize].push(b_interval);
+        }
+
+        let a_position = match a_part {
+            IntersectionPart::None => None,
+            IntersectionPart::Part => {
+                // Create and adjust a_position if a_part is Part
+                let mut a_interval = self.base_interval.dup();
+                self.adjust_bounds(&mut a_interval, overlaps);
+                Some(a_interval)
+            }
+            _ => Some(self.base_interval.dup()), // For Whole and Unique
+        };
+
+        match b_part {
+            IntersectionPart::None => result.push((a_position, Vec::new())),
+            IntersectionPart::Unique => {
+                if let Some(first_overlap) = overlaps.first() {
+                    let unique_b_position = vec![first_overlap.interval.dup()];
+                    result.push((a_position, vec![unique_b_position]));
+                }
+            }
+            _ => result.push((a_position, b_positions_grouped)), // For Part and Whole
+        }
+    }
+
+    fn adjust_bounds(&self, interval: &mut Position, overlaps: &[Arc<Intersection>]) {
+        // Implement logic to adjust the start and stop positions of the interval based on overlaps
+        // Example:
+        if overlaps.is_empty() {
+            return;
+        }
+        interval.set_start(
+            overlaps
+                .iter()
+                .map(|o| o.interval.start())
+                .min()
+                .unwrap_or(interval.start())
+                .max(interval.start()),
         );
-        if a_suff {
-            // here handle Not (-v)
-            if matches!(a_mode, IntersectionMode::Not) {
-                results.push((Some(base.as_ref().dup()), None));
-            }
-            return results;
-        }
-        let b_total = self
-            .overlapping
-            .iter()
-            .map(|o| o.interval.stop() - o.interval.start())
-            .sum();
-        if !b_requirements.sufficient(&bases, b_total, b_mode.contains(IntersectionMode::PerPiece))
-        {
-            if matches!(b_mode, IntersectionMode::Not) {
-                // TODO: what goes here?
-                results.push((Some(base.as_ref().dup()), None));
-            }
-            return results;
-        }
-
-        // TODO: here we add just the a pieces. Need to check how to add the b pieces.
-        for o in self.overlapping.iter() {
-            match a_part {
-                IntersectionPart::Part => {
-                    let mut piece: Position = base.as_ref().dup();
-                    piece.set_start(o.interval.start().max(piece.start()));
-                    piece.set_stop(o.interval.stop().min(piece.stop()));
-                    //pieces.push(piece);
-                    results.push((Some(piece.dup()), None))
-                }
-                IntersectionPart::Whole => results.push((Some(base.as_ref().dup()), None)),
-                IntersectionPart::Unique => {
-                    results.push((Some(base.as_ref().dup()), None));
-                    break;
-                }
-                IntersectionPart::None => {}
-            }
-        }
-
-        results
+        interval.set_stop(
+            overlaps
+                .iter()
+                .map(|o| o.interval.stop())
+                .max()
+                .unwrap_or(interval.stop())
+                .min(interval.stop()),
+        );
     }
 }
 
