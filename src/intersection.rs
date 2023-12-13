@@ -42,6 +42,15 @@ pub struct Intersection {
     pub id: u32,
 }
 
+impl Clone for Intersection {
+    fn clone(&self) -> Self {
+        Intersection {
+            interval: Arc::clone(&self.interval),
+            id: self.id,
+        }
+    }
+}
+
 /// An Intersections wraps the base interval and a vector of overlapping intervals.
 #[derive(Debug)]
 pub struct Intersections {
