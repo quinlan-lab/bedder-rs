@@ -57,6 +57,12 @@ impl Default for OverlapAmount {
     }
 }
 
+pub struct ReportFragment {
+    pub a: Option<Position>,
+    pub b: Vec<Position>,
+    pub id: usize,
+}
+
 impl Intersections {
     pub fn report(
         &self,
@@ -66,7 +72,7 @@ impl Intersections {
         b_part: IntersectionPart,
         a_requirements: OverlapAmount,
         b_requirements: OverlapAmount,
-    ) -> Vec<(Option<Position>, Vec<Vec<Position>>)> {
+    ) -> Vec<ReportFragment> {
         // usually the result is [query, [[b1-part, b1-part2, ...], [b2-part, ...]]]],
         // in fact, usually, there's only a single b and a single interval from b, so it's:
         // [query, [[b1-part]]]
@@ -78,6 +84,7 @@ impl Intersections {
 
         // Group overlaps by Intersection.id
         // since all constraints on overlap are per source.
+        // TODO: avoid this allocation by filtering on id in get_overlap_fragment
         for intersection in &self.overlapping {
             grouped_intersections[intersection.id as usize].push(intersection.clone());
         }
@@ -87,8 +94,6 @@ impl Intersections {
             if a_mode.contains(IntersectionMode::PerPiece) {
                 // each b_interval must go with the a_piece that it overlaps.
                 for b_interval in overlaps {
-                    unimplemented!("PerPiece not implemented yet");
-                    /*
                     let bases_overlap = self
                         .calculate_overlap(self.base_interval.clone(), b_interval.interval.clone());
                     if self.satisfies_requirements(
@@ -102,9 +107,14 @@ impl Intersections {
                         &b_requirements,
                         &b_mode,
                     ) {
-                        self.append_to_result(&mut result, &[b_interval], &a_part, &b_part, b_idx);
+                        let frag = self.get_overlap_fragment(
+                            &[b_interval.clone()],
+                            &a_part,
+                            &b_part,
+                            b_idx,
+                        );
+                        result.push(frag);
                     }
-                    */
                 }
             } else {
                 // Calculate cumulative overlap and sum of lengths for this group
@@ -123,7 +133,8 @@ impl Intersections {
                     &b_requirements,
                     &b_mode,
                 ) {
-                    self.append_to_result(&mut result, overlaps, &a_part, &b_part, b_idx);
+                    let fragment = self.get_overlap_fragment(overlaps, &a_part, &b_part, b_idx);
+                    result.push(fragment);
                 }
             }
         }
@@ -169,20 +180,17 @@ impl Intersections {
         // Implement logic to calculate total overlap in bases for a group of intervals
         overlaps
             .iter()
-            .map(|o| self.calculate_overlap(self.base_interval.clone(), o.interval))
+            .map(|o| self.calculate_overlap(self.base_interval.clone(), o.interval.clone()))
             .sum()
     }
-    fn append_to_result(
+    fn get_overlap_fragment(
         &self,
-        result: &mut Vec<(Option<Position>, Vec<Vec<Position>>)>,
         overlaps: &[Intersection], // already grouped and only from b_idx.
         a_part: &IntersectionPart,
         b_part: &IntersectionPart,
         b_idx: usize, // index bs of result.
-    ) {
+    ) -> ReportFragment {
         assert!(overlaps.iter().all(|o| o.id as usize == b_idx));
-        // TODO: start here first. if b_idx > 0, then we get a from result[0].0
-        // and bs from result[0].1.
 
         let a_position = match a_part {
             IntersectionPart::None => None,
@@ -196,9 +204,13 @@ impl Intersections {
             _ => Some(self.base_interval.dup()), // For Whole and Unique
         };
 
-        match b_part {
+        return match b_part {
             // None, Part, Unique, Whole
-            IntersectionPart::None => result.push((a_position, Vec::new())),
+            IntersectionPart::None => ReportFragment {
+                a: a_position,
+                b: vec![],
+                id: b_idx,
+            },
             IntersectionPart::Unique => {
                 unimplemented!("Unique B not implemented yet. Is it even possible?")
             }
@@ -210,16 +222,21 @@ impl Intersections {
                     b_interval.set_stop(b_interval.stop().min(self.base_interval.stop()));
                     b_positions.push(b_interval);
                 }
-                result.push((a_position, vec![b_positions]));
+                ReportFragment {
+                    a: a_position,
+                    b: b_positions,
+                    id: b_idx,
+                }
             }
-            IntersectionPart::Whole => result.push((
-                a_position,
-                vec![overlaps
+            IntersectionPart::Whole => ReportFragment {
+                a: a_position,
+                b: overlaps
                     .iter()
                     .map(|o| o.interval.dup())
-                    .collect::<Vec<_>>()],
-            )),
-        }
+                    .collect::<Vec<_>>(),
+                id: b_idx,
+            },
+        };
     }
 
     fn adjust_bounds(&self, interval: &mut Position, overlaps: &[Intersection]) {
