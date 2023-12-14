@@ -33,8 +33,6 @@ pub enum IntersectionPart {
     Part,
     /// Report the whole interval of A that overlaps B
     Whole,
-    /// Report Unique As even if multiple Bs overlap
-    Unique,
 }
 
 impl Default for IntersectionMode {
@@ -201,19 +199,16 @@ impl Intersections {
                 self.adjust_bounds(&mut a_interval, overlaps);
                 Some(a_interval)
             }
-            _ => Some(self.base_interval.dup()), // For Whole and Unique
+            IntersectionPart::Whole => Some(self.base_interval.dup()),
         };
 
         return match b_part {
-            // None, Part, Unique, Whole
+            // None, Part, Whole
             IntersectionPart::None => ReportFragment {
                 a: a_position,
                 b: vec![],
                 id: b_idx,
             },
-            IntersectionPart::Unique => {
-                unimplemented!("Unique B not implemented yet. Is it even possible?")
-            }
             IntersectionPart::Part => {
                 let mut b_positions = Vec::new();
                 for o in overlaps {
