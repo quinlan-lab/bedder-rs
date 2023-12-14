@@ -293,7 +293,69 @@ mod tests {
         assert_eq!(rf.b[1].start(), 8);
         assert_eq!(rf.b[1].stop(), 12);
     }
-    // TODO: test Not
+    #[test]
+    fn test_not() {
+        let intersections = make_example("a: 1-10\nb: 3-6, 8-12");
+        let r = intersections.report(
+            IntersectionMode::Not,
+            IntersectionMode::Default,
+            IntersectionPart::Whole,
+            IntersectionPart::Whole,
+            OverlapAmount::Bases(5),
+            OverlapAmount::Bases(1),
+        );
+        assert_eq!(r.len(), 0);
+
+        // now we increase the a base requirement so it is NOT met.
+        let r = intersections.report(
+            IntersectionMode::Not,
+            IntersectionMode::Default,
+            IntersectionPart::Whole,
+            IntersectionPart::Whole,
+            OverlapAmount::Bases(10), // not met.
+            OverlapAmount::Bases(1),
+        );
+        assert_eq!(r.len(), 1);
+        let rf = &r[0];
+        assert_eq!(rf.a.as_ref().unwrap().start(), 1);
+        assert_eq!(rf.a.as_ref().unwrap().stop(), 10);
+        let b = &rf.b;
+        assert_eq!(b.len(), 2);
+
+        // now we also use b not
+        let r = intersections.report(
+            IntersectionMode::Not,
+            IntersectionMode::Not,
+            IntersectionPart::Whole,
+            IntersectionPart::Whole,
+            OverlapAmount::Bases(10), // not met.
+            OverlapAmount::Bases(1),  // met but we required not.
+        );
+        assert_eq!(r.len(), 0);
+
+        // now we also use b not
+        let r = intersections.report(
+            IntersectionMode::Not,
+            IntersectionMode::Not,
+            IntersectionPart::Whole,
+            IntersectionPart::Part,
+            OverlapAmount::Bases(10), // not met.
+            OverlapAmount::Bases(10), // met but we required not.
+        );
+        assert_eq!(r.len(), 1);
+        let rf = &r[0];
+        assert_eq!(rf.a.as_ref().unwrap().start(), 1);
+        assert_eq!(rf.a.as_ref().unwrap().stop(), 10);
+        let bs = &rf.b;
+        assert_eq!(2, bs.len());
+        // TODO: we might need IntersectionPart::Inverse to get -v to work.
+        assert_eq!(bs[0].start(), 3);
+        assert_eq!(bs[0].stop(), 6);
+        assert_eq!(bs[1].start(), 8);
+        assert_eq!(bs[1].stop(), 10);
+
+        eprintln!("{:?}", r);
+    }
 
     #[test]
     fn test_a_pieces() {
