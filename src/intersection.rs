@@ -387,7 +387,7 @@ mod tests {
                 name,
                 ivs: ivs
                     .into_iter()
-                    .map(|i| Position::Interval(i))
+                    .map(Position::Interval)
                     .collect::<Vec<Position>>(),
             }
         }
@@ -450,7 +450,7 @@ mod tests {
             }
         }
 
-        b_ivs.ivs.sort_by(|a, b| a.start().cmp(&b.start()));
+        b_ivs.ivs.sort_by_key(|a| a.start());
 
         let a_ivs: Box<dyn PositionedIterator> = Box::new(a_ivs);
 

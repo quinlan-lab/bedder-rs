@@ -3,7 +3,6 @@ use crate::position::Position;
 #[allow(unused_imports)]
 use crate::string::String;
 use bitflags::bitflags;
-use std::ops::Deref;
 use std::sync::Arc;
 
 bitflags! {
@@ -293,6 +292,67 @@ mod tests {
         assert_eq!(rf.b[0].stop(), 6);
         assert_eq!(rf.b[1].start(), 8);
         assert_eq!(rf.b[1].stop(), 12);
+    }
+    // TODO: test Not
+
+    #[test]
+    fn test_a_pieces() {
+        let intersections = make_example("a: 1-10\nb: 3-6, 8-12");
+        let r = intersections.report(
+            IntersectionMode::PerPiece,
+            IntersectionMode::Default,
+            IntersectionPart::Whole,
+            IntersectionPart::Whole,
+            OverlapAmount::Bases(1),
+            OverlapAmount::Bases(1),
+        );
+        assert_eq!(r.len(), 2);
+        let rf = &r[0];
+        // test that a is 1-10
+        assert_eq!(rf.a.as_ref().unwrap().start(), 1);
+        assert_eq!(rf.a.as_ref().unwrap().stop(), 10);
+        // test that b is 3-6
+        assert_eq!(rf.b.len(), 1);
+        assert_eq!(rf.b[0].start(), 3);
+        assert_eq!(rf.b[0].stop(), 6);
+
+        let rf = &r[1];
+        assert_eq!(rf.a.as_ref().unwrap().start(), 1);
+        assert_eq!(rf.a.as_ref().unwrap().stop(), 10);
+        assert_eq!(rf.b.len(), 1);
+        assert_eq!(rf.b[0].start(), 8);
+        assert_eq!(rf.b[0].stop(), 12);
+    }
+
+    #[test]
+    fn test_a_pieces_ab_part() {
+        let intersections = make_example("a: 1-10\nb: 3-6, 8-12");
+        let r = intersections.report(
+            IntersectionMode::PerPiece,
+            IntersectionMode::Default,
+            IntersectionPart::Part,
+            IntersectionPart::Part,
+            OverlapAmount::Bases(1),
+            OverlapAmount::Bases(1),
+        );
+        // a: 3-6, b: 3-6
+        // a: 8-10, b: 8-10
+        assert_eq!(r.len(), 2);
+        let rf = &r[0];
+        // test that a is 3-6
+        assert_eq!(rf.a.as_ref().unwrap().start(), 3);
+        assert_eq!(rf.a.as_ref().unwrap().stop(), 6);
+        // test that b is 3-6
+        assert_eq!(rf.b.len(), 1);
+        assert_eq!(rf.b[0].start(), 3);
+        assert_eq!(rf.b[0].stop(), 6);
+
+        let rf = &r[1];
+        assert_eq!(rf.a.as_ref().unwrap().start(), 8);
+        assert_eq!(rf.a.as_ref().unwrap().stop(), 10);
+        assert_eq!(rf.b.len(), 1);
+        assert_eq!(rf.b[0].start(), 8);
+        assert_eq!(rf.b[0].stop(), 10);
     }
 
     #[test]

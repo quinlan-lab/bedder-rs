@@ -21,11 +21,11 @@ impl Intervals {
     fn new(name: String, n_intervals: usize, interval_len: u64) -> Self {
         Intervals {
             i: 0,
-            name: name,
+            name,
             n_intervals,
             curr_max: 1.0,
             rng: rand::thread_rng(),
-            interval_len: interval_len,
+            interval_len,
             saved_chrom: String::from("chr1"),
         }
     }
@@ -33,7 +33,7 @@ impl Intervals {
 
 impl PositionedIterator for Intervals {
     fn name(&self) -> String {
-        String::from(format!("{}:{}", self.name, self.i))
+        format!("{}:{}", self.name, self.i)
     }
 
     fn next_position(&mut self, _q: Option<&Position>) -> Option<io::Result<Position>> {
@@ -44,7 +44,7 @@ impl PositionedIterator for Intervals {
             let start = ((1.0 - self.curr_max) * (MAX_POSITION as f64)) as u64;
             Some(Ok(Position::Interval(Interval {
                 chrom: self.saved_chrom.clone(),
-                start: start,
+                start,
                 stop: start + self.interval_len,
                 ..Default::default()
             })))

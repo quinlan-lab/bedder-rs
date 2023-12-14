@@ -34,8 +34,8 @@ where
     P: AsRef<Path>,
 {
     let file = std::fs::File::open(&path)?;
-    let r = open_reader(file, path);
-    r
+    
+    open_reader(file, path)
 }
 
 pub fn open_reader<R, P>(reader: R, path: P) -> std::io::Result<Box<dyn PositionedIterator>>
