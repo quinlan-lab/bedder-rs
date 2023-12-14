@@ -59,7 +59,7 @@ pub(crate) fn parse_intersections(input: &str) -> Intersections {
 
                     intersections.push(Intersection {
                         interval: Arc::new(Position::Interval(interval)),
-                        id: id,
+                        id: id - 1,
                     });
                 }
             }

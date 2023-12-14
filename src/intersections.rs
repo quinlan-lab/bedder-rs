@@ -57,6 +57,7 @@ impl Default for OverlapAmount {
     }
 }
 
+#[derive(Debug)]
 pub struct ReportFragment {
     pub a: Option<Position>,
     pub b: Vec<Position>,
@@ -278,32 +279,107 @@ mod tests {
         parse_intersections(def)
     }
 
-    /*
     #[test]
-    fn test_simple_unique() {
+    fn test_simple() {
         let intersections = make_example("a: 1-10\nb: 3-6, 8-12");
         let r = intersections.report(
             IntersectionMode::Default,
             IntersectionMode::Default,
-            IntersectionPart::Unique,
-            IntersectionPart::None,
+            IntersectionPart::Whole,
+            IntersectionPart::Whole,
             OverlapAmount::Bases(5),
             OverlapAmount::Bases(1),
         );
+        eprintln!("{:?}", r);
         assert_eq!(r.len(), 1);
-        assert_eq!(
-            r[0],
-            (
-                Some(Position::Interval(Interval {
-                    chrom: String::from("chr1"),
-                    start: 1,
-                    stop: 10,
-                    fields: Default::default(),
-                })),
-                None,
-            ),
-        );
+        let rf = &r[0];
+        assert_eq!(rf.a.as_ref().unwrap().start(), 1);
+        assert_eq!(rf.a.as_ref().unwrap().stop(), 10);
+
+        assert_eq!(rf.b.len(), 2);
+        assert_eq!(rf.b[0].start(), 3);
+        assert_eq!(rf.b[0].stop(), 6);
+        assert_eq!(rf.b[1].start(), 8);
+        assert_eq!(rf.b[1].stop(), 12);
     }
+
+    #[test]
+    fn test_b_part() {
+        let intersections = make_example("a: 4-10\nb: 3-6, 8-12");
+        let r = intersections.report(
+            IntersectionMode::Default,
+            IntersectionMode::Default,
+            IntersectionPart::Whole,
+            IntersectionPart::Part,
+            // only 4 bases of overlap.
+            OverlapAmount::Bases(5),
+            OverlapAmount::Bases(1),
+        );
+        assert_eq!(r.len(), 0);
+        let r = intersections.report(
+            IntersectionMode::Default,
+            IntersectionMode::Default,
+            IntersectionPart::Whole,
+            IntersectionPart::Part,
+            OverlapAmount::Bases(4),
+            OverlapAmount::Bases(1),
+        );
+        assert_eq!(r.len(), 1);
+        let rf = &r[0];
+        assert_eq!(rf.a.as_ref().unwrap().start(), 4);
+        assert_eq!(rf.a.as_ref().unwrap().stop(), 10);
+
+        assert_eq!(rf.b.len(), 2);
+        // note that b is chopped to 4
+        assert_eq!(rf.b[0].start(), 4);
+        assert_eq!(rf.b[0].stop(), 6);
+        assert_eq!(rf.b[1].start(), 8);
+        // and 10.
+        assert_eq!(rf.b[1].stop(), 10);
+    }
+
+    #[test]
+    fn test_b_none() {
+        let intersections = make_example("a: 4-10\nb: 3-6, 8-12");
+        let r = intersections.report(
+            IntersectionMode::Default,
+            IntersectionMode::Default,
+            IntersectionPart::Whole,
+            IntersectionPart::None,
+            // only 4 bases of overlap.
+            OverlapAmount::Bases(1),
+            OverlapAmount::Bases(1),
+        );
+        assert_eq!(r.len(), 1);
+        assert_eq!(r[0].a.as_ref().unwrap().start(), 4);
+        assert_eq!(r[0].a.as_ref().unwrap().stop(), 10);
+        assert_eq!(r[0].b.len(), 0);
+    }
+
+    #[test]
+    fn test_a_none() {
+        let intersections = make_example("a: 4-10\nb: 3-6, 8-12");
+        let r = intersections.report(
+            IntersectionMode::Default,
+            IntersectionMode::Default,
+            IntersectionPart::None,
+            IntersectionPart::Part,
+            // only 4 bases of overlap.
+            OverlapAmount::Bases(1),
+            OverlapAmount::Bases(1),
+        );
+        assert_eq!(r.len(), 1);
+        assert_eq!(r[0].a, None);
+        let rf = &r[0];
+        // note that b is chopped to 4
+        assert_eq!(rf.b[0].start(), 4);
+        assert_eq!(rf.b[0].stop(), 6);
+        assert_eq!(rf.b[1].start(), 8);
+        // and 10.
+        assert_eq!(rf.b[1].stop(), 10);
+    }
+
+    /*
     #[test]
     fn test_simple_unique_insufficient_bases() {
         let intersections = make_example("a: 1-10\nb: 3-6, 8-12");
