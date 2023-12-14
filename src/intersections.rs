@@ -264,10 +264,7 @@ impl Intersections {
 
 #[cfg(test)]
 mod tests {
-    use std::vec;
-
     use super::*;
-    use crate::interval::Interval;
     use crate::tests::parse_intersections::parse_intersections;
 
     fn make_example(def: &str) -> Intersections {
