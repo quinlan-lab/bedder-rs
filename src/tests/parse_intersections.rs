@@ -9,6 +9,7 @@ pub(crate) fn parse_intersections(input: &str) -> Intersections {
     let mut intersections = Vec::new();
     let mut base_interval = None;
 
+    let mut id = 0;
     for line in input.lines() {
         let line = line.trim();
 
@@ -17,11 +18,9 @@ pub(crate) fn parse_intersections(input: &str) -> Intersections {
         }
 
         let mut parts = line.split(':');
-        let mut id = 0;
 
         if let (Some(name), Some(ranges)) = (parts.next(), parts.next()) {
             let name = name.trim();
-            id += 1;
 
             let ranges: Vec<(u64, u64)> = ranges
                 .split(',')
@@ -49,6 +48,7 @@ pub(crate) fn parse_intersections(input: &str) -> Intersections {
                 };
                 base_interval = Some(interval);
             } else {
+                id += 1;
                 for se in ranges {
                     let interval = Interval {
                         chrom: String::from("chr1"),
@@ -76,16 +76,22 @@ pub(crate) fn parse_intersections(input: &str) -> Intersections {
 
 #[test]
 fn test_parse() {
-    let input = "a: 1-10\nb: 3-6, 8-12";
+    let input = "a: 1-10\nb: 3-6, 8-12\nb:9-20";
     let intersections = parse_intersections(input);
 
     // Access the generated Intersections struct
     assert_eq!(intersections.base_interval.start(), 1);
     assert_eq!(intersections.base_interval.stop(), 10);
     eprintln!("{:?}", intersections.overlapping);
-    assert_eq!(intersections.overlapping.len(), 2);
+    assert_eq!(intersections.overlapping.len(), 3);
     assert_eq!(intersections.overlapping[0].interval.start(), 3);
     assert_eq!(intersections.overlapping[0].interval.stop(), 6);
     assert_eq!(intersections.overlapping[1].interval.start(), 8);
     assert_eq!(intersections.overlapping[1].interval.stop(), 12);
+    assert_eq!(intersections.overlapping[0].id, 0);
+    assert_eq!(intersections.overlapping[1].id, 0);
+
+    assert_eq!(intersections.overlapping[2].id, 1);
+    assert_eq!(intersections.overlapping[2].interval.start(), 9);
+    assert_eq!(intersections.overlapping[2].interval.stop(), 20);
 }
