@@ -18,6 +18,7 @@ bitflags! {
         /// Return A(B) if it does *not* overlap B(A). Bedtools -v
         const Not = 0b00000001;
 
+        /// Constraints are per piece of interval (not the sum of overlapping intervals)
         const PerPiece = 0b00000010;
 
     }
@@ -32,6 +33,8 @@ pub enum IntersectionPart {
     Part,
     /// Report the whole interval of A that overlaps B
     Whole,
+    /// Report each portion of A that does *NOT* overlap B
+    Inverse,
 }
 
 impl Default for IntersectionMode {
@@ -82,7 +85,7 @@ impl Intersections {
 
         // Group overlaps by Intersection.id
         // since all constraints on overlap are per source.
-        // TODO: avoid this allocation by filtering on id in get_overlap_fragment
+        // TODO: avoid this allocation by filtering on id in push_overlap_fragments
         for intersection in &self.overlapping {
             grouped_intersections[intersection.id as usize].push(intersection.clone());
         }
@@ -105,13 +108,13 @@ impl Intersections {
                         &b_requirements,
                         &b_mode,
                     ) {
-                        let frag = self.get_overlap_fragment(
+                        self.push_overlap_fragments(
+                            &mut result,
                             &[b_interval.clone()],
                             &a_part,
                             &b_part,
                             b_idx,
                         );
-                        result.push(frag);
                     }
                 }
             } else {
@@ -131,8 +134,7 @@ impl Intersections {
                     &b_requirements,
                     &b_mode,
                 ) {
-                    let fragment = self.get_overlap_fragment(overlaps, &a_part, &b_part, b_idx);
-                    result.push(fragment);
+                    self.push_overlap_fragments(&mut result, overlaps, &a_part, &b_part, b_idx);
                 }
             }
         }
@@ -180,28 +182,34 @@ impl Intersections {
             .map(|o| self.calculate_overlap(self.base_interval.clone(), o.interval.clone()))
             .sum()
     }
-    fn get_overlap_fragment(
+    fn push_overlap_fragments(
         &self,
+        result: &mut Vec<ReportFragment>,
         overlaps: &[Intersection], // already grouped and only from b_idx.
         a_part: &IntersectionPart,
         b_part: &IntersectionPart,
         b_idx: usize, // index bs of result.
-    ) -> ReportFragment {
+    ) {
         assert!(overlaps.iter().all(|o| o.id as usize == b_idx));
 
         let a_position = match a_part {
             IntersectionPart::None => None,
             IntersectionPart::Part => {
                 // Create and adjust a_position if a_part is Part
-                // Q: what to do here with multiple b files? keep intersection to smallest joint overlap?
+                // Q: TODO: what to do here with multiple b files? keep intersection to smallest joint overlap?
                 let mut a_interval = self.base_interval.dup();
                 self.adjust_bounds(&mut a_interval, overlaps);
                 Some(a_interval)
             }
             IntersectionPart::Whole => Some(self.base_interval.dup()),
+            IntersectionPart::Inverse => {
+                todo!("TODO Brent: start here. Inverse for a query interval not implemented");
+                // if we have a: 1-10, b: 3-6, 8-12
+                // then we want to report a: 1-3, 6-8
+            }
         };
 
-        return match b_part {
+        result.push(match b_part {
             // None, Part, Whole
             IntersectionPart::None => ReportFragment {
                 a: a_position,
@@ -222,6 +230,28 @@ impl Intersections {
                     id: b_idx,
                 }
             }
+            IntersectionPart::Inverse => {
+                // if we have a: 1-10, b: 3-6, 8-12
+                // then we want to report b: [], 10-12
+                let mut b_positions = Vec::new();
+                for o in overlaps {
+                    if o.interval.start() < self.base_interval.start() {
+                        let mut b_interval = o.interval.dup();
+                        b_interval.set_stop(b_interval.start());
+                        b_positions.push(b_interval);
+                    }
+                    if o.interval.stop() > self.base_interval.stop() {
+                        let mut b_interval = o.interval.dup();
+                        b_interval.set_start(self.base_interval.stop());
+                        b_positions.push(b_interval);
+                    }
+                }
+                ReportFragment {
+                    a: a_position,
+                    b: b_positions,
+                    id: b_idx,
+                }
+            }
             IntersectionPart::Whole => ReportFragment {
                 a: a_position,
                 b: overlaps
@@ -230,7 +260,7 @@ impl Intersections {
                     .collect::<Vec<_>>(),
                 id: b_idx,
             },
-        };
+        });
     }
 
     fn adjust_bounds(&self, interval: &mut Position, overlaps: &[Intersection]) {
@@ -348,13 +378,54 @@ mod tests {
         assert_eq!(rf.a.as_ref().unwrap().stop(), 10);
         let bs = &rf.b;
         assert_eq!(2, bs.len());
-        // TODO: we might need IntersectionPart::Inverse to get -v to work.
         assert_eq!(bs[0].start(), 3);
         assert_eq!(bs[0].stop(), 6);
         assert_eq!(bs[1].start(), 8);
         assert_eq!(bs[1].stop(), 10);
 
         eprintln!("{:?}", r);
+    }
+
+    #[test]
+    fn test_b_inverse() {
+        let intersections = make_example("a: 1-10\nb: 3-6, 8-12\nb:9-20");
+        let r = intersections.report(
+            IntersectionMode::Default,
+            IntersectionMode::Default,
+            IntersectionPart::Whole,
+            IntersectionPart::Inverse,
+            OverlapAmount::Bases(1),
+            OverlapAmount::Bases(1),
+        );
+        assert_eq!(r.len(), 2);
+
+        assert_eq!(r[0].b.len(), 1);
+        assert_eq!(r[0].b[0].start(), 10);
+        assert_eq!(r[0].b[0].stop(), 12);
+
+        assert_eq!(r[1].b.len(), 1);
+        assert_eq!(r[1].b[0].start(), 10);
+        assert_eq!(r[1].b[0].stop(), 20);
+    }
+
+    #[test]
+    fn test_multiple_bs() {
+        let intersections = make_example("a: 1-10\nb: 3-6, 8-12\nb:9-20");
+        let r = intersections.report(
+            IntersectionMode::Default,
+            IntersectionMode::Default,
+            IntersectionPart::Part,
+            IntersectionPart::Whole,
+            OverlapAmount::Bases(1),
+            OverlapAmount::Bases(1),
+        );
+        assert_eq!(r.len(), 2); // one for each b.
+        assert!(r[0].id == 0);
+        assert!(r[1].id == 1);
+        assert_eq!(r[1].b[0].start(), 9);
+        assert_eq!(r[1].b[0].stop(), 20);
+        assert_eq!(r[1].a.as_ref().unwrap().start(), 9);
+        assert_eq!(r[1].a.as_ref().unwrap().stop(), 10);
     }
 
     #[test]
