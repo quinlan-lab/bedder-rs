@@ -388,7 +388,7 @@ mod tests {
 
     #[test]
     fn test_b_inverse() {
-        let intersections = make_example("a: 1-10\nb: 3-6, 8-12\nb:9-20");
+        let intersections = make_example("a: 1-10\nb: 3-4, 6-7, 8-12\nb:9-20");
         let r = intersections.report(
             IntersectionMode::Default,
             IntersectionMode::Default,
