@@ -3,12 +3,13 @@ use crate::position::Position;
 #[allow(unused_imports)]
 use crate::string::String;
 use bitflags::bitflags;
+use clap::ValueEnum;
 use std::sync::Arc;
 
 bitflags! {
     /// IntersectionMode indicates requirements for the intersection.
     /// And extra fields that might be reported.
-    #[derive(Eq, PartialEq, Debug)]
+    #[derive(Eq, PartialEq, Debug, Clone)]
     pub struct IntersectionMode: u8 {
         // https://bedtools.readthedocs.io/en/latest/content/tools/intersect.html#usage-and-option-summary
 
@@ -24,7 +25,22 @@ bitflags! {
     }
 }
 
+impl From<&str> for IntersectionMode {
+    fn from(s: &str) -> Self {
+        let mut result = Self::Default;
+        for c in s.chars() {
+            match c {
+                'v' => result |= Self::Not,
+                'p' => result |= Self::PerPiece,
+                _ => panic!("unknown intersection mode {}", c),
+            }
+        }
+        result
+    }
+}
+
 /// IntersectionPart indicates what to report for the intersection.
+#[derive(Eq, PartialEq, Debug, Clone, ValueEnum)]
 pub enum IntersectionPart {
     /// Don't report the intersection.
     /// This is commonly used for -b to not report b intervals.
@@ -37,6 +53,17 @@ pub enum IntersectionPart {
     Inverse,
 }
 
+impl std::fmt::Display for IntersectionPart {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            IntersectionPart::None => write!(f, "None"),
+            IntersectionPart::Part => write!(f, "Part"),
+            IntersectionPart::Whole => write!(f, "Whole"),
+            IntersectionPart::Inverse => write!(f, "Inverse"),
+        }
+    }
+}
+
 impl Default for IntersectionMode {
     fn default() -> Self {
         Self::Default
@@ -45,10 +72,41 @@ impl Default for IntersectionMode {
 
 /// OverlapAmount indicates the amount of overlap required.
 /// Either as bases or as a fraction of the total length.
-#[derive(Debug)]
+#[derive(PartialEq, Debug, Clone)]
 pub enum OverlapAmount {
     Bases(u64),
     Fraction(f32),
+}
+
+impl From<&str> for OverlapAmount {
+    fn from(s: &str) -> Self {
+        if let Some(f) = s.strip_suffix('%') {
+            Self::Fraction(
+                f.parse::<f32>()
+                    .unwrap_or_else(|_| panic!("error parsing fraction as float {}", s))
+                    / 100.0,
+            )
+        } else if s.contains('.') {
+            Self::Fraction(
+                s.parse::<f32>()
+                    .unwrap_or_else(|_| panic!("error parsing fraction as float {}", s)),
+            )
+        } else {
+            Self::Bases(
+                s.parse::<u64>()
+                    .unwrap_or_else(|_| panic!("error parsing bases as int {}", s)),
+            )
+        }
+    }
+}
+
+impl std::fmt::Display for OverlapAmount {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            OverlapAmount::Bases(bases) => write!(f, "Bases({})", bases),
+            OverlapAmount::Fraction(fraction) => write!(f, "Fraction({:.3})", fraction),
+        }
+    }
 }
 
 impl Default for OverlapAmount {
@@ -67,12 +125,12 @@ pub struct ReportFragment {
 impl Intersections {
     pub fn report(
         &self,
-        a_mode: IntersectionMode,
-        b_mode: IntersectionMode,
-        a_part: IntersectionPart,
-        b_part: IntersectionPart,
-        a_requirements: OverlapAmount,
-        b_requirements: OverlapAmount,
+        a_mode: &IntersectionMode,
+        b_mode: &IntersectionMode,
+        a_part: &IntersectionPart,
+        b_part: &IntersectionPart,
+        a_requirements: &OverlapAmount,
+        b_requirements: &OverlapAmount,
     ) -> Vec<ReportFragment> {
         // usually the result is [query, [[b1-part, b1-part2, ...], [b2-part, ...]]]],
         // in fact, usually, there's only a single b and a single interval from b, so it's:
@@ -100,19 +158,19 @@ impl Intersections {
                     if Intersections::satisfies_requirements(
                         bases_overlap,
                         self.base_interval.stop() - self.base_interval.start(),
-                        &a_requirements,
-                        &a_mode,
+                        a_requirements,
+                        a_mode,
                     ) && Intersections::satisfies_requirements(
                         bases_overlap,
                         b_interval.interval.stop() - b_interval.interval.start(),
-                        &b_requirements,
-                        &b_mode,
+                        b_requirements,
+                        b_mode,
                     ) {
                         self.push_overlap_fragments(
                             &mut result,
                             &[b_interval.clone()],
-                            &a_part,
-                            &b_part,
+                            a_part,
+                            b_part,
                             b_idx,
                         );
                     }
@@ -123,18 +181,23 @@ impl Intersections {
                 if Intersections::satisfies_requirements(
                     total_bases_overlap,
                     self.base_interval.stop() - self.base_interval.start(),
-                    &a_requirements,
-                    &a_mode,
+                    a_requirements,
+                    a_mode,
                 ) && Intersections::satisfies_requirements(
                     total_bases_overlap,
                     overlaps
                         .iter()
                         .map(|o| o.interval.stop() - o.interval.start())
                         .sum(),
-                    &b_requirements,
-                    &b_mode,
+                    b_requirements,
+                    b_mode,
                 ) {
-                    self.push_overlap_fragments(&mut result, overlaps, &a_part, &b_part, b_idx);
+                    eprintln!(
+                        "total_bases_overlap: {} a length: {}",
+                        total_bases_overlap,
+                        self.base_interval.stop() - self.base_interval.start()
+                    );
+                    self.push_overlap_fragments(&mut result, overlaps, a_part, b_part, b_idx);
                 }
             }
         }
@@ -157,11 +220,11 @@ impl Intersections {
                 }
             }
             OverlapAmount::Fraction(fraction) => {
-                let required_overlap = (*fraction * interval_length as f32) as u64;
+                let required_overlap = *fraction * interval_length as f32;
                 if mode.contains(IntersectionMode::Not) {
-                    bases_overlap < required_overlap
+                    (bases_overlap as f32) < required_overlap
                 } else {
-                    bases_overlap >= required_overlap
+                    (bases_overlap as f32) >= required_overlap
                 }
             }
         }
@@ -304,12 +367,12 @@ mod tests {
     fn test_simple() {
         let intersections = make_example("a: 1-10\nb: 3-6, 8-12");
         let r = intersections.report(
-            IntersectionMode::Default,
-            IntersectionMode::Default,
-            IntersectionPart::Whole,
-            IntersectionPart::Whole,
-            OverlapAmount::Bases(5),
-            OverlapAmount::Bases(1),
+            &IntersectionMode::Default,
+            &IntersectionMode::Default,
+            &IntersectionPart::Whole,
+            &IntersectionPart::Whole,
+            &OverlapAmount::Bases(5),
+            &OverlapAmount::Bases(1),
         );
         eprintln!("{:?}", r);
         assert_eq!(r.len(), 1);
@@ -327,23 +390,23 @@ mod tests {
     fn test_not() {
         let intersections = make_example("a: 1-10\nb: 3-6, 8-12");
         let r = intersections.report(
-            IntersectionMode::Not,
-            IntersectionMode::Default,
-            IntersectionPart::Whole,
-            IntersectionPart::Whole,
-            OverlapAmount::Bases(5),
-            OverlapAmount::Bases(1),
+            &IntersectionMode::Not,
+            &IntersectionMode::Default,
+            &IntersectionPart::Whole,
+            &IntersectionPart::Whole,
+            &OverlapAmount::Bases(5),
+            &OverlapAmount::Bases(1),
         );
         assert_eq!(r.len(), 0);
 
         // now we increase the a base requirement so it is NOT met.
         let r = intersections.report(
-            IntersectionMode::Not,
-            IntersectionMode::Default,
-            IntersectionPart::Whole,
-            IntersectionPart::Whole,
-            OverlapAmount::Bases(10), // not met.
-            OverlapAmount::Bases(1),
+            &IntersectionMode::Not,
+            &IntersectionMode::Default,
+            &IntersectionPart::Whole,
+            &IntersectionPart::Whole,
+            &OverlapAmount::Bases(10), // not met.
+            &OverlapAmount::Bases(1),
         );
         assert_eq!(r.len(), 1);
         let rf = &r[0];
@@ -354,23 +417,23 @@ mod tests {
 
         // now we also use b not
         let r = intersections.report(
-            IntersectionMode::Not,
-            IntersectionMode::Not,
-            IntersectionPart::Whole,
-            IntersectionPart::Whole,
-            OverlapAmount::Bases(10), // not met.
-            OverlapAmount::Bases(1),  // met but we required not.
+            &IntersectionMode::Not,
+            &IntersectionMode::Not,
+            &IntersectionPart::Whole,
+            &IntersectionPart::Whole,
+            &OverlapAmount::Bases(10), // not met.
+            &OverlapAmount::Bases(1),  // met but we required not.
         );
         assert_eq!(r.len(), 0);
 
         // now we also use b not
         let r = intersections.report(
-            IntersectionMode::Not,
-            IntersectionMode::Not,
-            IntersectionPart::Whole,
-            IntersectionPart::Part,
-            OverlapAmount::Bases(10), // not met.
-            OverlapAmount::Bases(10), // met but we required not.
+            &IntersectionMode::Not,
+            &IntersectionMode::Not,
+            &IntersectionPart::Whole,
+            &IntersectionPart::Part,
+            &OverlapAmount::Bases(10), // not met.
+            &OverlapAmount::Bases(10), // met but we required not.
         );
         assert_eq!(r.len(), 1);
         let rf = &r[0];
@@ -390,12 +453,12 @@ mod tests {
     fn test_b_inverse() {
         let intersections = make_example("a: 1-10\nb: 3-4, 6-7, 8-12\nb:9-20");
         let r = intersections.report(
-            IntersectionMode::Default,
-            IntersectionMode::Default,
-            IntersectionPart::Whole,
-            IntersectionPart::Inverse,
-            OverlapAmount::Bases(1),
-            OverlapAmount::Bases(1),
+            &IntersectionMode::Default,
+            &IntersectionMode::Default,
+            &IntersectionPart::Whole,
+            &IntersectionPart::Inverse,
+            &OverlapAmount::Bases(1),
+            &OverlapAmount::Bases(1),
         );
         assert_eq!(r.len(), 2);
 
@@ -412,12 +475,12 @@ mod tests {
     fn test_multiple_bs() {
         let intersections = make_example("a: 1-10\nb: 3-6, 8-12\nb:9-20");
         let r = intersections.report(
-            IntersectionMode::Default,
-            IntersectionMode::Default,
-            IntersectionPart::Part,
-            IntersectionPart::Whole,
-            OverlapAmount::Bases(1),
-            OverlapAmount::Bases(1),
+            &IntersectionMode::Default,
+            &IntersectionMode::Default,
+            &IntersectionPart::Part,
+            &IntersectionPart::Whole,
+            &OverlapAmount::Bases(1),
+            &OverlapAmount::Bases(1),
         );
         assert_eq!(r.len(), 2); // one for each b.
         assert!(r[0].id == 0);
@@ -432,12 +495,12 @@ mod tests {
     fn test_a_pieces() {
         let intersections = make_example("a: 1-10\nb: 3-6, 8-12");
         let r = intersections.report(
-            IntersectionMode::PerPiece,
-            IntersectionMode::Default,
-            IntersectionPart::Whole,
-            IntersectionPart::Whole,
-            OverlapAmount::Bases(1),
-            OverlapAmount::Bases(1),
+            &IntersectionMode::PerPiece,
+            &IntersectionMode::Default,
+            &IntersectionPart::Whole,
+            &IntersectionPart::Whole,
+            &OverlapAmount::Bases(1),
+            &OverlapAmount::Bases(1),
         );
         assert_eq!(r.len(), 2);
         let rf = &r[0];
@@ -461,12 +524,12 @@ mod tests {
     fn test_a_pieces_ab_part() {
         let intersections = make_example("a: 1-10\nb: 3-6, 8-12");
         let r = intersections.report(
-            IntersectionMode::PerPiece,
-            IntersectionMode::Default,
-            IntersectionPart::Part,
-            IntersectionPart::Part,
-            OverlapAmount::Bases(1),
-            OverlapAmount::Bases(1),
+            &IntersectionMode::PerPiece,
+            &IntersectionMode::Default,
+            &IntersectionPart::Part,
+            &IntersectionPart::Part,
+            &OverlapAmount::Bases(1),
+            &OverlapAmount::Bases(1),
         );
         // a: 3-6, b: 3-6
         // a: 8-10, b: 8-10
@@ -492,22 +555,22 @@ mod tests {
     fn test_b_part() {
         let intersections = make_example("a: 4-10\nb: 3-6, 8-12");
         let r = intersections.report(
-            IntersectionMode::Default,
-            IntersectionMode::Default,
-            IntersectionPart::Whole,
-            IntersectionPart::Part,
+            &IntersectionMode::Default,
+            &IntersectionMode::Default,
+            &IntersectionPart::Whole,
+            &IntersectionPart::Part,
             // only 4 bases of overlap.
-            OverlapAmount::Bases(5),
-            OverlapAmount::Bases(1),
+            &OverlapAmount::Bases(5),
+            &OverlapAmount::Bases(1),
         );
         assert_eq!(r.len(), 0);
         let r = intersections.report(
-            IntersectionMode::Default,
-            IntersectionMode::Default,
-            IntersectionPart::Whole,
-            IntersectionPart::Part,
-            OverlapAmount::Bases(4),
-            OverlapAmount::Bases(1),
+            &IntersectionMode::Default,
+            &IntersectionMode::Default,
+            &IntersectionPart::Whole,
+            &IntersectionPart::Part,
+            &OverlapAmount::Bases(4),
+            &OverlapAmount::Bases(1),
         );
         assert_eq!(r.len(), 1);
         let rf = &r[0];
@@ -527,13 +590,13 @@ mod tests {
     fn test_b_none() {
         let intersections = make_example("a: 4-10\nb: 3-6, 8-12");
         let r = intersections.report(
-            IntersectionMode::Default,
-            IntersectionMode::Default,
-            IntersectionPart::Whole,
-            IntersectionPart::None,
+            &IntersectionMode::Default,
+            &IntersectionMode::Default,
+            &IntersectionPart::Whole,
+            &IntersectionPart::None,
             // only 4 bases of overlap.
-            OverlapAmount::Bases(1),
-            OverlapAmount::Bases(1),
+            &OverlapAmount::Bases(1),
+            &OverlapAmount::Bases(1),
         );
         assert_eq!(r.len(), 1);
         assert_eq!(r[0].a.as_ref().unwrap().start(), 4);
@@ -545,13 +608,13 @@ mod tests {
     fn test_a_none() {
         let intersections = make_example("a: 4-10\nb: 3-6, 8-12");
         let r = intersections.report(
-            IntersectionMode::Default,
-            IntersectionMode::Default,
-            IntersectionPart::None,
-            IntersectionPart::Part,
+            &IntersectionMode::Default,
+            &IntersectionMode::Default,
+            &IntersectionPart::None,
+            &IntersectionPart::Part,
             // only 4 bases of overlap.
-            OverlapAmount::Bases(1),
-            OverlapAmount::Bases(1),
+            &OverlapAmount::Bases(1),
+            &OverlapAmount::Bases(1),
         );
         assert_eq!(r.len(), 1);
         assert_eq!(r[0].a, None);
