@@ -341,7 +341,7 @@ impl<'a> IntersectionIterator<'a> {
                 }
                 self.min_heap.push(ReverseOrderPosition {
                     position: next_position,
-                    chromosome_index,
+                    chromosome_index: next_chromosome.index,
                     id: file_index,
                 });
             }
