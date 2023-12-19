@@ -192,11 +192,6 @@ impl Intersections {
                     b_requirements,
                     b_mode,
                 ) {
-                    eprintln!(
-                        "total_bases_overlap: {} a length: {}",
-                        total_bases_overlap,
-                        self.base_interval.stop() - self.base_interval.start()
-                    );
                     self.push_overlap_fragments(&mut result, overlaps, a_part, b_part, b_idx);
                 }
             }

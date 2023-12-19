@@ -46,6 +46,12 @@ struct Args {
         help = "fai or genome file that dictates chromosome order"
     )]
     fai: PathBuf,
+
+    #[clap(long, short, help = "count the number of intersections")]
+    count: bool,
+
+    #[clap(long, short = 'b', help = "count the bases of overlaps")]
+    count_base: bool,
 }
 
 fn main() -> io::Result<()> {
@@ -81,8 +87,27 @@ fn main() -> io::Result<()> {
             &args.a_requirements,
             &args.b_requirements,
         );
-        eprintln!("{:?}", report);
-        eprintln!("a reqs: {:?}", args.a_requirements);
+        //eprintln!("{:?} {:?}", report.len(), report);
+        //eprintln!("a reqs: {:?}", args.a_requirements);
+
+        if args.count {
+            writeln!(
+                &mut stdout,
+                "{}\t{}\t{}\t{}",
+                intersection.base_interval.chrom(),
+                intersection.base_interval.start(),
+                intersection.base_interval.stop(),
+                // count reports by id.
+                // TODO: currently just collects the ids.
+                report
+                    .iter()
+                    .map(|r| r.id.to_string())
+                    .collect::<Vec<_>>()
+                    .join(",")
+            )?;
+            stdout.flush()?;
+            continue;
+        }
 
         writeln!(
             &mut stdout,
