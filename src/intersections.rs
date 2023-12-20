@@ -1,5 +1,6 @@
 use crate::intersection::{Intersection, Intersections};
 use crate::position::Position;
+pub use crate::report::{Report, ReportFragment};
 #[allow(unused_imports)]
 use crate::string::String;
 use bitflags::bitflags;
@@ -115,13 +116,6 @@ impl Default for OverlapAmount {
     }
 }
 
-#[derive(Debug)]
-pub struct ReportFragment {
-    pub a: Option<Position>,
-    pub b: Vec<Position>,
-    pub id: usize,
-}
-
 impl Intersections {
     pub fn report(
         &self,
@@ -131,7 +125,7 @@ impl Intersections {
         b_part: &IntersectionPart,
         a_requirements: &OverlapAmount,
         b_requirements: &OverlapAmount,
-    ) -> Vec<ReportFragment> {
+    ) -> Report {
         // usually the result is [query, [[b1-part, b1-part2, ...], [b2-part, ...]]]],
         // in fact, usually, there's only a single b and a single interval from b, so it's:
         // [query, [[b1-part]]]
@@ -197,7 +191,7 @@ impl Intersections {
             }
         }
 
-        result
+        Report::new(result)
     }
 
     fn satisfies_requirements(

@@ -12,6 +12,9 @@ pub mod position;
 // Interval type
 pub mod interval;
 
+/// Reports from intersections.
+pub mod report;
+
 /// a std::String::String unless other string features are enabled.
 pub mod string;
 

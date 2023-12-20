@@ -2,7 +2,7 @@ use std::fs;
 use std::io::{self, BufReader, BufWriter, Write};
 use std::path::PathBuf;
 
-use bedder::sniff;
+use bedder::{intersections, sniff};
 use clap::Parser;
 extern crate bedder;
 use crate::bedder::chrom_ordering::parse_genome;
@@ -87,7 +87,7 @@ fn main() -> io::Result<()> {
             &args.a_requirements,
             &args.b_requirements,
         );
-        //eprintln!("{:?} {:?}", report.len(), report);
+        eprintln!("{:?} {:?}", report.len(), report);
         //eprintln!("a reqs: {:?}", args.a_requirements);
 
         if args.count {
@@ -97,15 +97,13 @@ fn main() -> io::Result<()> {
                 intersection.base_interval.chrom(),
                 intersection.base_interval.start(),
                 intersection.base_interval.stop(),
-                // count reports by id.
-                // TODO: currently just collects the ids.
                 report
+                    .count_overlaps_by_id()
                     .iter()
-                    .map(|r| r.id.to_string())
+                    .map(|x| x.to_string())
                     .collect::<Vec<_>>()
                     .join(",")
             )?;
-            stdout.flush()?;
             continue;
         }
 
