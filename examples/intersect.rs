@@ -87,7 +87,7 @@ fn main() -> io::Result<()> {
             &args.a_requirements,
             &args.b_requirements,
         );
-        eprintln!("{:?} {:?}", report.len(), report);
+        //eprintln!("{:?} {:?}", report.len(), report);
         //eprintln!("a reqs: {:?}", args.a_requirements);
 
         if args.count {
@@ -99,6 +99,22 @@ fn main() -> io::Result<()> {
                 intersection.base_interval.stop(),
                 report
                     .count_overlaps_by_id()
+                    .iter()
+                    .map(|x| x.to_string())
+                    .collect::<Vec<_>>()
+                    .join(",")
+            )?;
+            continue;
+        }
+        if args.count_base {
+            writeln!(
+                &mut stdout,
+                "{}\t{}\t{}\t{}",
+                intersection.base_interval.chrom(),
+                intersection.base_interval.start(),
+                intersection.base_interval.stop(),
+                report
+                    .count_bases_by_id()
                     .iter()
                     .map(|x| x.to_string())
                     .collect::<Vec<_>>()

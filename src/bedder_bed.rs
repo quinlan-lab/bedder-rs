@@ -22,7 +22,7 @@ impl crate::position::Positioned for bed::record::Record<3> {
 
     fn set_start(&mut self, start: u64) {
         // must build a new record to set start.
-        let pstart = core::Position::try_from(start as usize).expect("invalid start");
+        let pstart = core::Position::try_from(start as usize + 1).expect("invalid start");
         let record = bed::Record::<3>::builder()
             .set_reference_sequence_name(self.reference_sequence_name())
             .set_start_position(pstart)
@@ -33,9 +33,9 @@ impl crate::position::Positioned for bed::record::Record<3> {
         *self = record;
     }
 
-    fn set_stop(&mut self, start: u64) {
+    fn set_stop(&mut self, stop: u64) {
         // must build a new record to set start.
-        let pstop = core::Position::try_from(start as usize + 1).expect("invalid start");
+        let pstop = core::Position::try_from(stop as usize).expect("invalid stop");
         let record = bed::Record::<3>::builder()
             .set_reference_sequence_name(self.reference_sequence_name())
             .set_start_position(self.start_position())

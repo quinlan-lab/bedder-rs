@@ -45,4 +45,25 @@ impl Report {
         });
         result
     }
+
+    /// The number of b-bases in each fragment from each source(id)
+    /// This is determined by the overlap requirements, modes, and parts.
+    pub fn count_bases_by_id(&self) -> Vec<u64> {
+        let mut result = Vec::new();
+        self.0.iter().for_each(|frag| {
+            eprintln!("frag: {:?}", frag);
+            if frag.id >= result.len() {
+                result.resize(frag.id + 1, 0);
+            }
+            result[frag.id] += frag
+                .b
+                .iter()
+                .map(|pos| {
+                    eprintln!("start: {:?} stop: {:?}", pos.start(), pos.stop());
+                    pos.stop() - pos.start()
+                })
+                .sum::<u64>();
+        });
+        result
+    }
 }
