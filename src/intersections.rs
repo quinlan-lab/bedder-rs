@@ -266,7 +266,8 @@ impl Intersections {
         assert!(overlaps.iter().all(|o| o.id as usize == b_idx));
 
         let a_positions = match a_part {
-            IntersectionPart::None => vec![], // TODO. what to do here.
+            // for None, we still need the a_interval to report the b_interval
+            IntersectionPart::None => vec![self.base_interval.dup()],
             IntersectionPart::Part => {
                 // Create and adjust a_position if a_part is Part
                 // Q: TODO: what to do here with multiple b files? keep intersection to smallest joint overlap?
@@ -278,12 +279,16 @@ impl Intersections {
             IntersectionPart::Inverse => inverse(&self.base_interval, overlaps),
         };
 
-        // TODO: if a_part is None, then we won't get any results.
         a_positions.into_iter().for_each(|a_position| {
+            let a_pos = if matches!(a_part, IntersectionPart::None) {
+                None
+            } else {
+                Some(a_position.dup())
+            };
             result.push(match b_part {
                 // None, Part, Whole
                 IntersectionPart::None => ReportFragment {
-                    a: Some(a_position),
+                    a: a_pos,
                     b: vec![],
                     id: b_idx,
                 },
@@ -296,7 +301,7 @@ impl Intersections {
                         b_positions.push(b_interval);
                     }
                     ReportFragment {
-                        a: Some(a_position),
+                        a: a_pos,
                         b: b_positions,
                         id: b_idx,
                     }
@@ -318,13 +323,13 @@ impl Intersections {
                         }
                     }
                     ReportFragment {
-                        a: Some(a_position),
+                        a: a_pos,
                         b: b_positions,
                         id: b_idx,
                     }
                 }
                 IntersectionPart::Whole => ReportFragment {
-                    a: Some(a_position),
+                    a: a_pos,
                     b: overlaps
                         .iter()
                         .map(|o| o.interval.dup())
@@ -642,7 +647,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn test_a_none() {
         let intersections = make_example("a: 4-10\nb: 3-6, 8-12");
         let r = intersections.report(
@@ -655,7 +659,6 @@ mod tests {
             &OverlapAmount::Bases(1),
         );
         assert_eq!(r.len(), 1);
-        // TODO: A None not handled
         assert_eq!(r[0].a, None);
         let rf = &r[0];
         // note that b is chopped to 4
