@@ -10,6 +10,15 @@ pub struct ReportFragment {
 #[derive(Debug)]
 pub struct Report(Vec<ReportFragment>);
 
+/// implement Iteration for Report to get each fragment
+impl<'a> IntoIterator for &'a Report {
+    type Item = &'a ReportFragment;
+    type IntoIter = std::slice::Iter<'a, ReportFragment>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.iter()
+    }
+}
+
 /// implement Indexing for Report to get each fragment
 impl std::ops::Index<usize> for Report {
     type Output = ReportFragment;
@@ -51,17 +60,13 @@ impl Report {
     pub fn count_bases_by_id(&self) -> Vec<u64> {
         let mut result = Vec::new();
         self.0.iter().for_each(|frag| {
-            eprintln!("frag: {:?}", frag);
             if frag.id >= result.len() {
                 result.resize(frag.id + 1, 0);
             }
             result[frag.id] += frag
                 .b
                 .iter()
-                .map(|pos| {
-                    eprintln!("start: {:?} stop: {:?}", pos.start(), pos.stop());
-                    pos.stop() - pos.start()
-                })
+                .map(|pos| pos.stop() - pos.start())
                 .sum::<u64>();
         });
         result
