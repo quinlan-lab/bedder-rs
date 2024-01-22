@@ -211,8 +211,8 @@ impl Intersections {
                 }
             }
         }
-        if a_mode.contains(IntersectionMode::Not) && self.overlapping.len() == 0 {
-            self.push_overlap_fragments(&mut result, &vec![], a_part, b_part, usize::MAX);
+        if a_mode.contains(IntersectionMode::Not) && self.overlapping.is_empty() {
+            self.push_overlap_fragments(&mut result, &[], a_part, b_part, usize::MAX);
         }
 
         Report::new(result)
@@ -492,6 +492,44 @@ mod tests {
         assert_eq!(bs[1].stop(), 10);
 
         eprintln!("{:?}", r);
+    }
+
+    #[test]
+    fn test_a_not() {
+        let intersections = make_example("a: 1-10\nb: 3-4, 6-7, 8-12\nb:9-20");
+        let r = intersections.report(
+            &IntersectionMode::Not,
+            &IntersectionMode::Default,
+            &IntersectionPart::Whole,
+            &IntersectionPart::Whole,
+            &OverlapAmount::Bases(1),
+            &OverlapAmount::Bases(1),
+        );
+        assert!(r.len() == 0);
+        let r = intersections.report(
+            &IntersectionMode::Not,
+            &IntersectionMode::Default,
+            &IntersectionPart::Whole,
+            &IntersectionPart::Whole,
+            &OverlapAmount::Bases(6),
+            &OverlapAmount::Bases(1),
+        );
+        assert_eq!(r.len(), 2);
+    }
+
+    #[test]
+    fn test_a_not_with_empty() {
+        let intersections = make_example("a: 1-10");
+        let r = intersections.report(
+            &IntersectionMode::Not,
+            &IntersectionMode::Default,
+            &IntersectionPart::Whole,
+            &IntersectionPart::Whole,
+            &OverlapAmount::Bases(1),
+            &OverlapAmount::Bases(1),
+        );
+        assert_eq!(1, r.len());
+        assert_eq!(r[0].id, usize::MAX);
     }
 
     #[test]
