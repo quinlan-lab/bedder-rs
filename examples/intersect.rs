@@ -2,7 +2,7 @@ use std::fs;
 use std::io::{self, BufReader, BufWriter, Write};
 use std::path::PathBuf;
 
-use bedder::{intersections, sniff};
+use bedder::sniff;
 use clap::Parser;
 extern crate bedder;
 use crate::bedder::chrom_ordering::parse_genome;
@@ -67,7 +67,7 @@ fn main() -> io::Result<()> {
         .collect::<io::Result<Vec<_>>>()?;
 
     // bedder always requires a hashmap that indicates the chromosome order
-    let fh = BufReader::new(fs::File::open(args.fai)?);
+    let fh = BufReader::new(fs::File::open(&args.fai)?);
     let h = parse_genome(fh)?;
 
     // we can have any number of b (other_iterators).
@@ -122,15 +122,22 @@ fn main() -> io::Result<()> {
             )?;
             continue;
         }
+        //eprintln!("report: {:?}", report);
+        //eprintln!("args: {:?}", &args);
 
-        writeln!(
-            &mut stdout,
-            "{}\t{}\t{}\t{}",
-            intersection.base_interval.chrom(),
-            intersection.base_interval.start(),
-            intersection.base_interval.stop(),
-            intersection.overlapping.len()
-        )?;
+        for r in report.into_iter() {
+            let a = r.a.as_ref().expect("a");
+            writeln!(
+                &mut stdout,
+                "{}\t{}\t{}\t{:?}",
+                a.chrom(),
+                a.start(),
+                a.stop(),
+                r.b.iter()
+                    .map(|r| format!("{}:{}-{}", r.chrom(), r.start(), r.stop()))
+                    .collect::<Vec<_>>()
+            )?;
+        }
     }
 
     Ok(())
