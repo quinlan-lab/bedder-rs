@@ -211,6 +211,9 @@ impl Intersections {
                 }
             }
         }
+        if a_mode.contains(IntersectionMode::Not) && self.overlapping.len() == 0 {
+            self.push_overlap_fragments(&mut result, &vec![], a_part, b_part, usize::MAX);
+        }
 
         Report::new(result)
     }
@@ -797,6 +800,16 @@ mod tests {
             8,
             &OverlapAmount::Bases(10),
             &IntersectionMode::Default
+        ));
+    }
+
+    #[test]
+    fn test_satisifies_reqs_bases_with_not() {
+        assert!(Intersections::satisfies_requirements(
+            1,
+            100,
+            &OverlapAmount::Bases(10),
+            &IntersectionMode::Not
         ));
     }
 
