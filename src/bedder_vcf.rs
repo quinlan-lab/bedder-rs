@@ -174,7 +174,13 @@ where
                 self.record_number += 1;
                 Some(Ok(Position::Vcf(Box::new(v))))
             }
-            Err(e) => Some(Err(e)),
+            Err(e) => {
+                eprintln!(
+                    "error reading vcf record: {} at line number: {}",
+                    e, self.record_number
+                );
+                Some(Err(e))
+            }
         }
     }
     fn name(&self) -> String {
