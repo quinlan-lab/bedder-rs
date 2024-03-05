@@ -5,9 +5,11 @@ use crate::string::String;
 use linear_map::LinearMap;
 use std::fmt::Debug;
 
+/// half-open interval
 #[derive(Debug, Default)]
 pub struct Interval {
     pub chrom: String,
+    /// 0-based start
     pub start: u64,
     pub stop: u64,
     pub fields: LinearMap<String, Value>,

@@ -22,6 +22,8 @@ pub mod sniff;
 
 pub mod chrom_ordering;
 
+pub mod writer;
+
 #[cfg(feature = "bed")]
 /// Bed parser implementing the PositionedIterator trait.
 pub mod bedder_bed;

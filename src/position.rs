@@ -99,6 +99,7 @@ impl Position {
     }
 
     #[inline]
+    /// 0-based start position.
     pub fn start(&self) -> u64 {
         match self {
             Position::Bed(b) => b.start(),
