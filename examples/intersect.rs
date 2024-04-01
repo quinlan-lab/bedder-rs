@@ -8,6 +8,7 @@ extern crate bedder;
 use crate::bedder::chrom_ordering::parse_genome;
 use crate::bedder::intersection::IntersectionIterator;
 use crate::bedder::intersections::{IntersectionMode, IntersectionPart, OverlapAmount};
+use crate::bedder::writer;
 
 #[derive(Parser, Debug)]
 struct Args {
@@ -59,7 +60,12 @@ fn main() -> io::Result<()> {
 
     // sniff determines the file type (bam/cram/bcf/vcf/bed/gff/gtf)
     // and returns a PositionIterator
-    let ai = sniff::open_file(&args.a)?;
+    let mut areader = BufReader::new(fs::File::open(&args.a)?);
+    let (aformat, acompression) = sniff::detect_file_format(&mut areader, &args.a)?;
+
+    let ai = sniff::open_format(areader, &args.a, aformat.clone(), acompression)?;
+
+    //let ai = sniff::open_file(&args.a)?;
     let bis = args
         .b
         .iter()
@@ -69,6 +75,14 @@ fn main() -> io::Result<()> {
     // bedder always requires a hashmap that indicates the chromosome order
     let fh = BufReader::new(fs::File::open(&args.fai)?);
     let h = parse_genome(fh)?;
+
+    let mut wtr = match writer::Writer::init(aformat, None, sniff::Compression::None) {
+        Ok(w) => w,
+        Err(e) => {
+            eprintln!("error: {:?}", e);
+            std::process::exit(1);
+        }
+    };
 
     // we can have any number of b (other_iterators).
     let it = IntersectionIterator::new(ai, bis, &h)?;

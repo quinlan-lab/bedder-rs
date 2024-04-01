@@ -1,6 +1,7 @@
-use crate::report::Report;
+use crate::report::{Report, ReportFragment};
 use crate::sniff::Compression;
 use crate::sniff::FileFormat;
+use std::result::Result;
 use std::string::String;
 
 pub enum Type {
@@ -30,6 +31,10 @@ pub enum Value {
     VecString(Vec<String>),
 }
 
+pub enum ColumnError {
+    InvalidValue(String),
+}
+
 pub trait ColumnReporter {
     /// report the name, e.g. `count` for the INFO field of the VCF
     fn name(&self) -> String;
@@ -38,7 +43,7 @@ pub trait ColumnReporter {
     fn description(&self) -> String;
     fn number(&self) -> Number;
 
-    fn value(&self, r: &Report) -> Value; // Value probably something from noodles that encapsulates Float/Int/Vec<Float>/String/...
+    fn value(&self, r: &ReportFragment) -> Result<Value, ColumnError>; // Value probably something from noodles that encapsulates Float/Int/Vec<Float>/String/...
 }
 
 #[derive(Debug)]
