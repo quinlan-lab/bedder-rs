@@ -245,7 +245,7 @@ impl Intersections {
 
     #[inline]
     fn calculate_overlap(&self, interval_a: Arc<Position>, interval_b: Arc<Position>) -> u64 {
-        // TODO: we don't handle the case where there is no overlap. possible underflow. But we should
+        // NOTE!: we don't handle the case where there is no overlap. possible underflow. But we should
         // only get overlapping intervals here.
         interval_a.stop().min(interval_b.stop()) - interval_a.start().max(interval_b.start())
     }

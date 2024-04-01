@@ -1,4 +1,5 @@
 use flate2::read::GzDecoder;
+use noodles::bam::reader;
 use std::io::{BufRead, Read, Seek};
 use std::path::Path;
 
@@ -8,7 +9,7 @@ use crate::position::PositionedIterator;
 use noodles::bgzf;
 
 /// File formats supported by this file detector.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum FileFormat {
     VCF,
     BCF,
@@ -34,7 +35,7 @@ where
     P: AsRef<Path>,
 {
     let file = std::fs::File::open(&path)?;
-    
+
     open_reader(file, path)
 }
 
@@ -51,8 +52,20 @@ where
         format,
         compression
     );
-    /*
-     */
+
+    return open_format(reader, path, format, compression);
+}
+
+pub fn open_format<R, P>(
+    reader: R,
+    path: P,
+    format: FileFormat,
+    compression: Compression,
+) -> std::io::Result<Box<dyn PositionedIterator>>
+where
+    R: BufRead + Seek + 'static,
+    P: AsRef<Path>,
+{
     match format {
         FileFormat::VCF | FileFormat::BCF => {
             // get &str from path
