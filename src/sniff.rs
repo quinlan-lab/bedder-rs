@@ -1,5 +1,4 @@
 use flate2::read::GzDecoder;
-use noodles::bam::reader;
 use std::io::{BufRead, Read, Seek};
 use std::path::Path;
 

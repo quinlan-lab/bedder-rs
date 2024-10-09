@@ -2,6 +2,10 @@ use crate::position::Position;
 use crate::report::{Report, ReportFragment};
 use crate::sniff::Compression;
 use crate::sniff::FileFormat;
+use noodles::bam;
+use noodles::bcf;
+use noodles::bgzf;
+use noodles::sam;
 use noodles::vcf::{self, Header, Record};
 use std::io::Write;
 use std::result::Result;
@@ -52,15 +56,21 @@ pub trait ColumnReporter {
 #[derive(Debug)]
 pub enum FormatConversionError {
     IncompatibleFormats(FileFormat, FileFormat, String),
+    UnsupportedFormat(FileFormat),
+}
+
+pub enum InputHeader {
+    Vcf(vcf::Header),
+    Sam(sam::Header),
+    None,
 }
 
 pub struct Writer {
     in_fmt: FileFormat,
     out_fmt: FileFormat,
     compression: Compression,
-    writer: Box<dyn Write>,
-    vcf_writer: Option<vcf::Writer<Box<dyn Write>>>,
-    header: Option<vcf::Header>,
+    writer: GenomicWriter,
+    header: Option<Header>,
 }
 
 impl Writer {
@@ -69,6 +79,7 @@ impl Writer {
         out_fmt: Option<FileFormat>,
         compression: Compression,
         writer: Box<dyn Write>,
+        input_header: InputHeader,
     ) -> Result<Self, FormatConversionError> {
         let out_fmt = match out_fmt {
             Some(f) => f,
@@ -79,30 +90,46 @@ impl Writer {
             },
         };
 
-        let header = match in_fmt {
-            FileFormat::VCF => Some(vcf::Header::from_reader(reader)?),
-            _ => None,
+        let header = match input_header {
+            InputHeader::Vcf(h) => Some(h),
+            InputHeader::Sam(_) => None, // We'll need to convert SAM header to VCF header if needed
+            InputHeader::None => None,
         };
 
-        let vcf_writer = if out_fmt == FileFormat::VCF {
-            Some(vcf::Writer::new(writer.clone()))
-        } else {
-            None
+        let genomic_writer = match out_fmt {
+            FileFormat::VCF => GenomicWriter::Vcf(vcf::Writer::new(writer)),
+            FileFormat::BCF => GenomicWriter::Bcf(bcf::Writer::new(writer)),
+            FileFormat::BAM => GenomicWriter::Bam(bam::Writer::new(writer)),
+            FileFormat::BED => GenomicWriter::Bed(writer),
+            // Handle other formats
+            _ => return Err(FormatConversionError::UnsupportedFormat(out_fmt)),
         };
 
         Ok(Self {
             in_fmt: in_fmt.clone(),
             out_fmt,
             compression,
-            writer,
-            vcf_writer,
+            writer: genomic_writer,
+            header,
         })
     }
 
     pub fn write_vcf_header(&mut self, header: &Header) -> Result<(), std::io::Error> {
-        if let Some(vcf_writer) = &mut self.vcf_writer {
-            vcf_writer.write_header(header)?;
+        match &mut self.writer {
+            GenomicWriter::Vcf(vcf_writer) => {
+                vcf_writer.write_header(header)?;
+            }
+            GenomicWriter::Bcf(bcf_writer) => {
+                bcf_writer.write_header(header)?;
+            }
+            _ => {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "Cannot write VCF header for non-VCF/BCF formats",
+                ));
+            }
         }
+        self.header = Some(header.clone());
         Ok(())
     }
 
@@ -113,10 +140,15 @@ impl Writer {
     ) -> Result<(), std::io::Error> {
         match self.out_fmt {
             FileFormat::VCF => {
-                let vcf_writer = self
-                    .vcf_writer
-                    .as_mut()
-                    .expect("VCF writer not initialized");
+                let vcf_writer = match &mut self.writer {
+                    GenomicWriter::Vcf(writer) => writer,
+                    _ => {
+                        return Err(std::io::Error::new(
+                            std::io::ErrorKind::InvalidInput,
+                            "Expected VCF writer, but found a different format",
+                        ))
+                    }
+                };
 
                 for fragment in report {
                     // Extract the VCF record from the position using matches!
@@ -234,4 +266,52 @@ impl Writer {
             Value::VecString(v) => v.join(","),
         }
     }
+}
+
+pub enum GenomicWriter {
+    Vcf(vcf::Writer<Box<dyn Write>>),
+    Bcf(bcf::Writer<bgzf::Writer<Box<dyn Write>>>),
+    Bam(bam::Writer<bgzf::Writer<Box<dyn Write>>>),
+    Bed(Box<dyn Write>),
+    Gff(gff::Writer<Box<dyn Write>>),
+    // Add other formats as needed
+}
+
+impl GenomicWriterTrait for GenomicWriter {
+    fn write_header(&mut self, header: &Header) -> Result<(), std::io::Error> {
+        match self {
+            GenomicWriter::Vcf(writer) => writer.write_header(header),
+            GenomicWriter::Bcf(writer) => writer.write_header(header),
+            GenomicWriter::Bam(writer) => writer.write_header(header),
+            GenomicWriter::Bed(_) => Ok(()), // BED doesn't have a header
+            GenomicWriter::Gff(writer) => writer.write_header(header),
+            // Handle other formats
+        }
+    }
+
+    fn write_record(&mut self, record: &Record) -> Result<(), std::io::Error> {
+        match self {
+            GenomicWriter::Vcf(writer) => writer.write_record(record),
+            GenomicWriter::Bcf(writer) => writer.write_record(record),
+            GenomicWriter::Bam(writer) => writer.write_record(record),
+            GenomicWriter::Bed(writer) => {
+                // Implement BED record writing
+                writeln!(
+                    writer,
+                    "{}\t{}\t{}",
+                    record.chrom(),
+                    record.start(),
+                    record.end()
+                )
+            }
+            GenomicWriter::Gff(writer) => writer.write_record(record),
+            // Handle other formats
+        }
+    }
+}
+
+pub trait GenomicWriterTrait {
+    fn write_header(&mut self, header: &Header) -> Result<(), std::io::Error>;
+    fn write_record(&mut self, record: &Record) -> Result<(), std::io::Error>;
+    // Add other common methods as needed
 }
