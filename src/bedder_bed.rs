@@ -93,23 +93,23 @@ where
     ) -> Option<std::result::Result<Position, std::io::Error>> {
         loop {
             self.line_number += 1;
-            return match self.reader.records() {
+            return match self.reader.next() {
                 None => None,
                 Some(Ok(record)) => {
                     match &mut self.last_record {
                         None => {
                             self.last_record = Some(Last {
-                                chrom: String::from(&record.chrom),
-                                start: record.start as u64,
-                                stop: record.end as u64,
+                                chrom: String::from(record.chrom()),
+                                start: record.start(),
+                                stop: record.end(),
                             })
                         }
                         Some(r) => {
-                            if r.chrom != record.chrom {
-                                r.chrom = String::from(&record.chrom)
+                            if r.chrom != record.chrom() {
+                                r.chrom = String::from(record.chrom())
                             }
-                            r.start = record.start as u64;
-                            r.stop = record.end as u64;
+                            r.start = record.start();
+                            r.stop = record.end();
                         }
                     }
                     Some(Ok(Position::Bed(record)))

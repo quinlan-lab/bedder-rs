@@ -30,7 +30,8 @@ xvcf = { version = "0.2.0", git = "https://github.com/brentp/xvcf-rs" }
 mimalloc = "0.1.39"
 bitflags = "2.4.0"
 rust-htslib = {version = "0.47.0", features = ["libdeflate"]}
-bio = "2.0.3"
+bio = { git = "https://github.com/brentp/rust-bio.git", branch = "bed-next" }
+
 
 [features]
 default = ["bed", "csi", "core", "bam", "sam", "bgzf"]
