@@ -25,6 +25,7 @@ pub enum Field {
 pub enum FieldError {
     InvalidFieldIndex(usize),
     InvalidFieldName(String),
+    InvalidFieldValue(String),
 }
 
 impl fmt::Display for FieldError {
@@ -32,6 +33,7 @@ impl fmt::Display for FieldError {
         match self {
             FieldError::InvalidFieldIndex(i) => write!(f, "invalid column index: {}", i),
             FieldError::InvalidFieldName(s) => write!(f, "invalid column name: {}", s),
+            FieldError::InvalidFieldValue(s) => write!(f, "invalid field value: {}", s),
         }
     }
 }
@@ -71,7 +73,7 @@ pub trait Valued {
 pub enum Position {
     Bed(crate::bedder_bed::Record<3>),
     // Note: we use a Box here because a vcf Record is large.
-    Vcf(Box<crate::bedder_vcf::Record>),
+    Vcf(Box<rust_htslib::bcf::Record>),
     Interval(crate::interval::Interval),
     // catch-all in case we have another interval type.
     // #[cfg(feature = "dyn_positioned")]
@@ -91,7 +93,15 @@ impl Position {
     pub fn chrom(&self) -> &str {
         match self {
             Position::Bed(b) => b.chrom(),
-            Position::Vcf(v) => v.chrom(),
+            Position::Vcf(v) => {
+                let rid = match v.rid() {
+                    Some(rid) => rid,
+                    None => return "*",
+                };
+                let header = v.header();
+                let name = header.rid2name(rid).unwrap();
+                std::str::from_utf8(name).unwrap()
+            }
             Position::Interval(i) => &i.chrom,
             // #[cfg(feature = "dyn_positioned")]
             Position::Other(o) => o.chrom(),
@@ -103,7 +113,7 @@ impl Position {
     pub fn start(&self) -> u64 {
         match self {
             Position::Bed(b) => b.start(),
-            Position::Vcf(v) => v.start(),
+            Position::Vcf(v) => v.pos(),
             Position::Interval(i) => i.start,
             // #[cfg(feature = "dyn_positioned")]
             Position::Other(o) => o.start(),
@@ -114,7 +124,7 @@ impl Position {
     pub fn stop(&self) -> u64 {
         match self {
             Position::Bed(b) => b.stop(),
-            Position::Vcf(v) => v.stop(),
+            Position::Vcf(v) => v.end(),
             Position::Interval(i) => i.stop,
             // #[cfg(feature = "dyn_positioned")]
             Position::Other(o) => o.stop(),
@@ -124,7 +134,7 @@ impl Position {
     pub fn set_start(&mut self, start: u64) {
         match self {
             Position::Bed(b) => b.set_start(start),
-            Position::Vcf(v) => v.set_start(start),
+            Position::Vcf(v) => v.set_pos(start as i64),
             Position::Interval(i) => i.set_start(start),
             // #[cfg(feature = "dyn_positioned")]
             Position::Other(o) => o.set_start(start),
@@ -134,7 +144,7 @@ impl Position {
     pub fn set_stop(&mut self, stop: u64) {
         match self {
             Position::Bed(b) => b.set_stop(stop),
-            Position::Vcf(v) => v.set_stop(stop),
+            Position::Vcf(v) => {}
             Position::Interval(i) => i.set_stop(stop),
             // #[cfg(feature = "dyn_positioned")]
             Position::Other(o) => o.set_stop(stop),

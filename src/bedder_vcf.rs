@@ -2,26 +2,22 @@
 use crate::position::{Field, FieldError, Position, Positioned, Value};
 use crate::string::String;
 use noodles::core::Region;
-use noodles::vcf::{self, record::Chromosome};
+
+pub use rust_htslib::bcf;
 use std::io::{self, Read, Seek};
+use std::iter::Iterator;
 use std::result;
-use vcf::record::info::field;
-use vcf::record::QualityScore;
-pub use vcf::Record;
 pub use xvcf;
 use xvcf::Skip;
 
-pub struct BedderVCF<R> {
-    reader: xvcf::Reader<R>,
+pub struct BedderVCF<'a> {
+    reader: xvcf::Reader<'a>,
     record_number: u64,
     header: vcf::Header,
 }
 
-impl<R> BedderVCF<R>
-where
-    R: Read + 'static,
-{
-    pub fn new(r: xvcf::Reader<R>) -> io::Result<BedderVCF<R>> {
+impl<'a> BedderVCF<'a> {
+    pub fn new(r: xvcf::Reader<'a>) -> io::Result<BedderVCF<'a>> {
         let h = r.header().clone();
         let v = BedderVCF {
             reader: r,
@@ -32,46 +28,38 @@ where
     }
 }
 
-pub fn match_info_value(info: &vcf::record::Info, name: &str) -> result::Result<Value, FieldError> {
-    //let info = record.info();
-    let key: vcf::record::info::field::Key = name
-        .parse()
-        .map_err(|_| FieldError::InvalidFieldName(String::from(name)))?;
-
-    match info.get(&key) {
+pub fn match_info_value(
+    info: &rust_htslib::bcf::Record,
+    name: &str,
+) -> result::Result<Value, FieldError> {
+    // Try to get the info field by name
+    match info
+        .info(name.as_bytes())
+        .map_err(|e| FieldError::InvalidFieldValue(e.to_string()))?
+    {
         Some(value) => match value {
-            Some(field::Value::Integer(i)) => Ok(Value::Ints(vec![*i as i64])),
-            Some(field::Value::Float(f)) => Ok(Value::Floats(vec![*f as f64])),
-            Some(field::Value::String(s)) => Ok(Value::Strings(vec![String::from(s)])),
-            Some(field::Value::Character(c)) => {
-                Ok(Value::Strings(vec![String::from(c.to_string())]))
+            bcf::record::Info::Integer(arr) => {
+                Ok(Value::Ints(arr.into_iter().map(|v| v as i64).collect()))
             }
-            //Some(field::Value::Flag) => Ok(Value::Strings(vec![String::from("true")])),
-            Some(field::Value::Array(arr)) => {
-                match arr {
-                    field::value::Array::Integer(arr) => Ok(Value::Ints(
-                        arr.iter().flatten().map(|&v| v as i64).collect(),
-                    )),
-                    field::value::Array::Float(arr) => Ok(Value::Floats(
-                        arr.iter().flatten().map(|&v| v as f64).collect(),
-                    )),
-                    field::value::Array::String(arr) => Ok(Value::Strings(
-                        arr.iter().flatten().map(String::from).collect(),
-                    )),
-                    field::value::Array::Character(arr) => Ok(Value::Strings(
-                        arr.iter().flatten().map(|v| v.to_string().into()).collect(),
-                    )),
-                    //field::Value::Flag => Ok(Value::Strings(vec![String::from("true")])),
-                }
+            bcf::record::Info::Float(arr) => {
+                Ok(Value::Floats(arr.into_iter().map(|v| v as f64).collect()))
             }
-
-            _ => Err(FieldError::InvalidFieldName(String::from(name))),
+            bcf::record::Info::String(arr) => Ok(Value::Strings(
+                arr.into_iter()
+                    .map(|s| String::from_utf8_lossy(s).into_owned().into())
+                    .collect(),
+            )),
+            bcf::record::Info::Flag(true) => Ok(Value::Strings(vec![String::from("true")])),
+            bcf::record::Info::Flag(false) => Ok(Value::Strings(vec![String::from("false")])),
         },
         None => Err(FieldError::InvalidFieldName(String::from(name))),
     }
 }
 
-pub fn match_value(record: &vcf::record::Record, f: Field) -> result::Result<Value, FieldError> {
+pub fn match_value(
+    record: &rust_htslib::bcf::Record,
+    f: Field,
+) -> result::Result<Value, FieldError> {
     match f {
         Field::String(s) => match s.as_str() {
             "chrom" => Ok(Value::Strings(vec![String::from(Positioned::chrom(
@@ -79,31 +67,44 @@ pub fn match_value(record: &vcf::record::Record, f: Field) -> result::Result<Val
             ))])),
             "start" => Ok(Value::Ints(vec![Positioned::start(record) as i64])),
             "stop" => Ok(Value::Ints(vec![Positioned::stop(record) as i64])),
-            "ID" => Ok(Value::Strings(
-                record.ids().iter().map(|s| s.to_string().into()).collect(),
-            )),
-            "FILTER" => Ok(Value::Strings(
-                record
+            "ID" => {
+                let ids = record
+                    .id()
+                    .map_err(|e| FieldError::InvalidFieldValue(e.to_string()))?;
+                Ok(Value::Strings(vec![String::from_utf8_lossy(ids)
+                    .into_owned()
+                    .into()]))
+            }
+            "FILTER" => {
+                let filters = record
                     .filters()
-                    .iter()
-                    .map(|s| String::from(s.to_string()))
-                    .collect(),
-            )),
-            "QUAL" => Ok(Value::Floats(vec![f32::from(
-                record
-                    .quality_score()
-                    .unwrap_or(QualityScore::try_from(0f32).expect("error getting quality score")),
-            ) as f64])),
+                    .map_err(|e| FieldError::InvalidFieldValue(e.to_string()))?;
+                Ok(Value::Strings(
+                    filters
+                        .iter()
+                        .map(|s| String::from_utf8_lossy(s).into_owned().into())
+                        .collect(),
+                ))
+            }
+            "QUAL" => {
+                let qual = record
+                    .qual()
+                    .map_err(|e| FieldError::InvalidFieldValue(e.to_string()))?;
+                Ok(Value::Floats(vec![if qual.is_nan() {
+                    -1.0
+                } else {
+                    qual as f64
+                }]))
+            }
             _ => {
                 if s.len() > 5 && &s[0..5] == "INFO." {
-                    match_info_value(record.info(), &s[5..])
+                    match_info_value(record, &s[5..])
                 } else {
                     // TODO: format
                     unimplemented!();
                 }
             }
         },
-
         Field::Int(i) => Err(FieldError::InvalidFieldIndex(i)),
     }
 }
