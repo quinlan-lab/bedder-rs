@@ -1,19 +1,17 @@
 #![allow(clippy::useless_conversion)] // these are needed to support e.g. smartstring
 use crate::position::{Field, FieldError, Position, Positioned, Value};
 use crate::string::String;
-use noodles::core::Region;
 
-pub use rust_htslib::bcf;
-use std::io::{self, Read, Seek};
-use std::iter::Iterator;
+use std::io;
 use std::result;
 pub use xvcf;
+use xvcf::rust_htslib::{self, bcf};
 use xvcf::Skip;
 
 pub struct BedderVCF<'a> {
     reader: xvcf::Reader<'a>,
     record_number: u64,
-    header: vcf::Header,
+    header: bcf::header::HeaderView,
 }
 
 impl<'a> BedderVCF<'a> {
@@ -32,148 +30,90 @@ pub fn match_info_value(
     info: &rust_htslib::bcf::Record,
     name: &str,
 ) -> result::Result<Value, FieldError> {
-    // Try to get the info field by name
-    match info
-        .info(name.as_bytes())
-        .map_err(|e| FieldError::InvalidFieldValue(e.to_string()))?
-    {
-        Some(value) => match value {
-            bcf::record::Info::Integer(arr) => {
-                Ok(Value::Ints(arr.into_iter().map(|v| v as i64).collect()))
-            }
-            bcf::record::Info::Float(arr) => {
-                Ok(Value::Floats(arr.into_iter().map(|v| v as f64).collect()))
-            }
-            bcf::record::Info::String(arr) => Ok(Value::Strings(
-                arr.into_iter()
-                    .map(|s| String::from_utf8_lossy(s).into_owned().into())
-                    .collect(),
-            )),
-            bcf::record::Info::Flag(true) => Ok(Value::Strings(vec![String::from("true")])),
-            bcf::record::Info::Flag(false) => Ok(Value::Strings(vec![String::from("false")])),
-        },
-        None => Err(FieldError::InvalidFieldName(String::from(name))),
-    }
+    unimplemented!()
 }
 
 pub fn match_value(
     record: &rust_htslib::bcf::Record,
     f: Field,
 ) -> result::Result<Value, FieldError> {
-    match f {
-        Field::String(s) => match s.as_str() {
-            "chrom" => Ok(Value::Strings(vec![String::from(Positioned::chrom(
-                record,
-            ))])),
-            "start" => Ok(Value::Ints(vec![Positioned::start(record) as i64])),
-            "stop" => Ok(Value::Ints(vec![Positioned::stop(record) as i64])),
-            "ID" => {
-                let ids = record
-                    .id()
-                    .map_err(|e| FieldError::InvalidFieldValue(e.to_string()))?;
-                Ok(Value::Strings(vec![String::from_utf8_lossy(ids)
-                    .into_owned()
-                    .into()]))
-            }
-            "FILTER" => {
-                let filters = record
-                    .filters()
-                    .map_err(|e| FieldError::InvalidFieldValue(e.to_string()))?;
-                Ok(Value::Strings(
-                    filters
-                        .iter()
-                        .map(|s| String::from_utf8_lossy(s).into_owned().into())
-                        .collect(),
-                ))
-            }
-            "QUAL" => {
-                let qual = record
-                    .qual()
-                    .map_err(|e| FieldError::InvalidFieldValue(e.to_string()))?;
-                Ok(Value::Floats(vec![if qual.is_nan() {
-                    -1.0
-                } else {
-                    qual as f64
-                }]))
-            }
-            _ => {
-                if s.len() > 5 && &s[0..5] == "INFO." {
-                    match_info_value(record, &s[5..])
-                } else {
-                    // TODO: format
-                    unimplemented!();
-                }
-            }
-        },
-        Field::Int(i) => Err(FieldError::InvalidFieldIndex(i)),
+    unimplemented!()
+}
+
+#[derive(Debug)]
+pub struct BedderRecord {
+    pub record: bcf::Record,
+}
+
+impl BedderRecord {
+    pub fn new(record: bcf::Record) -> Self {
+        Self { record }
     }
 }
 
-impl Positioned for vcf::record::Record {
+impl Positioned for BedderRecord {
     #[inline]
     fn chrom(&self) -> &str {
-        match self.chromosome() {
-            Chromosome::Name(s) => s,
-            Chromosome::Symbol(s) => s,
+        let h = self.record.header();
+        let rid = self.record.rid();
+        if let Some(rid) = rid {
+            let name = h.rid2name(rid).expect("error getting chromosome name");
+            std::str::from_utf8(name).expect("invalid UTF-8 in chromosome name")
+        } else {
+            ""
         }
     }
 
     #[inline]
     fn start(&self) -> u64 {
-        usize::from(self.position()) as u64
+        self.record.pos() as u64
     }
 
     #[inline]
     fn stop(&self) -> u64 {
-        usize::from(self.end().expect("error getting end from vcf record")) as u64
+        self.record.end() as u64
     }
 
     fn set_start(&mut self, start: u64) {
-        let p = self.position_mut();
-        *p = vcf::record::Position::try_from((start + 1) as usize)
-            .expect("error setting start position in vcf record");
+        self.record.set_pos(start as i64);
     }
 
     fn set_stop(&mut self, _stop: u64) {
         // set_stop in vcf is currently a no-op
     }
 
-    fn dup(&self) -> Box<dyn Positioned> {
-        Box::new(self.clone())
+    fn clone_box(&self) -> Box<dyn Positioned> {
+        Box::new(Self {
+            record: self.record.clone(),
+        })
     }
 }
 
-impl<R> crate::position::PositionedIterator for BedderVCF<R>
-where
-    R: Read + Seek + 'static,
-{
+impl<'a> crate::position::PositionedIterator for BedderVCF<'a> {
     fn next_position(
         &mut self,
         q: Option<&crate::position::Position>,
     ) -> Option<std::result::Result<Position, std::io::Error>> {
         if let Some(q) = q {
-            let s = noodles::core::Position::new(q.start() as usize + 1)?;
-            let e = noodles::core::Position::new(q.stop() as usize + 1)?;
-            let region = Region::new(q.chrom(), s..=e);
-            match self.reader.skip_to(&self.header, &region) {
+            match self.reader.skip_to(q.chrom(), q.start() - 1 as u64) {
                 Ok(_) => (),
                 Err(e) => return Some(Err(e)),
             }
         }
 
-        // take self.reader.variant if it's there
         if let Some(v) = self.reader.take() {
             self.record_number += 1;
-            return Some(Ok(Position::Vcf(Box::new(v))));
+            return Some(Ok(Position::Vcf(Box::new(BedderRecord::new(v)))));
         }
 
-        let mut v = vcf::Record::default();
+        let header = self.reader.header();
+        let mut v = header.empty_record();
 
-        match self.reader.next_record(&self.header, &mut v) {
+        match self.reader.next_record(&mut v) {
             Ok(0) => None, // EOF
             Ok(_) => {
                 self.record_number += 1;
-                Some(Ok(Position::Vcf(Box::new(v))))
+                Some(Ok(Position::Vcf(Box::new(BedderRecord::new(v)))))
             }
             Err(e) => {
                 eprintln!(

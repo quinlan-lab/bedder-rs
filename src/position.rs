@@ -60,8 +60,13 @@ pub trait Positioned: Debug + Sync + Send {
     // get back the original line?
     //fn line(&self) -> &'a str;
 
-    /// return a copy of the Positioned object.
-    fn dup(&self) -> Box<dyn Positioned>;
+    // return a copy of the Positioned object.
+    //fn dup(&self) -> Box<dyn Positioned>;
+
+    /// Return a Box<dyn Positioned>
+    fn clone_box(&self) -> Box<dyn Positioned>
+    where
+        Self: Sized;
 }
 
 pub trait Valued {
@@ -71,9 +76,9 @@ pub trait Valued {
 
 #[derive(Debug)]
 pub enum Position {
-    Bed(crate::bedder_bed::Record<3>),
+    Bed(crate::bedder_bed::BedRecord),
     // Note: we use a Box here because a vcf Record is large.
-    Vcf(Box<rust_htslib::bcf::Record>),
+    Vcf(Box<crate::bedder_vcf::BedderRecord>),
     Interval(crate::interval::Interval),
     // catch-all in case we have another interval type.
     // #[cfg(feature = "dyn_positioned")]
@@ -94,11 +99,11 @@ impl Position {
         match self {
             Position::Bed(b) => b.chrom(),
             Position::Vcf(v) => {
-                let rid = match v.rid() {
+                let rid = match v.record.rid() {
                     Some(rid) => rid,
                     None => return "*",
                 };
-                let header = v.header();
+                let header = v.record.header();
                 let name = header.rid2name(rid).unwrap();
                 std::str::from_utf8(name).unwrap()
             }
@@ -113,7 +118,7 @@ impl Position {
     pub fn start(&self) -> u64 {
         match self {
             Position::Bed(b) => b.start(),
-            Position::Vcf(v) => v.pos(),
+            Position::Vcf(v) => v.pos() as u64,
             Position::Interval(i) => i.start,
             // #[cfg(feature = "dyn_positioned")]
             Position::Other(o) => o.start(),
@@ -124,7 +129,7 @@ impl Position {
     pub fn stop(&self) -> u64 {
         match self {
             Position::Bed(b) => b.stop(),
-            Position::Vcf(v) => v.end(),
+            Position::Vcf(v) => v.end() as u64,
             Position::Interval(i) => i.stop,
             // #[cfg(feature = "dyn_positioned")]
             Position::Other(o) => o.stop(),
@@ -144,20 +149,20 @@ impl Position {
     pub fn set_stop(&mut self, stop: u64) {
         match self {
             Position::Bed(b) => b.set_stop(stop),
-            Position::Vcf(v) => {}
+            Position::Vcf(_v) => {}
             Position::Interval(i) => i.set_stop(stop),
             // #[cfg(feature = "dyn_positioned")]
             Position::Other(o) => o.set_stop(stop),
         }
     }
 
-    pub fn dup(&self) -> Position {
+    pub fn clone_box(&self) -> Box<dyn Positioned> {
         match self {
-            Position::Bed(b) => Position::Bed(b.to_owned()),
-            Position::Vcf(v) => Position::Vcf(v.to_owned()),
-            Position::Interval(i) => Position::Interval(i.dup()),
+            Position::Bed(b) => Box::new(b.to_owned()),
+            Position::Vcf(v) => Box::new(v.to_owned()),
+            Position::Interval(i) => Box::new(i.dup()),
             // #[cfg(feature = "dyn_positioned")]
-            Position::Other(o) => Position::Other(o.dup()),
+            Position::Other(o) => o.clone_box(),
         }
     }
 }

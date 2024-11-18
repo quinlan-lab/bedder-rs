@@ -24,11 +24,11 @@ pub mod chrom_ordering;
 
 pub mod writer;
 
-#[cfg(feature = "bed")]
+//#[cfg(feature = "bed")]
 /// Bed parser implementing the PositionedIterator trait.
 pub mod bedder_bed;
 
-#[cfg(feature = "vcf")]
+//#[cfg(feature = "vcf")]
 /// Vcf parser implementing the PositionedIterator trait.
 pub mod bedder_vcf;
 

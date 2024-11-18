@@ -1,12 +1,11 @@
 #![allow(clippy::useless_conversion)] // these are needed to support e.g. smartstring
 
-use crate::position::{Field, FieldError, Position, Positioned, Value, Valued};
+use crate::position::{Position, Positioned};
 use crate::string::String;
 use bio::io::bed;
 use std::io::{self, BufRead};
-use std::result;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct BedRecord(bed::Record);
 
 impl crate::position::Positioned for BedRecord {
@@ -35,23 +34,8 @@ impl crate::position::Positioned for BedRecord {
         self.0.set_end(stop);
     }
 
-    #[inline]
-    fn dup(&self) -> Box<dyn Positioned> {
-        Box::new(BedRecord(self.0.clone()))
-    }
-}
-
-impl Valued for BedRecord {
-    fn value(&self, v: crate::position::Field) -> result::Result<Value, FieldError> {
-        match v {
-            Field::String(s) => Ok(Value::Strings(vec![s])),
-            Field::Int(i) => match i {
-                0 => Ok(Value::Strings(vec![String::from(self.chrom())])),
-                1 => Ok(Value::Ints(vec![self.start() as i64])),
-                2 => Ok(Value::Ints(vec![self.stop() as i64])),
-                _ => Err(FieldError::InvalidFieldIndex(i)),
-            },
-        }
+    fn clone_box(&self) -> Box<dyn Positioned> {
+        Box::new(self.clone())
     }
 }
 
@@ -112,7 +96,7 @@ where
                             r.stop = record.end();
                         }
                     }
-                    Some(Ok(Position::Bed(record)))
+                    Some(Ok(Position::Bed(BedRecord(record))))
                 }
                 Some(Err(e)) => Some(Err(io::Error::new(io::ErrorKind::InvalidData, e))),
             };

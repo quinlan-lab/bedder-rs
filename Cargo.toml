@@ -1,6 +1,6 @@
 [package]
 name = "bedder"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -26,10 +26,11 @@ env_logger = "0.10.0"
 log = "0.4.19"
 linear-map = "1.2.0"
 hashbrown = "0.14.0"
-xvcf = { version = "0.2.0", git = "https://github.com/brentp/xvcf-rs" }
+xvcf = { git = "https://github.com/brentp/xvcf-rs" , branch = "main", commit = "37f049e892a79cb6421a77701a16be13f1609efa" }
 mimalloc = "0.1.39"
 bitflags = "2.4.0"
-rust-htslib = {version = "0.47.0", features = ["libdeflate"]}
+# use rust-htslilb from xvcf
+#rust-htslib = {features = ["libdeflate"], git = "https://github.com/brentp/rust-htslib.git", branch = "header-empty-record" }
 bio = { git = "https://github.com/brentp/rust-bio.git", branch = "bed-next" }
 
 
@@ -47,7 +48,7 @@ dyn_positioned = []
 
 [dev-dependencies]
 criterion = { version = "0.4", features = ["html_reports"] }
-clap = { version = "4.3.0", features = ["derive"] }
+clap = { version = "4.5.21", features = ["derive"] }
 mlua = {version = "0.9.9", features=["luau", "send", "parking_lot"]}
 
 [[bench]]
