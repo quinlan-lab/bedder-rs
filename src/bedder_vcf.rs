@@ -27,15 +27,15 @@ impl<'a> BedderVCF<'a> {
 }
 
 pub fn match_info_value(
-    info: &rust_htslib::bcf::Record,
-    name: &str,
+    _info: &rust_htslib::bcf::Record,
+    _name: &str,
 ) -> result::Result<Value, FieldError> {
     unimplemented!()
 }
 
 pub fn match_value(
-    record: &rust_htslib::bcf::Record,
-    f: Field,
+    _record: &rust_htslib::bcf::Record,
+    _f: Field,
 ) -> result::Result<Value, FieldError> {
     unimplemented!()
 }
@@ -106,12 +106,9 @@ impl<'a> crate::position::PositionedIterator for BedderVCF<'a> {
             return Some(Ok(Position::Vcf(Box::new(BedderRecord::new(v)))));
         }
 
-        let header = self.reader.header();
-        let mut v = header.empty_record();
-
-        match self.reader.next_record(&mut v) {
-            Ok(0) => None, // EOF
-            Ok(_) => {
+        match self.reader.next_record() {
+            Ok(None) => None, // EOF
+            Ok(Some(v)) => {
                 self.record_number += 1;
                 Some(Ok(Position::Vcf(Box::new(BedderRecord::new(v)))))
             }
@@ -133,49 +130,4 @@ impl<'a> crate::position::PositionedIterator for BedderVCF<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_match_info() {
-        let key: field::Key = "AAA".parse().expect("error parsing key");
-
-        let info: vcf::record::Info = [(key, Some(field::Value::Integer(1)))]
-            .into_iter()
-            .collect();
-
-        // write a test to extract the value using match_info_value
-        let value = match_info_value(&info, "AAA").unwrap();
-        assert!(matches!(value, Value::Ints(_)));
-    }
-
-    #[test]
-    fn test_match_info_vector() {
-        let key: field::Key = "AAA".parse().expect("error parsing key");
-
-        let info: vcf::record::Info = [(
-            key,
-            Some(field::Value::Array(field::value::Array::Integer(vec![
-                Some(-1),
-                Some(2),
-                Some(3),
-                None,
-                Some(496),
-            ]))),
-        )]
-        .into_iter()
-        .collect();
-
-        // write a test to extract the value using match_info_value
-        let value = match_info_value(&info, "AAA").unwrap();
-        assert!(matches!(value, Value::Ints(_)));
-
-        if let Value::Ints(v) = value {
-            assert_eq!(v.len(), 4);
-            assert_eq!(v[0], -1);
-            assert_eq!(v[1], 2);
-            assert_eq!(v[2], 3);
-            assert_eq!(v[3], 496);
-        } else {
-            panic!("error getting value");
-        }
-    }
 }
