@@ -118,7 +118,7 @@ impl Position {
     pub fn start(&self) -> u64 {
         match self {
             Position::Bed(b) => b.start(),
-            Position::Vcf(v) => v.pos() as u64,
+            Position::Vcf(v) => v.record.pos() as u64,
             Position::Interval(i) => i.start,
             // #[cfg(feature = "dyn_positioned")]
             Position::Other(o) => o.start(),
@@ -129,7 +129,7 @@ impl Position {
     pub fn stop(&self) -> u64 {
         match self {
             Position::Bed(b) => b.stop(),
-            Position::Vcf(v) => v.end() as u64,
+            Position::Vcf(v) => v.record.end() as u64,
             Position::Interval(i) => i.stop,
             // #[cfg(feature = "dyn_positioned")]
             Position::Other(o) => o.stop(),
@@ -139,7 +139,7 @@ impl Position {
     pub fn set_start(&mut self, start: u64) {
         match self {
             Position::Bed(b) => b.set_start(start),
-            Position::Vcf(v) => v.set_pos(start as i64),
+            Position::Vcf(v) => v.record.set_pos(start as i64),
             Position::Interval(i) => i.set_start(start),
             // #[cfg(feature = "dyn_positioned")]
             Position::Other(o) => o.set_start(start),
@@ -156,13 +156,13 @@ impl Position {
         }
     }
 
-    pub fn clone_box(&self) -> Box<dyn Positioned> {
+    pub fn clone_box(&self) -> Position {
         match self {
-            Position::Bed(b) => Box::new(b.to_owned()),
-            Position::Vcf(v) => Box::new(v.to_owned()),
-            Position::Interval(i) => Box::new(i.dup()),
+            Position::Bed(b) => Position::Bed(b.to_owned()),
+            Position::Vcf(v) => Position::Vcf(Box::new((**v).clone())),
+            Position::Interval(i) => Position::Interval(i.dup()),
             // #[cfg(feature = "dyn_positioned")]
-            Position::Other(o) => o.clone_box(),
+            Position::Other(o) => unimplemented!("TODO: clone Box<dyn Positioned>"),
         }
     }
 }
