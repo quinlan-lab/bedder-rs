@@ -45,6 +45,14 @@ pub struct BedderRecord {
     pub record: bcf::Record,
 }
 
+impl Clone for BedderRecord {
+    fn clone(&self) -> Self {
+        Self {
+            record: self.record.clone(),
+        }
+    }
+}
+
 impl BedderRecord {
     pub fn new(record: bcf::Record) -> Self {
         Self { record }

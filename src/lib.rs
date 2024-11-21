@@ -18,8 +18,6 @@ pub mod report;
 /// a std::String::String unless other string features are enabled.
 pub mod string;
 
-pub mod sniff;
-
 pub mod chrom_ordering;
 
 pub mod writer;

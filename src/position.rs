@@ -162,7 +162,7 @@ impl Position {
             Position::Vcf(v) => Position::Vcf(Box::new((**v).clone())),
             Position::Interval(i) => Position::Interval(i.dup()),
             // #[cfg(feature = "dyn_positioned")]
-            Position::Other(o) => unimplemented!("TODO: clone Box<dyn Positioned>"),
+            Position::Other(_o) => unimplemented!("TODO: clone Box<dyn Positioned>"),
         }
     }
 }

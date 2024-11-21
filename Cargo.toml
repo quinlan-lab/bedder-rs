@@ -26,7 +26,7 @@ env_logger = "0.10.0"
 log = "0.4.19"
 linear-map = "1.2.0"
 hashbrown = "0.14.0"
-xvcf = { git = "https://github.com/brentp/xvcf-rs" , branch = "main", commit = "37f049e892a79cb6421a77701a16be13f1609efa" }
+xvcf = { git = "https://github.com/brentp/xvcf-rs" , branch = "main", commit = "c10f18a" }
 mimalloc = "0.1.39"
 bitflags = "2.4.0"
 # use rust-htslilb from xvcf
