@@ -176,14 +176,55 @@ impl Writer {
                     };
 
                     // Add INFO fields
+                    if !matches!(fragment.a, Some(Position::Vcf(_))) {
+                        return Err(std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            "Fragment.a is not a VCF record",
+                        ));
+                    }
+                    let mut vcf_record = record.record;
+
                     for cr in crs {
                         if let Ok(value) = cr.value(fragment) {
-                            let key = cr.name().parse().map_err(|e| {
-                                std::io::Error::new(std::io::ErrorKind::InvalidData, e)
-                            })?;
-                            let field_value = self.convert_to_vcf_value(&value)?;
-                            record.push_info(key, field_value);
-                            record.info_mut().insert(key, Some(field_value));
+                            let key = cr.name().as_bytes();
+                            match value {
+                                Value::Int(i) => {
+                                    let vals = vec![i];
+                                    vcf_record.push_info_integer(key, &vals);
+                                }
+                                Value::Float(f) => {
+                                    let vals = vec![f];
+                                    vcf_record.push_info_float(key, &vals);
+                                }
+                                Value::String(s) => {
+                                    let byte_slice = vec![s.as_bytes()];
+                                    vcf_record.push_info_string(key, &byte_slice);
+                                }
+                                Value::Flag(b) => {
+                                    if b {
+                                        vcf_record.push_info_flag(key);
+                                    } else {
+                                        vcf_record.clear_info_flag(key);
+                                    }
+                                }
+                                Value::VecInt(v) => {
+                                    vcf_record.push_info_integer(key, &v);
+                                }
+                                Value::VecFloat(v) => {
+                                    vcf_record.push_info_float(key, &v);
+                                }
+                                Value::VecString(v) => {
+                                    let byte_slices: Vec<&[u8]> =
+                                        v.iter().map(|s| s.as_bytes()).collect();
+                                    vcf_record.push_info_string(key, &byte_slices);
+                                }
+                                _ => {
+                                    return Err(std::io::Error::new(
+                                        std::io::ErrorKind::InvalidData,
+                                        "Unsupported value type",
+                                    ));
+                                }
+                            }
                         }
                     }
 
@@ -226,31 +267,6 @@ impl Writer {
             }
         }
         Ok(())
-    }
-
-    fn convert_to_vcf_value(
-        &self,
-        value: &Value,
-    ) -> Result<vcf::record::info::field::Value, std::io::Error> {
-        match value {
-            Value::Int(i) => Ok(vcf::record::info::field::Value::Integer(*i)),
-            Value::Float(f) => Ok(vcf::record::info::field::Value::Float(*f)),
-            Value::String(s) => Ok(vcf::record::info::field::Value::String(s.clone())),
-            Value::Flag(_b) => Ok(vcf::record::info::field::Value::Flag),
-            Value::VecInt(v) => Ok(vcf::record::info::field::Value::Array(
-                vcf::record::info::field::value::Array::Integer(
-                    v.iter().map(|&x| Some(x)).collect(),
-                ),
-            )),
-            Value::VecFloat(v) => Ok(vcf::record::info::field::Value::Array(
-                vcf::record::info::field::value::Array::Float(v.iter().map(|&x| Some(x)).collect()),
-            )),
-            Value::VecString(v) => Ok(vcf::record::info::field::Value::Array(
-                vcf::record::info::field::value::Array::String(
-                    v.iter().map(|x| Some(x.to_string())).collect(),
-                ),
-            )),
-        }
     }
 
     fn format_value(&self, value: &Value) -> String {
