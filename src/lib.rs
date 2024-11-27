@@ -12,6 +12,9 @@ pub mod position;
 // Interval type
 pub mod interval;
 
+/// Open files and infer file format.
+pub mod sniff;
+
 /// Reports from intersections.
 pub mod report;
 
@@ -20,7 +23,7 @@ pub mod string;
 
 pub mod chrom_ordering;
 
-pub mod writer;
+//pub mod writer;
 
 //#[cfg(feature = "bed")]
 /// Bed parser implementing the PositionedIterator trait.
