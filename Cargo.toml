@@ -32,6 +32,7 @@ bitflags = "2.4.0"
 # use rust-htslilb from xvcf
 #rust-htslib = {features = ["libdeflate"], git = "https://github.com/brentp/rust-htslib.git", branch = "header-empty-record" }
 bio = { git = "https://github.com/brentp/rust-bio.git", branch = "bed-next" }
+tempfile = "3.14.0"
 
 
 [features]

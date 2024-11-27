@@ -18,9 +18,25 @@ impl io::Read for HtsFile {
             let slice =
                 unsafe { std::slice::from_raw_parts(self.kstr.s as *const u8, self.kstr.l) };
             let remaining = &slice[self.pos..];
-            let copy_len = buf.len().min(remaining.len());
+            let mut copy_len = buf.len().min(remaining.len());
             buf[..copy_len].copy_from_slice(&remaining[..copy_len]);
+            // if we read a full line, we must add '\n' to the buffer
+            // we know we read a full line if we used all of the kstr
             self.pos += copy_len;
+            if copy_len == remaining.len() {
+                if copy_len < buf.len() {
+                    buf[copy_len] = '\n' as u8;
+                    copy_len += 1;
+                } else {
+                    // we must modify the kstr.s to contain only '\n'
+                    unsafe {
+                        *(self.kstr.s as *mut u8) = '\n' as u8;
+                    }
+                    self.kstr.l = 1;
+                    self.kstr.m = 1;
+                }
+            }
+
             return Ok(copy_len);
         }
 
@@ -34,9 +50,24 @@ impl io::Read for HtsFile {
         }
 
         let slice = unsafe { std::slice::from_raw_parts(self.kstr.s as *const u8, self.kstr.l) };
-        let copy_len = buf.len().min(slice.len());
+        let mut copy_len = buf.len().min(slice.len());
         buf[..copy_len].copy_from_slice(&slice[..copy_len]);
+        // if we read a full line, we must add '\n' to the buffer
+        // we know we read a full line if we used all of the kstr
         self.pos += copy_len;
+        if copy_len == slice.len() {
+            if copy_len < buf.len() {
+                buf[copy_len] = '\n' as u8;
+                copy_len += 1;
+            } else {
+                // we must modify the kstr.s to contain only '\n'
+                unsafe {
+                    *(self.kstr.s as *mut u8) = '\n' as u8;
+                }
+                self.kstr.l = 1;
+                self.kstr.m = 1;
+            }
+        }
         Ok(copy_len)
     }
 }
@@ -157,8 +188,9 @@ pub fn open(path: &Path, mode: &str) -> io::Result<HtsFile> {
 
 #[cfg(test)]
 mod tests {
+
     use super::*;
-    use std::io::Read;
+    use std::io::{BufRead, Read};
     use std::path::Path;
 
     #[test]
@@ -168,7 +200,6 @@ mod tests {
         let result = open(&path, mode);
         assert!(result.is_ok(), "Failed to open file: {:?}", result.err());
         let file = result.unwrap();
-        eprintln!("{:?}", file);
     }
 
     #[test]
@@ -250,8 +281,8 @@ mod tests {
 
         // Read next chunk
         let n = file.read(&mut buf).unwrap();
-        assert_eq!(n, 5);
-        assert_eq!(&buf[..n], b"AAAAA");
+        assert_eq!(n, 6);
+        assert_eq!(&buf[..n], b"AAAAA\n");
 
         // read then next line
         let n = file.read(&mut buf).unwrap();
@@ -260,7 +291,79 @@ mod tests {
 
         // Read next chunk
         let n = file.read(&mut buf).unwrap();
-        assert_eq!(n, 5);
-        assert_eq!(&buf[..n], b"BBBBB");
+        assert_eq!(n, 6);
+        assert_eq!(&buf[..n], b"BBBBB\n");
+    }
+
+    #[test]
+    fn test_read_bed_large_buffer() {
+        let path = Path::new("tests/test.bed");
+        let mut file = io::BufReader::new(open(&path, "r").unwrap());
+        let mut buf = [0u8; 100]; // Buffer larger than any line (lines are ~20 bytes)
+
+        // Read first line
+        let n = file.read(&mut buf).unwrap();
+        assert_eq!(n, 16); // "chr1\t1\t21\tAAAAA\n" is 21 bytes
+        assert_eq!(&buf[..n], b"chr1\t1\t21\tAAAAA\n");
+
+        // Read second line
+        let n = file.read(&mut buf).unwrap();
+        assert_eq!(n, 16); // "chr1\t2\t22\tBBBBB\n" is 21 bytes
+        assert_eq!(&buf[..n], b"chr1\t2\t22\tBBBBB\n");
+
+        // Verify we can read all lines
+        let mut line_count = 2; // We already read 2 lines
+        let mut buf = String::new();
+        while file.read_line(&mut buf).unwrap() > 0 {
+            eprint!("line {}", buf);
+            line_count += 1;
+            if line_count < 8 {
+                buf.clear();
+            }
+        }
+        // last line should end with \n
+        assert!(buf.ends_with("Z\n"), "Last line should end with Z\\n");
+        assert_eq!(line_count, 8, "Should have read all 7 lines");
+    }
+
+    #[test]
+    fn test_read_single_chars() {
+        use std::io::Write;
+        // Create a temporary file with 10 single-character lines
+        let temp_file = tempfile::NamedTempFile::new().unwrap();
+        let mut f = temp_file.as_file();
+        for c in ('A'..='J').into_iter() {
+            writeln!(f, "{}", c).unwrap();
+        }
+        f.flush().unwrap();
+
+        // Read the file using HtsFile
+        let mut file = open(temp_file.path(), "r").unwrap();
+        let mut content = String::new();
+        file.read_to_string(&mut content).unwrap();
+
+        // Verify content
+        assert_eq!(content, "A\nB\nC\nD\nE\nF\nG\nH\nI\nJ\n");
+
+        // Test reading in small chunks
+        let mut file = open(temp_file.path(), "r").unwrap();
+        let mut buf = [0u8; 2];
+        let mut result = Vec::new();
+
+        loop {
+            match file.read(&mut buf) {
+                Ok(0) => break, // EOF
+                Ok(2) => result.extend_from_slice(&buf[..2]),
+                Ok(_) => {
+                    panic!("Read more than 2 bytes but only expecting the character and newline")
+                }
+                Err(e) => panic!("Read error: {}", e),
+            }
+        }
+
+        assert_eq!(
+            String::from_utf8(result).unwrap(),
+            "A\nB\nC\nD\nE\nF\nG\nH\nI\nJ\n"
+        );
     }
 }
