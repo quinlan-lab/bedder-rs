@@ -2,13 +2,13 @@ use std::fs;
 use std::io::{self, BufReader, BufWriter, Write};
 use std::path::PathBuf;
 
-use bedder::sniff;
+//use bedder::sniff;
 use clap::Parser;
 extern crate bedder;
 use crate::bedder::chrom_ordering::parse_genome;
 use crate::bedder::intersection::IntersectionIterator;
 use crate::bedder::intersections::{IntersectionMode, IntersectionPart, OverlapAmount};
-use crate::bedder::writer;
+//use crate::bedder::writer;
 
 #[derive(Parser, Debug)]
 struct Args {
@@ -57,6 +57,13 @@ struct Args {
 
 fn main() -> io::Result<()> {
     let args = Args::parse();
+
+    let a = bedder::sniff::HtsFile::new(&args.a, "r").expect("Failed to open file");
+
+    let a_cstr = std::ffi::CString::new(args.a.to_str().unwrap()).unwrap();
+    let mode_cstr = std::ffi::CString::new("r").unwrap();
+    let hf = xvcf::rust_htslib::htslib::hts_open(a_cstr.as_ptr(), mode_cstr.as_ptr());
+    let fh2 = unsafe { xvcf::rust_htslib::htslib::hopen(a_cstr.as_ptr(), mode_cstr.as_ptr()) };
 
     // sniff determines the file type (bam/cram/bcf/vcf/bed/gff/gtf)
     // and returns a PositionIterator

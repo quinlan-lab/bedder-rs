@@ -1,10 +1,69 @@
 use std::fmt;
 use std::io;
+use std::mem;
 use std::path::Path;
+use std::rc::Rc;
+use xvcf::rust_htslib::bcf;
 pub(crate) use xvcf::rust_htslib::htslib as hts;
 
 pub struct HtsFile {
     fh: hts::htsFile,
+    kstr: hts::kstring_t,
+    pos: usize,
+}
+
+impl io::Read for HtsFile {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        if self.pos < self.kstr.l {
+            let slice =
+                unsafe { std::slice::from_raw_parts(self.kstr.s as *const u8, self.kstr.l) };
+            let remaining = &slice[self.pos..];
+            let copy_len = buf.len().min(remaining.len());
+            buf[..copy_len].copy_from_slice(&remaining[..copy_len]);
+            self.pos += copy_len;
+            return Ok(copy_len);
+        }
+
+        self.pos = 0;
+        let n = unsafe { hts::hts_getline(&mut self.fh, '\n' as i32, &mut self.kstr) };
+        if n == -1 {
+            return Ok(0);
+        }
+        if n < 0 {
+            return Err(io::Error::last_os_error());
+        }
+
+        let slice = unsafe { std::slice::from_raw_parts(self.kstr.s as *const u8, self.kstr.l) };
+        let copy_len = buf.len().min(slice.len());
+        buf[..copy_len].copy_from_slice(&slice[..copy_len]);
+        self.pos += copy_len;
+        Ok(copy_len)
+    }
+}
+
+// use this so we can open a bcf from an htsFile
+struct BCFReader {
+    _inner: *mut hts::htsFile,
+    _header: Rc<bcf::header::HeaderView>,
+}
+// static assert that this Reader is the same as hts::bcf::Reader
+const _: () = assert!(mem::size_of::<BCFReader>() == mem::size_of::<bcf::Reader>());
+
+impl HtsFile {
+    pub fn vcf(mut hf: HtsFile) -> bcf::Reader {
+        let fmt_str = hf.format().unwrap().format();
+        assert!(
+            fmt_str == "BCF" || fmt_str == "VCF",
+            "unsupported format for bcf: {}",
+            fmt_str
+        );
+        let hdr = unsafe { hts::bcf_hdr_read(&mut hf.fh as *mut _) };
+        let b = BCFReader {
+            _inner: &mut hf.fh as *mut _,
+            _header: Rc::new(bcf::header::HeaderView::new(hdr)),
+        };
+        unsafe { mem::transmute(b) }
+    }
 }
 
 impl fmt::Debug for HtsFile {
@@ -29,15 +88,8 @@ pub struct HtsFormat {
 
 impl fmt::Display for HtsFormat {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let descp = unsafe { hts::hts_format_description(&self.fmt) };
-        if descp.is_null() {
-            write!(f, "unknown-format")
-        } else {
-            let descp = unsafe { std::ffi::CStr::from_ptr(descp).to_str().unwrap() };
-            // split on space and take the first element
-            let descp = descp.split(' ').next().unwrap();
-            write!(f, "{}", descp)
-        }
+        let fmt = self.format();
+        write!(f, "{}", fmt)
     }
 }
 
@@ -49,6 +101,21 @@ impl fmt::Debug for HtsFormat {
         } else {
             let descp = unsafe { std::ffi::CStr::from_ptr(descp).to_str().unwrap() };
             write!(f, "{}", descp)
+        }
+    }
+}
+
+impl HtsFormat {
+    pub fn format(&self) -> String {
+        let desc = unsafe { hts::hts_format_description(&self.fmt) };
+        if desc.is_null() {
+            "unknown-format".to_string()
+        } else {
+            let fmt = unsafe { std::ffi::CStr::from_ptr(desc).to_str().unwrap() };
+            fmt.split(' ')
+                .next()
+                .unwrap_or("unknown-format")
+                .to_string()
         }
     }
 }
@@ -78,6 +145,12 @@ pub fn open(path: &Path, mode: &str) -> io::Result<HtsFile> {
     } else {
         Ok(HtsFile {
             fh: unsafe { *hts_file },
+            kstr: hts::kstring_t {
+                s: std::ptr::null_mut(),
+                l: 0,
+                m: 0,
+            },
+            pos: 0,
         })
     }
 }
@@ -85,6 +158,7 @@ pub fn open(path: &Path, mode: &str) -> io::Result<HtsFile> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Read;
     use std::path::Path;
 
     #[test]
@@ -104,5 +178,89 @@ mod tests {
         let result = open(&path, mode);
         let file = result.expect("Failed to open file");
         assert_eq!(format!("{:?}", file), r#"HtsFile("tests/test.bam", "BAM")"#);
+    }
+
+    #[test]
+    fn test_bam_fmt() {
+        let path = Path::new("tests/test.bam");
+        let mode = "r";
+        let result = open(&path, mode);
+        let file = result.expect("Failed to open file");
+        assert_eq!(file.format().unwrap().format(), "BAM");
+    }
+
+    #[test]
+    fn test_read_small_chunks() {
+        let path = Path::new("tests/test.bam");
+        let mut file = open(&path, "r").unwrap();
+        let mut buf = [0u8; 4]; // Small buffer to force multiple reads
+        let mut result = Vec::new();
+
+        loop {
+            match file.read(&mut buf) {
+                Ok(0) => break, // EOF
+                Ok(n) => result.extend_from_slice(&buf[..n]),
+                Err(e) => panic!("Read error: {}", e),
+            }
+        }
+
+        assert!(!result.is_empty(), "Should have read some data");
+        assert!(result.len() > 4, "Should have read multiple chunks");
+    }
+
+    #[test]
+    fn test_read_exact() {
+        let path = Path::new("tests/test.bam");
+        let mut file = open(&path, "r").unwrap();
+        let mut buf = [0u8; 4];
+
+        // Should be able to read exactly 4 bytes
+        file.read_exact(&mut buf).unwrap();
+        assert_eq!(&buf, b"BAM\x01", "First 4 bytes should be BAM header");
+    }
+
+    #[test]
+    fn test_read_bed_file() {
+        let path = Path::new("tests/test.bed");
+        let mut file = open(&path, "r").unwrap();
+        let mut content = String::new();
+        file.read_to_string(&mut content).unwrap();
+
+        // Verify content
+        assert!(content.starts_with("chr1\t1\t21\tAAAAA\n"));
+
+        // Split into lines and verify we got all 7 entries
+        let lines: Vec<&str> = content.lines().collect();
+        assert_eq!(lines.len(), 7, "Should have 7 lines");
+
+        // Verify last line
+        assert_eq!(lines.last().unwrap(), &"chr1\t7\t27\tGGGGG");
+    }
+
+    #[test]
+    fn test_read_bed_chunks() {
+        let path = Path::new("tests/test.bed");
+        let mut file = open(&path, "r").unwrap();
+        let mut buf = [0u8; 10]; // Small buffer to test chunked reading
+
+        // Read first chunk
+        let n = file.read(&mut buf).unwrap();
+        assert_eq!(n, 10);
+        assert_eq!(&buf, b"chr1\t1\t21\t");
+
+        // Read next chunk
+        let n = file.read(&mut buf).unwrap();
+        assert_eq!(n, 5);
+        assert_eq!(&buf[..n], b"AAAAA");
+
+        // read then next line
+        let n = file.read(&mut buf).unwrap();
+        assert_eq!(n, 10);
+        assert_eq!(&buf[..n], b"chr1\t2\t22\t");
+
+        // Read next chunk
+        let n = file.read(&mut buf).unwrap();
+        assert_eq!(n, 5);
+        assert_eq!(&buf[..n], b"BBBBB");
     }
 }
