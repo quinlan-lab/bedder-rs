@@ -26,11 +26,10 @@ env_logger = "0.10.0"
 log = "0.4.19"
 linear-map = "1.2.0"
 hashbrown = "0.14.0"
-xvcf = { git = "https://github.com/brentp/xvcf-rs" , branch = "main", commit = "c10f18a" }
+xvcf = { git = "https://github.com/brentp/xvcf-rs", tag = "v0.2.4" }
 mimalloc = "0.1.39"
 bitflags = "2.4.0"
 # use rust-htslilb from xvcf
-#rust-htslib = {features = ["libdeflate"], git = "https://github.com/brentp/rust-htslib.git", branch = "header-empty-record" }
 bio = { git = "https://github.com/brentp/rust-bio.git", branch = "bed-next" }
 tempfile = "3.14.0"
 
