@@ -84,27 +84,15 @@ struct BCFReader {
     _itr: Option<*mut hts::hts_itr_t>,
     _kstring: hts::kstring_t,
 }
-
 // static assert that this Reader is the same as hts::bcf::Reader
 const _: () = assert!(mem::size_of::<BCFReader>() == mem::size_of::<bcf::Reader>());
-
-struct BCFIndexedReader {
-    /// The synced VCF/BCF reader to use internally.
-    inner: *mut hts::bcf_srs_t,
-    /// The header.
-    header: Rc<bcf::header::HeaderView>,
-
-    /// The position of the previous fetch, if any.
-    current_region: Option<(u32, u64, Option<u64>)>,
-}
-const _: () = assert!(mem::size_of::<BCFIndexedReader>() == mem::size_of::<bcf::IndexedReader>());
 
 impl HtsFile {
     pub fn open_vcf(path: &Path) -> io::Result<Box<dyn position::PositionedIterator>> {
         let mut hf = open(path, "r")?;
         match hf.format()?.format().as_str() {
             "BCF" | "VCF" => {
-                let mut vcf_reader = hf.vcf();
+                let vcf_reader = hf.vcf();
                 BedderVCF::new(vcf_reader)
                     .map(|b| Box::new(b) as Box<dyn position::PositionedIterator>)
                     .map_err(|e| io::Error::new(io::ErrorKind::Other, e))
@@ -127,6 +115,13 @@ impl HtsFile {
         let b = BCFReader {
             _inner: &mut self.fh as *mut _,
             _header: Rc::new(bcf::header::HeaderView::new(hdr)),
+            _index: None,
+            _itr: None,
+            _kstring: hts::kstring_t {
+                s: std::ptr::null_mut(),
+                l: 0,
+                m: 0,
+            },
         };
         unsafe { mem::transmute(b) }
     }
