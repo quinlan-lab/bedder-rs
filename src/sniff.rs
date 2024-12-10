@@ -1,10 +1,14 @@
+use bio::io::bed;
+use rust_htslib::bcf;
+pub(crate) use rust_htslib::htslib as hts;
 use std::fmt;
 use std::io;
 use std::mem;
 use std::path::Path;
 use std::rc::Rc;
-use xvcf::rust_htslib::bcf;
-pub(crate) use xvcf::rust_htslib::htslib as hts;
+
+use crate::bedder_vcf::BedderVCF;
+use crate::position;
 
 pub struct HtsFile {
     fh: hts::htsFile,
@@ -76,24 +80,61 @@ impl io::Read for HtsFile {
 struct BCFReader {
     _inner: *mut hts::htsFile,
     _header: Rc<bcf::header::HeaderView>,
+    _index: Option<bcf::Index>,
+    _itr: Option<*mut hts::hts_itr_t>,
+    _kstring: hts::kstring_t,
 }
+
 // static assert that this Reader is the same as hts::bcf::Reader
 const _: () = assert!(mem::size_of::<BCFReader>() == mem::size_of::<bcf::Reader>());
 
+struct BCFIndexedReader {
+    /// The synced VCF/BCF reader to use internally.
+    inner: *mut hts::bcf_srs_t,
+    /// The header.
+    header: Rc<bcf::header::HeaderView>,
+
+    /// The position of the previous fetch, if any.
+    current_region: Option<(u32, u64, Option<u64>)>,
+}
+const _: () = assert!(mem::size_of::<BCFIndexedReader>() == mem::size_of::<bcf::IndexedReader>());
+
 impl HtsFile {
-    pub fn vcf(mut hf: HtsFile) -> bcf::Reader {
-        let fmt_str = hf.format().unwrap().format();
+    pub fn open_vcf(path: &Path) -> io::Result<Box<dyn position::PositionedIterator>> {
+        let mut hf = open(path, "r")?;
+        match hf.format()?.format().as_str() {
+            "BCF" | "VCF" => {
+                let mut vcf_reader = hf.vcf();
+                BedderVCF::new(vcf_reader)
+                    .map(|b| Box::new(b) as Box<dyn position::PositionedIterator>)
+                    .map_err(|e| io::Error::new(io::ErrorKind::Other, e))
+            }
+            _ => Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "unsupported format for vcf",
+            )),
+        }
+    }
+
+    pub fn vcf(mut self) -> bcf::Reader {
+        let fmt_str = self.format().unwrap().format();
         assert!(
             fmt_str == "BCF" || fmt_str == "VCF",
             "unsupported format for bcf: {}",
             fmt_str
         );
-        let hdr = unsafe { hts::bcf_hdr_read(&mut hf.fh as *mut _) };
+        let hdr = unsafe { hts::bcf_hdr_read(&mut self.fh as *mut _) };
         let b = BCFReader {
-            _inner: &mut hf.fh as *mut _,
+            _inner: &mut self.fh as *mut _,
             _header: Rc::new(bcf::header::HeaderView::new(hdr)),
         };
         unsafe { mem::transmute(b) }
+    }
+
+    pub fn bed(self) -> bed::Reader<HtsFile> {
+        let fmt_str = self.format().unwrap().format();
+        assert!(fmt_str == "BED", "unsupported format for bed: {}", fmt_str);
+        bed::Reader::new(self)
     }
 }
 
@@ -323,7 +364,7 @@ mod tests {
         }
         // last line should end with \n
         assert!(buf.ends_with("Z\n"), "Last line should end with Z\\n");
-        assert_eq!(line_count, 8, "Should have read all 7 lines");
+        assert_eq!(line_count, 8, "Should have read all 8 lines");
     }
 
     #[test]

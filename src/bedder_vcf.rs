@@ -2,27 +2,61 @@
 use crate::position::{Field, FieldError, Position, Positioned, Value};
 use crate::string::String;
 
+use rust_htslib::{self, bcf, bcf::Read, bcf::Reader};
 use std::io;
 use std::result;
-pub use xvcf;
-use xvcf::rust_htslib::{self, bcf};
-use xvcf::Skip;
 
-pub struct BedderVCF<'a> {
-    reader: xvcf::Reader<'a>,
+pub struct BedderVCF {
+    reader: bcf::Reader,
     record_number: u64,
     header: bcf::header::HeaderView,
+    last_record: Option<bcf::Record>,
 }
 
-impl<'a> BedderVCF<'a> {
-    pub fn new(r: xvcf::Reader<'a>) -> io::Result<BedderVCF<'a>> {
+impl BedderVCF {
+    pub fn new(r: bcf::Reader) -> io::Result<BedderVCF> {
         let h = r.header().clone();
         let v = BedderVCF {
             reader: r,
             record_number: 0,
             header: h,
+            last_record: None,
         };
         Ok(v)
+    }
+}
+
+pub trait Skip {
+    fn skip_to(&mut self, chrom: &str, pos0: u64) -> io::Result<()>;
+}
+
+use rust_htslib::errors::Error;
+
+impl Skip for BedderVCF {
+    fn skip_to(&mut self, chrom: &str, pos0: u64) -> io::Result<()> {
+        let rid = self.reader.header().name2rid(chrom.as_bytes()).unwrap();
+
+        match self.reader.fetch(rid, pos0, None) {
+            Ok(()) => Ok(()),
+            Err(Error::FileNotFound { .. }) => {
+                // iterate over the bam until we get to the chrom, pos0
+                // and then fetch the record
+                for r in self.reader.records() {
+                    let r = r.unwrap();
+                    if r.rid().unwrap_or(u32::MAX) > rid {
+                        self.last_record = Some(r);
+                        break;
+                    }
+                    if r.rid().unwrap_or(u32::MAX) < rid || (r.pos() as u64) < pos0 {
+                        continue;
+                    }
+                    self.last_record = Some(r);
+                    break;
+                }
+                Ok(())
+            }
+            Err(e) => Err(io::Error::new(io::ErrorKind::Other, e)),
+        }
     }
 }
 
@@ -97,35 +131,37 @@ impl Positioned for BedderRecord {
     }
 }
 
-impl<'a> crate::position::PositionedIterator for BedderVCF<'a> {
+impl crate::position::PositionedIterator for BedderVCF {
     fn next_position(
         &mut self,
         q: Option<&crate::position::Position>,
     ) -> Option<std::result::Result<Position, std::io::Error>> {
         if let Some(q) = q {
-            match self.reader.skip_to(q.chrom(), q.start() - 1 as u64) {
+            match self.skip_to(q.chrom(), q.start() - 1 as u64) {
                 Ok(_) => (),
                 Err(e) => return Some(Err(e)),
             }
         }
 
-        if let Some(v) = self.reader.take() {
+        if let Some(v) = self.last_record.take() {
             self.record_number += 1;
             return Some(Ok(Position::Vcf(Box::new(BedderRecord::new(v)))));
         }
 
-        match self.reader.next_record() {
-            Ok(None) => None, // EOF
-            Ok(Some(v)) => {
+        let mut r = self.reader.empty_record();
+
+        match self.reader.read(&mut r) {
+            None => None, // EOF
+            Some(Ok(())) => {
                 self.record_number += 1;
-                Some(Ok(Position::Vcf(Box::new(BedderRecord::new(v)))))
+                Some(Ok(Position::Vcf(Box::new(BedderRecord::new(r)))))
             }
-            Err(e) => {
+            Some(Err(e)) => {
                 eprintln!(
                     "error reading vcf record: {} at line number: {}",
                     e, self.record_number
                 );
-                Some(Err(e))
+                Some(Err(io::Error::new(io::ErrorKind::Other, e)))
             }
         }
     }
