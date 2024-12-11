@@ -7,6 +7,7 @@ use std::mem;
 use std::path::Path;
 use std::rc::Rc;
 
+use crate::bedder_bed::BedderBed;
 use crate::bedder_vcf::BedderVCF;
 use crate::position;
 
@@ -29,12 +30,12 @@ impl io::Read for HtsFile {
             self.pos += copy_len;
             if copy_len == remaining.len() {
                 if copy_len < buf.len() {
-                    buf[copy_len] = '\n' as u8;
+                    buf[copy_len] = b'\n';
                     copy_len += 1;
                 } else {
                     // we must modify the kstr.s to contain only '\n'
                     unsafe {
-                        *(self.kstr.s as *mut u8) = '\n' as u8;
+                        *(self.kstr.s as *mut u8) = b'\n';
                     }
                     self.kstr.l = 1;
                     self.kstr.m = 1;
@@ -61,12 +62,12 @@ impl io::Read for HtsFile {
         self.pos += copy_len;
         if copy_len == slice.len() {
             if copy_len < buf.len() {
-                buf[copy_len] = '\n' as u8;
+                buf[copy_len] = b'\n';
                 copy_len += 1;
             } else {
                 // we must modify the kstr.s to contain only '\n'
                 unsafe {
-                    *(self.kstr.s as *mut u8) = '\n' as u8;
+                    *(self.kstr.s as *mut u8) = b'\n';
                 }
                 self.kstr.l = 1;
                 self.kstr.m = 1;
@@ -88,8 +89,22 @@ struct BCFReader {
 const _: () = assert!(mem::size_of::<BCFReader>() == mem::size_of::<bcf::Reader>());
 
 impl HtsFile {
+    pub fn new(path: &Path, mode: &str) -> io::Result<Self> {
+        open(path, mode)
+    }
+
+    pub fn format(&self) -> io::Result<HtsFormat> {
+        let fmt = unsafe { hts::hts_get_format(&self.fh as *const _ as *mut _) };
+        if fmt.is_null() {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(HtsFormat {
+            fmt: unsafe { *fmt },
+        })
+    }
+
     pub fn open_vcf(path: &Path) -> io::Result<Box<dyn position::PositionedIterator>> {
-        let mut hf = open(path, "r")?;
+        let hf = open(path, "r")?;
         match hf.format()?.format().as_str() {
             "BCF" | "VCF" => {
                 let vcf_reader = hf.vcf();
@@ -124,6 +139,20 @@ impl HtsFile {
             },
         };
         unsafe { mem::transmute(b) }
+    }
+
+    pub fn open_bed(path: &Path) -> io::Result<Box<dyn position::PositionedIterator>> {
+        let hf = open(path, "r")?;
+        match hf.format()?.format().as_str() {
+            "BED" => {
+                let hts_reader = io::BufReader::new(hf);
+                Ok(Box::new(BedderBed::new(hts_reader)))
+            }
+            _ => Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "unsupported format for bed",
+            )),
+        }
     }
 
     pub fn bed(self) -> bed::Reader<HtsFile> {
@@ -187,22 +216,6 @@ impl HtsFormat {
     }
 }
 
-impl HtsFile {
-    pub fn new(path: &Path, mode: &str) -> io::Result<Self> {
-        open(path, mode)
-    }
-
-    pub fn format(&self) -> io::Result<HtsFormat> {
-        let fmt = unsafe { hts::hts_get_format(&self.fh as *const _ as *mut _) };
-        if fmt.is_null() {
-            return Err(io::Error::last_os_error());
-        }
-        Ok(HtsFormat {
-            fmt: unsafe { *fmt },
-        })
-    }
-}
-
 pub fn open(path: &Path, mode: &str) -> io::Result<HtsFile> {
     let cstr = std::ffi::CString::new(path.to_str().unwrap()).unwrap();
     let mode_cstr = std::ffi::CString::new(mode).unwrap();
@@ -222,6 +235,22 @@ pub fn open(path: &Path, mode: &str) -> io::Result<HtsFile> {
     }
 }
 
+impl Into<Box<dyn position::PositionedIterator>> for HtsFile {
+    fn into(self) -> Box<dyn position::PositionedIterator> {
+        match self.format().unwrap().format().as_str() {
+            "BCF" | "VCF" => {
+                let vcf_reader = self.vcf();
+                Box::new(BedderVCF::new(vcf_reader).expect("Failed to create VCF reader"))
+            }
+            "BED" => {
+                let bed_reader = io::BufReader::new(self);
+                Box::new(BedderBed::new(bed_reader))
+            }
+            fmt => panic!("Unsupported format for PositionedIterator: {}", fmt),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
 
@@ -236,6 +265,7 @@ mod tests {
         let result = open(&path, mode);
         assert!(result.is_ok(), "Failed to open file: {:?}", result.err());
         let file = result.unwrap();
+        assert_eq!(file.format().unwrap().format(), "BAM");
     }
 
     #[test]
@@ -296,12 +326,12 @@ mod tests {
         // Verify content
         assert!(content.starts_with("chr1\t1\t21\tAAAAA\n"));
 
-        // Split into lines and verify we got all 7 entries
+        // Split into lines and verify we got all 8 entries
         let lines: Vec<&str> = content.lines().collect();
-        assert_eq!(lines.len(), 7, "Should have 7 lines");
+        assert_eq!(lines.len(), 8, "Should have 8 lines");
 
         // Verify last line
-        assert_eq!(lines.last().unwrap(), &"chr1\t7\t27\tGGGGG");
+        assert_eq!(lines.last().unwrap(), &"chr1\t888887\t88888827\tHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHZ");
     }
 
     #[test]

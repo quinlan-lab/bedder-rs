@@ -11,7 +11,7 @@ pub struct BedRecord(bed::Record);
 impl crate::position::Positioned for BedRecord {
     #[inline]
     fn chrom(&self) -> &str {
-        &self.0.chrom()
+        self.0.chrom()
     }
 
     #[inline]
@@ -77,8 +77,9 @@ where
     ) -> Option<std::result::Result<Position, std::io::Error>> {
         loop {
             self.line_number += 1;
-            return match self.reader.next() {
-                None => None,
+            match self.reader.next() {
+                None => return None,
+                // TODO: handle skipping to _q
                 Some(Ok(record)) => {
                     match &mut self.last_record {
                         None => {
@@ -96,9 +97,9 @@ where
                             r.stop = record.end();
                         }
                     }
-                    Some(Ok(Position::Bed(BedRecord(record))))
+                    return Some(Ok(Position::Bed(BedRecord(record))));
                 }
-                Some(Err(e)) => Some(Err(io::Error::new(io::ErrorKind::InvalidData, e))),
+                Some(Err(e)) => return Some(Err(io::Error::new(io::ErrorKind::InvalidData, e))),
             };
         }
     }

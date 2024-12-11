@@ -2,14 +2,15 @@
 use crate::position::{Field, FieldError, Position, Positioned, Value};
 use crate::string::String;
 
-use rust_htslib::{self, bcf, bcf::Read, bcf::Reader};
+use rust_htslib::{self, bcf, bcf::Read};
 use std::io;
 use std::result;
 
 pub struct BedderVCF {
     reader: bcf::Reader,
     record_number: u64,
-    header: bcf::header::HeaderView,
+    #[allow(unused)]
+    pub(crate) header: bcf::header::HeaderView,
     last_record: Option<bcf::Record>,
 }
 
@@ -137,7 +138,7 @@ impl crate::position::PositionedIterator for BedderVCF {
         q: Option<&crate::position::Position>,
     ) -> Option<std::result::Result<Position, std::io::Error>> {
         if let Some(q) = q {
-            match self.skip_to(q.chrom(), q.start() - 1 as u64) {
+            match self.skip_to(q.chrom(), q.start() - 1_u64) {
                 Ok(_) => (),
                 Err(e) => return Some(Err(e)),
             }

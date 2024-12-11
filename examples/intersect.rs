@@ -60,24 +60,20 @@ fn main() -> io::Result<()> {
 
     let a = bedder::sniff::HtsFile::new(&args.a, "r").expect("Failed to open file");
 
-    let a_cstr = std::ffi::CString::new(args.a.to_str().unwrap()).unwrap();
-    let mode_cstr = std::ffi::CString::new("r").unwrap();
-    let hf = xvcf::rust_htslib::htslib::hts_open(a_cstr.as_ptr(), mode_cstr.as_ptr());
-    let fh2 = unsafe { xvcf::rust_htslib::htslib::hopen(a_cstr.as_ptr(), mode_cstr.as_ptr()) };
-
-    // sniff determines the file type (bam/cram/bcf/vcf/bed/gff/gtf)
-    // and returns a PositionIterator
-    let mut areader = BufReader::new(fs::File::open(&args.a)?);
-    let (aformat, acompression) = sniff::detect_file_format(&mut areader, &args.a)?;
-
-    let ai = sniff::open_format(areader, &args.a, aformat.clone(), acompression)?;
+    let ai = a.into();
 
     //let ai = sniff::open_file(&args.a)?;
     let bis = args
         .b
         .iter()
-        .map(|b| sniff::open_file(b))
-        .collect::<io::Result<Vec<_>>>()?;
+        .map(|b| {
+            bedder::sniff::HtsFile::new(b, "r")
+                .expect("Failed to open file")
+                .into()
+        })
+        .collect::<Vec<Box<dyn bedder::position::PositionedIterator>>>();
+
+    // bedder always requires a hashmap that indicates the chromosome order
 
     // bedder always requires a hashmap that indicates the chromosome order
     let fh = BufReader::new(fs::File::open(&args.fai)?);

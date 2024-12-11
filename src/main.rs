@@ -1,5 +1,5 @@
 extern crate bedder;
-use bedder::sniff;
+use bedder::sniff::HtsFile;
 use clap::Parser;
 use std::env;
 use std::path::PathBuf;
@@ -30,11 +30,11 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     let chrom_order =
         bedder::chrom_ordering::parse_genome(std::fs::File::open(&args.genome_file)?)?;
 
-    let a_iter = sniff::open_file(&args.query_path)?;
+    let a_iter = HtsFile::new(&args.query_path, "r")?.into();
     let b_iters: Vec<_> = args
         .other_paths
         .iter()
-        .map(|p| sniff::open_file(p).expect("error opening file"))
+        .map(|p| HtsFile::new(p, "r").expect("error opening file").into())
         .collect();
 
     let ii = bedder::intersection::IntersectionIterator::new(a_iter, b_iters, &chrom_order)?;
