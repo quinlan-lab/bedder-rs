@@ -23,7 +23,8 @@ pub mod string;
 
 pub mod chrom_ordering;
 
-//pub mod writer;
+// Determines how the output is written--format, compression, etc.
+pub mod writer;
 
 //#[cfg(feature = "bed")]
 /// Bed parser implementing the PositionedIterator trait.

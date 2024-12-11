@@ -77,6 +77,16 @@ impl io::Read for HtsFile {
     }
 }
 
+impl io::Write for HtsFile {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        todo!()
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        todo!()
+    }
+}
+
 // use this so we can open a bcf from an htsFile
 struct BCFReader {
     _inner: *mut hts::htsFile,

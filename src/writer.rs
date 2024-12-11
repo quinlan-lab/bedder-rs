@@ -1,11 +1,14 @@
 use crate::position::Position;
 use crate::report::{Report, ReportFragment};
-use noodles::bam;
-use noodles::sam;
+use rust_htslib::{bam, sam};
+use crate::sniff::HtsFile;
+use rust_htslib::bcf::{self, header::HeaderView};
+use rust_htslib::htslib as hts;
+use bio::io::bed;
+use std::mem;
+use std::rc::Rc;
 use std::result::Result;
 use std::string::String;
-use xvcf::rust_htslib::bcf::header::HeaderView;
-use xvcf::rust_htslib::htslib as hts;
 
 pub enum Type {
     Integer,
@@ -75,6 +78,13 @@ pub struct Writer {
     header: Option<InputHeader>,
 }
 
+pub struct BCFWriter {
+    _inner: *mut hts::htsFile,
+    _header: Rc<HeaderView>,
+    _subset: Option<bcf::header::SampleSubset>,
+}
+const _: () = assert!(mem::size_of::<BCFWriter>() == mem::size_of::<bcf::Writer>());
+
 impl Writer {
     pub fn init(
         path: &str,
@@ -93,7 +103,8 @@ impl Writer {
 
         let writer = match format {
             hts::htsExactFormat_vcf => {
-                GenomicWriter::Vcf(vcf::Writer::new(Box::new(HFile::new(path, "w")?)))
+                let 
+                GenomicWriter::Vcf(bcf::Writer::new(Box::new(HFile::new(path, "w")?)))
             }
             hts::htsExactFormat_bcf => {
                 GenomicWriter::Bcf(bcf::Writer::new(Box::new(HFile::new(path, "wb")?)))
@@ -291,11 +302,12 @@ impl Writer {
 }
 
 pub enum GenomicWriter {
-    Vcf(vcf::Writer<HFile>),
-    Bcf(bcf::Writer<HFile>),
-    Bam(bam::Writer<HFile>),
-    Bed(HFile),
-    Gff(gff::Writer<HFile>),
+    Vcf(bcf::Writer),
+    Bcf(bcf::Writer),
+    Bam(bam::Writer),
+    Sam(sam::Writer),
+    Bed(bed::Writer<HtsFile>),
+    //Gff(gff::Writer<HFile>),
 }
 
 impl GenomicWriterTrait for GenomicWriter {
