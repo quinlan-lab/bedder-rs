@@ -99,6 +99,10 @@ struct BCFReader {
 const _: () = assert!(mem::size_of::<BCFReader>() == mem::size_of::<bcf::Reader>());
 
 impl HtsFile {
+    pub(crate) fn htsfile(&mut self) -> *mut hts::htsFile {
+        &mut self.fh as *mut _
+    }
+
     pub fn new(path: &Path, mode: &str) -> io::Result<Self> {
         open(path, mode)
     }

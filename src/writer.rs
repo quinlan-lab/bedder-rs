@@ -1,10 +1,10 @@
 use crate::position::Position;
 use crate::report::{Report, ReportFragment};
-use rust_htslib::{bam, sam};
 use crate::sniff::HtsFile;
+use bio::io::bed;
+use rust_htslib::bam;
 use rust_htslib::bcf::{self, header::HeaderView};
 use rust_htslib::htslib as hts;
-use bio::io::bed;
 use std::mem;
 use std::rc::Rc;
 use std::result::Result;
@@ -67,8 +67,18 @@ impl From<std::io::Error> for FormatConversionError {
 
 pub enum InputHeader {
     Vcf(HeaderView),
-    Sam(sam::Header),
+    Sam(bam::Header),
     None,
+}
+
+/// A writer for the possible genomic formats
+pub enum GenomicWriter {
+    Vcf(bcf::Writer),
+    Bcf(bcf::Writer),
+    Bam(bam::Writer),
+    Sam(bam::Writer),
+    Bed(bed::Writer<HtsFile>),
+    //Gff(gff::Writer<HFile>),
 }
 
 pub struct Writer {
@@ -100,24 +110,48 @@ impl Writer {
 
         // Use default compression if not specified
         let compression = compression.unwrap_or(hts::htsCompression_no_compression);
+        // TODO: set compression in htslib.
 
         let writer = match format {
-            hts::htsExactFormat_vcf => {
-                let 
-                GenomicWriter::Vcf(bcf::Writer::new(Box::new(HFile::new(path, "w")?)))
-            }
-            hts::htsExactFormat_bcf => {
-                GenomicWriter::Bcf(bcf::Writer::new(Box::new(HFile::new(path, "wb")?)))
+            hts::htsExactFormat_vcf | hts::htsExactFormat_bcf => {
+                let write_mode = match format {
+                    hts::htsExactFormat_vcf => "wz",
+                    hts::htsExactFormat_bcf => "wb",
+                    _ => unreachable!(),
+                };
+                let mut hf = HtsFile::new(path.as_ref(), write_mode)
+                    .map_err(|e| FormatConversionError::HtslibError(e.to_string()))?;
+
+                let bwtr = BCFWriter {
+                    // TODO: does this cause problems. Since hf will be dropped.
+                    _inner: hf.htsfile(),
+                    _header: match &input_header {
+                        InputHeader::Vcf(header) => Rc::new(header.clone()),
+                        _ => return Err(FormatConversionError::UnsupportedFormat(format)),
+                    },
+                    _subset: None,
+                };
+                let vcf_writer = unsafe { std::mem::transmute(bwtr) };
+                match format {
+                    hts::htsExactFormat_vcf => GenomicWriter::Vcf(vcf_writer),
+                    hts::htsExactFormat_bcf => GenomicWriter::Bcf(vcf_writer),
+                    _ => unreachable!(),
+                }
             }
             hts::htsExactFormat_bam => {
-                GenomicWriter::Bam(bam::Writer::new(Box::new(HFile::new(path, "wb")?)))
+                unimplemented!("BAM writing not yet implemented");
             }
-            hts::htsExactFormat_bed => GenomicWriter::Bed(Box::new(HFile::new(path, "w")?)),
+            hts::htsExactFormat_bed => {
+                let hf = HtsFile::new(path.as_ref(), "w")
+                    .map_err(|e| FormatConversionError::HtslibError(e.to_string()))?;
+                let bed_writer = bio::io::bed::Writer::new(hf);
+                GenomicWriter::Bed(bed_writer)
+            }
             _ => return Err(FormatConversionError::UnsupportedFormat(format)),
         };
 
-        let header = match input_header {
-            InputHeader::Vcf(h) => Some(InputHeader::Vcf(h)),
+        let header = match &input_header {
+            InputHeader::Vcf(h) => Some(InputHeader::Vcf(h.clone())),
             InputHeader::Sam(_) => None,
             InputHeader::None => None,
         };
@@ -130,23 +164,40 @@ impl Writer {
         })
     }
 
-    pub fn write_vcf_header(&mut self, header: &HeaderView) -> Result<(), std::io::Error> {
-        match &mut self.writer {
-            GenomicWriter::Vcf(vcf_writer) => {
-                vcf_writer.write_header(header)?;
+    fn add_info_field_to_vcf_record(
+        record: &mut bcf::Record,
+        key: String,
+        value: Value,
+    ) -> Result<(), std::io::Error> {
+        let key_bytes = key.as_bytes();
+        match value {
+            Value::Int(i) => {
+                let vals = vec![i];
+                record.push_info_integer(key_bytes, &vals)
             }
-            GenomicWriter::Bcf(bcf_writer) => {
-                bcf_writer.write_header(header)?;
+            Value::Float(f) => {
+                let vals = vec![f];
+                record.push_info_float(key_bytes, &vals)
             }
-            _ => {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::InvalidInput,
-                    "Cannot write VCF header for non-VCF/BCF formats",
-                ));
+            Value::String(s) => {
+                let byte_slice = vec![s.as_bytes()];
+                record.push_info_string(key_bytes, &byte_slice)
+            }
+            Value::Flag(b) => {
+                if b {
+                    record.push_info_flag(key_bytes)
+                } else {
+                    record.clear_info_flag(key_bytes)
+                }
+            }
+            Value::VecInt(v) => record.push_info_integer(key_bytes, &v),
+            Value::VecFloat(v) => record.push_info_float(key_bytes, &v),
+            Value::VecString(v) => {
+                let byte_slices: Vec<&[u8]> = v.iter().map(|s| s.as_bytes()).collect();
+                record.push_info_string(key_bytes, &byte_slices)
             }
         }
-        self.header = Some(InputHeader::Vcf(header.clone()));
-        Ok(())
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()))
     }
 
     pub fn write(
@@ -168,9 +219,9 @@ impl Writer {
 
                 for fragment in report {
                     // Extract the VCF record from the position using matches!
-                    let mut record = match &fragment.a {
+                    let record = match &fragment.a {
                         Some(position) => match position {
-                            Position::Vcf(record) => record.clone(),
+                            Position::Vcf(record) => record, /*.clone() */
                             _ => {
                                 return Err(std::io::Error::new(
                                     std::io::ErrorKind::InvalidData,
@@ -193,53 +244,17 @@ impl Writer {
                             "Fragment.a is not a VCF record",
                         ));
                     }
-                    let mut vcf_record = record.record;
+                    let mut vcf_record = record.record.clone();
 
                     for cr in crs {
                         if let Ok(value) = cr.value(fragment) {
-                            let key = cr.name().as_bytes();
-                            match value {
-                                Value::Int(i) => {
-                                    let vals = vec![i];
-                                    vcf_record.push_info_integer(key, &vals);
-                                }
-                                Value::Float(f) => {
-                                    let vals = vec![f];
-                                    vcf_record.push_info_float(key, &vals);
-                                }
-                                Value::String(s) => {
-                                    let byte_slice = vec![s.as_bytes()];
-                                    vcf_record.push_info_string(key, &byte_slice);
-                                }
-                                Value::Flag(b) => {
-                                    if b {
-                                        vcf_record.push_info_flag(key);
-                                    } else {
-                                        vcf_record.clear_info_flag(key);
-                                    }
-                                }
-                                Value::VecInt(v) => {
-                                    vcf_record.push_info_integer(key, &v);
-                                }
-                                Value::VecFloat(v) => {
-                                    vcf_record.push_info_float(key, &v);
-                                }
-                                Value::VecString(v) => {
-                                    let byte_slices: Vec<&[u8]> =
-                                        v.iter().map(|s| s.as_bytes()).collect();
-                                    vcf_record.push_info_string(key, &byte_slices);
-                                }
-                                _ => {
-                                    return Err(std::io::Error::new(
-                                        std::io::ErrorKind::InvalidData,
-                                        "Unsupported value type",
-                                    ));
-                                }
-                            }
+                            Self::add_info_field_to_vcf_record(&mut vcf_record, cr.name(), value)?;
                         }
                     }
 
-                    vcf_writer.write_record(&self.header, &record)?;
+                    vcf_writer.write(&vcf_record).map_err(|e| {
+                        std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string())
+                    })?;
                 }
             }
             hts::htsExactFormat_bed => {
@@ -248,22 +263,27 @@ impl Writer {
                     let frag_a = fragment.a.as_ref().ok_or_else(|| {
                         std::io::Error::new(std::io::ErrorKind::InvalidData, "missing chromosome")
                     })?;
-
-                    write!(
-                        self.writer,
-                        "{}\t{}\t{}",
-                        frag_a.chrom(),
-                        frag_a.start(),
-                        frag_a.stop(),
-                    )?;
+                    let mut br = bio::io::bed::Record::new();
+                    br.set_chrom(frag_a.chrom());
+                    br.set_start(frag_a.start());
+                    br.set_end(frag_a.stop());
+                    // TODO: br.set_name(), etc.
                     for cr in crs {
                         if let Ok(value) = cr.value(fragment) {
-                            write!(self.writer, "\t{}", self.format_value(&value))?;
-                        } else {
-                            write!(self.writer, "\t.")?;
+                            br.push_aux(self.format_value(&value).as_str());
                         }
                     }
-                    writeln!(self.writer)?;
+
+                    if let GenomicWriter::Bed(ref mut writer) = self.writer {
+                        writer.write(&br).map_err(|e| {
+                            std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string())
+                        })?;
+                    } else {
+                        return Err(std::io::Error::new(
+                            std::io::ErrorKind::InvalidInput,
+                            "Expected BED writer, but found a different format",
+                        ));
+                    }
                 }
             }
             hts::htsExactFormat_sam => {
@@ -280,6 +300,7 @@ impl Writer {
         Ok(())
     }
 
+    // TODO: use serde?
     fn format_value(&self, value: &Value) -> String {
         match value {
             Value::Int(i) => i.to_string(),
@@ -299,52 +320,4 @@ impl Writer {
             Value::VecString(v) => v.join(","),
         }
     }
-}
-
-pub enum GenomicWriter {
-    Vcf(bcf::Writer),
-    Bcf(bcf::Writer),
-    Bam(bam::Writer),
-    Sam(sam::Writer),
-    Bed(bed::Writer<HtsFile>),
-    //Gff(gff::Writer<HFile>),
-}
-
-impl GenomicWriterTrait for GenomicWriter {
-    fn write_header(&mut self, header: &Header) -> Result<(), std::io::Error> {
-        match self {
-            GenomicWriter::Vcf(writer) => writer.write_header(header),
-            GenomicWriter::Bcf(writer) => writer.write_header(header),
-            GenomicWriter::Bam(writer) => writer.write_header(header),
-            GenomicWriter::Bed(_) => Ok(()), // BED doesn't have a header
-            GenomicWriter::Gff(writer) => writer.write_header(header),
-            // Handle other formats
-        }
-    }
-
-    fn write_record(&mut self, record: &Record) -> Result<(), std::io::Error> {
-        match self {
-            GenomicWriter::Vcf(writer) => writer.write_record(record),
-            GenomicWriter::Bcf(writer) => writer.write_record(record),
-            GenomicWriter::Bam(writer) => writer.write_record(record),
-            GenomicWriter::Bed(writer) => {
-                // Implement BED record writing
-                writeln!(
-                    writer,
-                    "{}\t{}\t{}",
-                    record.chrom(),
-                    record.start(),
-                    record.end()
-                )
-            }
-            GenomicWriter::Gff(writer) => writer.write_record(record),
-            // Handle other formats
-        }
-    }
-}
-
-pub trait GenomicWriterTrait {
-    fn write_header(&mut self, header: &Header) -> Result<(), std::io::Error>;
-    fn write_record(&mut self, record: &Record) -> Result<(), std::io::Error>;
-    // Add other common methods as needed
 }
