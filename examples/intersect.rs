@@ -2,13 +2,15 @@ use std::fs;
 use std::io::{self, BufReader, BufWriter, Write};
 use std::path::PathBuf;
 
-//use bedder::sniff;
+use bedder::sniff;
+use bedder::writer::{ColumnReporter, InputHeader};
 use clap::Parser;
 extern crate bedder;
 use crate::bedder::chrom_ordering::parse_genome;
+use crate::bedder::hts;
 use crate::bedder::intersection::IntersectionIterator;
 use crate::bedder::intersections::{IntersectionMode, IntersectionPart, OverlapAmount};
-//use crate::bedder::writer;
+use crate::bedder::writer;
 
 #[derive(Parser, Debug)]
 struct Args {
@@ -78,8 +80,14 @@ fn main() -> io::Result<()> {
     // bedder always requires a hashmap that indicates the chromosome order
     let fh = BufReader::new(fs::File::open(&args.fai)?);
     let h = parse_genome(fh)?;
+    let format = hts::htsExactFormat_bed;
 
-    let mut wtr = match writer::Writer::init(aformat, None, sniff::Compression::None) {
+    let mut wtr = match writer::Writer::init(
+        "output.bed.gz",
+        Some(format),
+        Some(hts::htsCompression_bgzf),
+        InputHeader::None,
+    ) {
         Ok(w) => w,
         Err(e) => {
             eprintln!("error: {:?}", e);
@@ -141,20 +149,12 @@ fn main() -> io::Result<()> {
         }
         //eprintln!("report: {:?}", report);
         //eprintln!("args: {:?}", &args);
+        let columns = vec![
+            "chrom", "start", "stop", "a_id", "b_id", "a_count", "b_count",
+        ];
+        let c = ColumnReporter::new();
 
-        for r in report.into_iter() {
-            let a = r.a.as_ref().expect("a");
-            writeln!(
-                &mut stdout,
-                "{}\t{}\t{}\t{:?}",
-                a.chrom(),
-                a.start(),
-                a.stop(),
-                r.b.iter()
-                    .map(|r| format!("{}:{}-{}", r.chrom(), r.start(), r.stop()))
-                    .collect::<Vec<_>>()
-            )?;
-        }
+        wtr.write(&report, columns)?;
     }
 
     Ok(())

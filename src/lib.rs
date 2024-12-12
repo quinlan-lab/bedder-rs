@@ -30,6 +30,8 @@ pub mod writer;
 /// Bed parser implementing the PositionedIterator trait.
 pub mod bedder_bed;
 
+pub use rust_htslib::htslib as hts;
+
 //#[cfg(feature = "vcf")]
 /// Vcf parser implementing the PositionedIterator trait.
 pub mod bedder_vcf;

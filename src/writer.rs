@@ -41,6 +41,7 @@ pub enum ColumnError {
     InvalidValue(String),
 }
 
+/// A ColumnReporter tells bedder how to report a column in the output.
 pub trait ColumnReporter {
     /// report the name, e.g. `count` for the INFO field of the VCF
     fn name(&self) -> String;
