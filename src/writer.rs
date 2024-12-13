@@ -2,17 +2,10 @@ use crate::position::Position;
 use crate::report::{Report, ReportFragment};
 use crate::sniff::HtsFile;
 use bio::io::bed;
-<<<<<<< HEAD
 use rust_htslib::bam;
 use rust_htslib::bcf::{self, header::HeaderView};
 use rust_htslib::htslib as hts;
-=======
-use rust_htslib::bcf::{self, header::HeaderView};
-use rust_htslib::htslib as hts;
-use rust_htslib::{bam, sam};
->>>>>>> 1daae3a (work on writer)
 use std::mem;
-use std::path::Path;
 use std::rc::Rc;
 use std::result::Result;
 use std::string::String;
@@ -259,7 +252,7 @@ impl Writer {
                             Self::add_info_field_to_vcf_record(&mut vcf_record, cr.name(), value)?;
                         }
                     }
-                    let vcf_record = record.record;
+                    let vcf_record = &record.record;
 
                     vcf_writer.write(&vcf_record).map_err(|e| {
                         std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string())
@@ -281,7 +274,6 @@ impl Writer {
                         if let Ok(value) = cr.value(fragment) {
                             br.push_aux(self.format_value(&value).as_str());
                         }
-                        writeln!(writer)?;
                     }
 
                     if let GenomicWriter::Bed(ref mut writer) = self.writer {
