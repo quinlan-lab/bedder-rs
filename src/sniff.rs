@@ -79,11 +79,35 @@ impl io::Read for HtsFile {
 
 impl io::Write for HtsFile {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        todo!()
+        eprintln!("writing!, bgzf: {}", self.fh.is_bgzf());
+        assert!(self.fh.is_write() != 0);
+        let n = unsafe {
+            hts::bgzf_write(
+                self.fh.fp.bgzf as *mut _,
+                buf.as_ptr() as *const std::os::raw::c_void,
+                buf.len(),
+            )
+        };
+        if n < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        unsafe { hts::hts_flush(&mut self.fh) };
+        eprintln!("wrote {} bytes", n);
+        Ok(n as usize)
     }
 
     fn flush(&mut self) -> io::Result<()> {
-        todo!()
+        match unsafe { hts::hts_flush(&mut self.fh) } {
+            0 => Ok(()),
+            _ => Err(io::Error::last_os_error()),
+        }
+    }
+}
+
+impl Drop for HtsFile {
+    fn drop(&mut self) {
+        eprintln!("dropping htsfile :{:?}", self);
+        unsafe { hts::hts_flush(&mut self.fh) };
     }
 }
 
@@ -101,6 +125,16 @@ const _: () = assert!(mem::size_of::<BCFReader>() == mem::size_of::<bcf::Reader>
 impl HtsFile {
     pub(crate) fn htsfile(&mut self) -> *mut hts::htsFile {
         &mut self.fh as *mut _
+    }
+
+    #[inline]
+    pub fn is_cram(&self) -> bool {
+        self.fh.is_cram() != 0
+    }
+
+    #[inline]
+    pub fn is_bgzf(&self) -> bool {
+        self.fh.is_bgzf() != 0
     }
 
     pub fn new(path: &Path, mode: &str) -> io::Result<Self> {

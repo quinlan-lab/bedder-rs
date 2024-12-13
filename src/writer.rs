@@ -143,7 +143,11 @@ impl Writer {
                 unimplemented!("BAM writing not yet implemented");
             }
             hts::htsExactFormat_bed => {
-                let hf = HtsFile::new(path.as_ref(), "w")
+                let write_mode = match compression {
+                    hts::htsCompression_bgzf => "wz",
+                    _ => "w",
+                };
+                let hf = HtsFile::new(path.as_ref(), write_mode)
                     .map_err(|e| FormatConversionError::HtslibError(e.to_string()))?;
                 let bed_writer = bio::io::bed::Writer::new(hf);
                 GenomicWriter::Bed(bed_writer)

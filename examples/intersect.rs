@@ -152,9 +152,10 @@ fn main() -> io::Result<()> {
         let columns = vec![
             "chrom", "start", "stop", "a_id", "b_id", "a_count", "b_count",
         ];
-        let c = ColumnReporter::new();
+        //let c = ColumnReporter::new();
+        let v = vec![];
 
-        wtr.write(&report, columns)?;
+        wtr.write(&report, &v)?;
     }
 
     Ok(())

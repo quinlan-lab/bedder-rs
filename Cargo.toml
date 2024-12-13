@@ -29,7 +29,7 @@ hashbrown = "0.14.0"
 mimalloc = "0.1.39"
 bitflags = "2.4.0"
 bio = { git = "https://github.com/brentp/rust-bio.git", branch = "bed-next" }
-rust-htslib = { git = "https://github.com/brentp/rust-htslib.git", branch = "index-reader-unify" }
+rust-htslib = { git = "https://github.com/brentp/rust-htslib.git", rev = "e3228f5" }
 tempfile = "3.14.0"
 
 
