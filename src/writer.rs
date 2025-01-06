@@ -147,6 +147,7 @@ impl Writer {
                     hts::htsCompression_bgzf => "wz",
                     _ => "w",
                 };
+                eprintln!("open file: {:?} with mode: {}", path, write_mode);
                 let hf = HtsFile::new(path.as_ref(), write_mode)
                     .map_err(|e| FormatConversionError::HtslibError(e.to_string()))?;
                 let bed_writer = bio::io::bed::Writer::new(hf);
@@ -210,6 +211,9 @@ impl Writer {
         report: &Report,
         crs: &[Box<dyn ColumnReporter>],
     ) -> Result<(), std::io::Error> {
+        if report.len() == 0 {
+            return Ok(());
+        }
         match self.format {
             hts::htsExactFormat_vcf => {
                 let vcf_writer = match &mut self.writer {
@@ -264,6 +268,7 @@ impl Writer {
                 }
             }
             hts::htsExactFormat_bed => {
+                eprintln!("report: {:?}", report);
                 for fragment in report {
                     // return an error if fragment.a is None
                     let frag_a = fragment.a.as_ref().ok_or_else(|| {

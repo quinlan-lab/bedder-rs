@@ -2,7 +2,7 @@ use bio::io::bed;
 use rust_htslib::bcf;
 pub(crate) use rust_htslib::htslib as hts;
 use std::fmt;
-use std::io;
+use std::io::{self, Write};
 use std::mem;
 use std::path::Path;
 use std::rc::Rc;
@@ -79,25 +79,45 @@ impl io::Read for HtsFile {
 
 impl io::Write for HtsFile {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        eprintln!("writing!, bgzf: {}", self.fh.is_bgzf());
-        assert!(self.fh.is_write() != 0);
+        eprintln!("Writing {} bytes", buf.len());
+        assert!(self.fh.is_write() != 0, "File not opened for writing!");
+        assert!(self.is_bgzf(), "File is not BGZF!");
+
+        // Ensure we have data to write
+        if buf.is_empty() {
+            return Ok(0);
+        }
+
+        // Get a direct pointer to the BGZF structure
+        let bgzf = unsafe { self.fh.fp.bgzf };
+
+        // Write the buffer using a direct pointer to the data
         let n = unsafe {
             hts::bgzf_write(
-                self.fh.fp.bgzf as *mut _,
-                buf.as_ptr() as *const std::os::raw::c_void,
+                bgzf,
+                buf.as_ptr() as *const _, // Simplified pointer cast
                 buf.len(),
             )
         };
+        eprintln!("bgzf_write returned {}", n);
+
         if n < 0 {
             return Err(io::Error::last_os_error());
         }
-        unsafe { hts::hts_flush(&mut self.fh) };
-        eprintln!("wrote {} bytes", n);
+
         Ok(n as usize)
     }
 
     fn flush(&mut self) -> io::Result<()> {
-        match unsafe { hts::hts_flush(&mut self.fh) } {
+        if self.is_bgzf() {
+            let c = unsafe { hts::bgzf_flush(self.fh.fp.bgzf as *mut _) };
+            if c < 0 {
+                return Err(io::Error::last_os_error());
+            }
+        }
+
+        let result = unsafe { hts::hts_flush(&mut self.fh) };
+        match result {
             0 => Ok(()),
             _ => Err(io::Error::last_os_error()),
         }
@@ -106,8 +126,7 @@ impl io::Write for HtsFile {
 
 impl Drop for HtsFile {
     fn drop(&mut self) {
-        eprintln!("dropping htsfile :{:?}", self);
-        unsafe { hts::hts_flush(&mut self.fh) };
+        self.flush().expect("Failed to flush htsfile");
     }
 }
 
@@ -138,6 +157,7 @@ impl HtsFile {
     }
 
     pub fn new(path: &Path, mode: &str) -> io::Result<Self> {
+        eprintln!("opening file: {:?} with mode: {}", path, mode);
         open(path, mode)
     }
 
