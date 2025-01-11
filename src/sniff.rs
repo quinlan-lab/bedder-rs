@@ -81,25 +81,25 @@ impl io::Write for HtsFile {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         eprintln!("Writing {} bytes", buf.len());
         assert!(self.fh.is_write() != 0, "File not opened for writing!");
-        assert!(self.is_bgzf(), "File is not BGZF!");
+        //assert!(self.is_bgzf(), "File is not BGZF!");
 
         // Ensure we have data to write
         if buf.is_empty() {
             return Ok(0);
         }
-
-        // Get a direct pointer to the BGZF structure
-        let bgzf = unsafe { self.fh.fp.bgzf };
+        // For non-BGZF files, use standard hts_write
+        if !self.is_bgzf() {
+            let n = unsafe { hts::hwrite(self.fh.fp.hfile, buf.as_ptr() as *const _, buf.len()) };
+            if n < 0 {
+                return Err(io::Error::last_os_error());
+            }
+            return Ok(n as usize);
+        }
 
         // Write the buffer using a direct pointer to the data
-        let n = unsafe {
-            hts::bgzf_write(
-                bgzf,
-                buf.as_ptr() as *const _, // Simplified pointer cast
-                buf.len(),
-            )
-        };
+        let n = unsafe { hts::bgzf_write(self.fh.fp.bgzf, buf.as_ptr() as *const _, buf.len()) };
         eprintln!("bgzf_write returned {}", n);
+        unsafe { hts::bgzf_flush(self.fh.fp.bgzf) };
 
         if n < 0 {
             return Err(io::Error::last_os_error());
@@ -109,13 +109,6 @@ impl io::Write for HtsFile {
     }
 
     fn flush(&mut self) -> io::Result<()> {
-        if self.is_bgzf() {
-            let c = unsafe { hts::bgzf_flush(self.fh.fp.bgzf as *mut _) };
-            if c < 0 {
-                return Err(io::Error::last_os_error());
-            }
-        }
-
         let result = unsafe { hts::hts_flush(&mut self.fh) };
         match result {
             0 => Ok(()),
@@ -157,7 +150,6 @@ impl HtsFile {
     }
 
     pub fn new(path: &Path, mode: &str) -> io::Result<Self> {
-        eprintln!("opening file: {:?} with mode: {}", path, mode);
         open(path, mode)
     }
 
@@ -287,6 +279,7 @@ impl HtsFormat {
 pub fn open(path: &Path, mode: &str) -> io::Result<HtsFile> {
     let cstr = std::ffi::CString::new(path.to_str().unwrap()).unwrap();
     let mode_cstr = std::ffi::CString::new(mode).unwrap();
+    eprintln!("opening file: {:?} with mode: {}", path, mode);
     let hts_file = unsafe { hts::hts_open(cstr.as_ptr(), mode_cstr.as_ptr()) };
     if hts_file.is_null() {
         Err(io::Error::last_os_error())

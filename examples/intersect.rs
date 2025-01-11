@@ -2,8 +2,7 @@ use std::fs;
 use std::io::{self, BufReader, BufWriter, Write};
 use std::path::PathBuf;
 
-use bedder::sniff;
-use bedder::writer::{ColumnReporter, InputHeader};
+use bedder::writer::InputHeader;
 use clap::Parser;
 extern crate bedder;
 use crate::bedder::chrom_ordering::parse_genome;
@@ -83,9 +82,9 @@ fn main() -> io::Result<()> {
     let format = hts::htsExactFormat_bed;
 
     let mut wtr = match writer::Writer::init(
-        "output.bed.gz",
+        "output.bed",
         Some(format),
-        Some(hts::htsCompression_bgzf),
+        None, // Some(hts::htsCompression_bgzf),
         InputHeader::None,
     ) {
         Ok(w) => w,

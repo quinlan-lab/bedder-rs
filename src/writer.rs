@@ -147,7 +147,6 @@ impl Writer {
                     hts::htsCompression_bgzf => "wz",
                     _ => "w",
                 };
-                eprintln!("open file: {:?} with mode: {}", path, write_mode);
                 let hf = HtsFile::new(path.as_ref(), write_mode)
                     .map_err(|e| FormatConversionError::HtslibError(e.to_string()))?;
                 let bed_writer = bio::io::bed::Writer::new(hf);
