@@ -174,5 +174,5 @@ impl crate::position::PositionedIterator for BedderVCF {
 // tests
 #[cfg(test)]
 mod tests {
-    use super::*;
+    
 }

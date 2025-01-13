@@ -119,7 +119,9 @@ impl io::Write for HtsFile {
 
 impl Drop for HtsFile {
     fn drop(&mut self) {
-        self.flush().expect("Failed to flush htsfile");
+        if self.fh.is_write() != 0 {
+            self.flush().expect("Failed to flush htsfile");
+        }
     }
 }
 
@@ -296,15 +298,15 @@ pub fn open(path: &Path, mode: &str) -> io::Result<HtsFile> {
     }
 }
 
-impl Into<Box<dyn position::PositionedIterator>> for HtsFile {
-    fn into(self) -> Box<dyn position::PositionedIterator> {
-        match self.format().unwrap().format().as_str() {
+impl From<HtsFile> for Box<dyn position::PositionedIterator> {
+    fn from(val: HtsFile) -> Self {
+        match val.format().unwrap().format().as_str() {
             "BCF" | "VCF" => {
-                let vcf_reader = self.vcf();
+                let vcf_reader = val.vcf();
                 Box::new(BedderVCF::new(vcf_reader).expect("Failed to create VCF reader"))
             }
             "BED" => {
-                let bed_reader = io::BufReader::new(self);
+                let bed_reader = io::BufReader::new(val);
                 Box::new(BedderBed::new(bed_reader))
             }
             fmt => panic!("Unsupported format for PositionedIterator: {}", fmt),
@@ -323,7 +325,7 @@ mod tests {
     fn test_open() {
         let path = Path::new("tests/test.bam");
         let mode = "r";
-        let result = open(&path, mode);
+        let result = open(path, mode);
         assert!(result.is_ok(), "Failed to open file: {:?}", result.err());
         let file = result.unwrap();
         assert_eq!(file.format().unwrap().format(), "BAM");
@@ -333,7 +335,7 @@ mod tests {
     fn test_repr() {
         let path = Path::new("tests/test.bam");
         let mode = "r";
-        let result = open(&path, mode);
+        let result = open(path, mode);
         let file = result.expect("Failed to open file");
         assert_eq!(format!("{:?}", file), r#"HtsFile("tests/test.bam", "BAM")"#);
     }
@@ -342,7 +344,7 @@ mod tests {
     fn test_bam_fmt() {
         let path = Path::new("tests/test.bam");
         let mode = "r";
-        let result = open(&path, mode);
+        let result = open(path, mode);
         let file = result.expect("Failed to open file");
         assert_eq!(file.format().unwrap().format(), "BAM");
     }
@@ -350,7 +352,7 @@ mod tests {
     #[test]
     fn test_read_small_chunks() {
         let path = Path::new("tests/test.bam");
-        let mut file = open(&path, "r").unwrap();
+        let mut file = open(path, "r").unwrap();
         let mut buf = [0u8; 4]; // Small buffer to force multiple reads
         let mut result = Vec::new();
 
@@ -369,7 +371,7 @@ mod tests {
     #[test]
     fn test_read_exact() {
         let path = Path::new("tests/test.bam");
-        let mut file = open(&path, "r").unwrap();
+        let mut file = open(path, "r").unwrap();
         let mut buf = [0u8; 4];
 
         // Should be able to read exactly 4 bytes
@@ -380,7 +382,7 @@ mod tests {
     #[test]
     fn test_read_bed_file() {
         let path = Path::new("tests/test.bed");
-        let mut file = open(&path, "r").unwrap();
+        let mut file = open(path, "r").unwrap();
         let mut content = String::new();
         file.read_to_string(&mut content).unwrap();
 
@@ -398,7 +400,7 @@ mod tests {
     #[test]
     fn test_read_bed_chunks() {
         let path = Path::new("tests/test.bed");
-        let mut file = open(&path, "r").unwrap();
+        let mut file = open(path, "r").expect("Failed to open file: tests/test.bed");
         let mut buf = [0u8; 10]; // Small buffer to test chunked reading
 
         // Read first chunk
@@ -425,7 +427,7 @@ mod tests {
     #[test]
     fn test_read_bed_large_buffer() {
         let path = Path::new("tests/test.bed");
-        let mut file = io::BufReader::new(open(&path, "r").unwrap());
+        let mut file = io::BufReader::new(open(path, "r").unwrap());
         let mut buf = [0u8; 100]; // Buffer larger than any line (lines are ~20 bytes)
 
         // Read first line
@@ -459,7 +461,7 @@ mod tests {
         // Create a temporary file with 10 single-character lines
         let temp_file = tempfile::NamedTempFile::new().unwrap();
         let mut f = temp_file.as_file();
-        for c in ('A'..='J').into_iter() {
+        for c in 'A'..='J' {
             writeln!(f, "{}", c).unwrap();
         }
         f.flush().unwrap();

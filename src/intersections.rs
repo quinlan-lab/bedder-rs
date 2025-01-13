@@ -505,7 +505,7 @@ mod tests {
             &OverlapAmount::Bases(1),
             &OverlapAmount::Bases(1),
         );
-        assert!(r.len() == 0);
+        assert!(r.is_empty());
         let r = intersections.report(
             &IntersectionMode::Not,
             &IntersectionMode::Default,

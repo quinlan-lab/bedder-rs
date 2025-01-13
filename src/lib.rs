@@ -37,3 +37,5 @@ pub use rust_htslib::htslib as hts;
 pub mod bedder_vcf;
 
 mod tests;
+
+pub mod hts_format;

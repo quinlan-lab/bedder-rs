@@ -64,8 +64,8 @@ fn main() -> io::Result<()> {
 
     // sniff determines the file type (bam/cram/bcf/vcf/bed/gff/gtf)
     // and returns a PositionIterator
-    let ai = sniff::open_file(&args.a)?;
-    let bi = sniff::open_file(&args.b)?;
+    let ai = sniff::HtsFile::new(&args.a, "r")?;
+    let bi = sniff::HtsFile::new(&args.b, "r")?;
     let lua = Lua::new();
 
     let lua_fun = if let Some(expr) = args.format {
@@ -90,7 +90,7 @@ fn main() -> io::Result<()> {
     let h = parse_genome(fh)?;
 
     // we can have any number of b (other_iterators).
-    let it = IntersectionIterator::new(ai, vec![bi], &h)?;
+    let it = IntersectionIterator::new(ai.into(), vec![bi.into()], &h)?;
 
     // we need to use buffered stdout or performance is determined by
     // file IO

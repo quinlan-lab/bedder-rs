@@ -1,3 +1,4 @@
+use crate::hts_format::{Compression, Format};
 use crate::position::Position;
 use crate::report::{Report, ReportFragment};
 use crate::sniff::HtsFile;
@@ -72,6 +73,7 @@ pub enum InputHeader {
     None,
 }
 
+#[allow(clippy::large_enum_variant)]
 /// A writer for the possible genomic formats
 pub enum GenomicWriter {
     Vcf(bcf::Writer),
@@ -83,8 +85,8 @@ pub enum GenomicWriter {
 }
 
 pub struct Writer {
-    format: hts::htsExactFormat,
-    compression: hts::htsCompression,
+    format: Format,
+    compression: Compression,
     writer: GenomicWriter,
     header: Option<InputHeader>,
 }
@@ -99,8 +101,8 @@ const _: () = assert!(mem::size_of::<BCFWriter>() == mem::size_of::<bcf::Writer>
 impl Writer {
     pub fn init(
         path: &str,
-        format: Option<hts::htsExactFormat>,
-        compression: Option<hts::htsCompression>,
+        format: Option<Format>,
+        compression: Option<Compression>,
         input_header: InputHeader,
     ) -> Result<Self, FormatConversionError> {
         // Detect format if not specified
@@ -110,14 +112,14 @@ impl Writer {
         };
 
         // Use default compression if not specified
-        let compression = compression.unwrap_or(hts::htsCompression_no_compression);
+        let compression = compression.unwrap_or(Compression::None);
         // TODO: set compression in htslib.
 
         let writer = match format {
-            hts::htsExactFormat_vcf | hts::htsExactFormat_bcf => {
+            Format::Vcf | Format::Bcf => {
                 let write_mode = match format {
-                    hts::htsExactFormat_vcf => "wz",
-                    hts::htsExactFormat_bcf => "wb",
+                    Format::Vcf => "wz",
+                    Format::Bcf => "wb",
                     _ => unreachable!(),
                 };
                 let mut hf = HtsFile::new(path.as_ref(), write_mode)
@@ -128,23 +130,23 @@ impl Writer {
                     _inner: hf.htsfile(),
                     _header: match &input_header {
                         InputHeader::Vcf(header) => Rc::new(header.clone()),
-                        _ => return Err(FormatConversionError::UnsupportedFormat(format)),
+                        _ => return Err(FormatConversionError::UnsupportedFormat(format.into())),
                     },
                     _subset: None,
                 };
                 let vcf_writer = unsafe { std::mem::transmute(bwtr) };
                 match format {
-                    hts::htsExactFormat_vcf => GenomicWriter::Vcf(vcf_writer),
-                    hts::htsExactFormat_bcf => GenomicWriter::Bcf(vcf_writer),
+                    Format::Vcf => GenomicWriter::Vcf(vcf_writer),
+                    Format::Bcf => GenomicWriter::Bcf(vcf_writer),
                     _ => unreachable!(),
                 }
             }
-            hts::htsExactFormat_bam => {
+            Format::Bam => {
                 unimplemented!("BAM writing not yet implemented");
             }
-            hts::htsExactFormat_bed => {
+            Format::Bed => {
                 let write_mode = match compression {
-                    hts::htsCompression_bgzf => "wz",
+                    Compression::Bgzf => "wz",
                     _ => "w",
                 };
                 let hf = HtsFile::new(path.as_ref(), write_mode)
@@ -152,7 +154,7 @@ impl Writer {
                 let bed_writer = bio::io::bed::Writer::new(hf);
                 GenomicWriter::Bed(bed_writer)
             }
-            _ => return Err(FormatConversionError::UnsupportedFormat(format)),
+            _ => return Err(FormatConversionError::UnsupportedFormat(format.into())),
         };
 
         let header = match &input_header {
@@ -210,11 +212,11 @@ impl Writer {
         report: &Report,
         crs: &[Box<dyn ColumnReporter>],
     ) -> Result<(), std::io::Error> {
-        if report.len() == 0 {
+        if report.is_empty() {
             return Ok(());
         }
         match self.format {
-            hts::htsExactFormat_vcf => {
+            Format::Vcf => {
                 let vcf_writer = match &mut self.writer {
                     GenomicWriter::Vcf(writer) => writer,
                     _ => {
@@ -261,12 +263,12 @@ impl Writer {
                     }
                     let vcf_record = &record.record;
 
-                    vcf_writer.write(&vcf_record).map_err(|e| {
+                    vcf_writer.write(vcf_record).map_err(|e| {
                         std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string())
                     })?;
                 }
             }
-            hts::htsExactFormat_bed => {
+            Format::Bed => {
                 eprintln!("report: {:?}", report);
                 for fragment in report {
                     // return an error if fragment.a is None
@@ -296,7 +298,7 @@ impl Writer {
                     }
                 }
             }
-            hts::htsExactFormat_sam => {
+            Format::Sam => {
                 // Implement SAM writing logic
                 unimplemented!("SAM writing not yet implemented");
             }

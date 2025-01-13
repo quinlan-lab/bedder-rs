@@ -2,11 +2,11 @@ use std::fs;
 use std::io::{self, BufReader, BufWriter, Write};
 use std::path::PathBuf;
 
+use bedder::hts_format::Format;
 use bedder::writer::InputHeader;
 use clap::Parser;
 extern crate bedder;
 use crate::bedder::chrom_ordering::parse_genome;
-use crate::bedder::hts;
 use crate::bedder::intersection::IntersectionIterator;
 use crate::bedder::intersections::{IntersectionMode, IntersectionPart, OverlapAmount};
 use crate::bedder::writer;
@@ -79,7 +79,7 @@ fn main() -> io::Result<()> {
     // bedder always requires a hashmap that indicates the chromosome order
     let fh = BufReader::new(fs::File::open(&args.fai)?);
     let h = parse_genome(fh)?;
-    let format = hts::htsExactFormat_bed;
+    let format = Format::Bed;
 
     let mut wtr = match writer::Writer::init(
         "output.bed",
@@ -148,9 +148,7 @@ fn main() -> io::Result<()> {
         }
         //eprintln!("report: {:?}", report);
         //eprintln!("args: {:?}", &args);
-        let columns = vec![
-            "chrom", "start", "stop", "a_id", "b_id", "a_count", "b_count",
-        ];
+        let columns = ["chrom", "start", "stop", "a_id", "b_id", "a_count", "b_count"];
         //let c = ColumnReporter::new();
         let v = vec![];
 
