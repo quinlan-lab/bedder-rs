@@ -1,7 +1,7 @@
 use crate::hts_format::{Compression, Format};
 use crate::position::Position;
 use crate::report::{Report, ReportFragment};
-use crate::sniff::HtsFile;
+//use crate::sniff::HtsFile;
 use rust_htslib::bam;
 use rust_htslib::bcf::{self, header::HeaderView};
 use rust_htslib::htslib as hts;
@@ -122,24 +122,7 @@ impl Writer {
                     Format::Bcf => "wb",
                     _ => unreachable!(),
                 };
-                let mut hf = HtsFile::new(path.as_ref(), write_mode)
-                    .map_err(|e| FormatConversionError::HtslibError(e.to_string()))?;
-
-                let bwtr = BCFWriter {
-                    // TODO: does this cause problems. Since hf will be dropped.
-                    _inner: hf.htsfile(),
-                    _header: match &input_header {
-                        InputHeader::Vcf(header) => Rc::new(header.clone()),
-                        _ => return Err(FormatConversionError::UnsupportedFormat(format.into())),
-                    },
-                    _subset: None,
-                };
-                let vcf_writer = unsafe { std::mem::transmute(bwtr) };
-                match format {
-                    Format::Vcf => GenomicWriter::Vcf(vcf_writer),
-                    Format::Bcf => GenomicWriter::Bcf(vcf_writer),
-                    _ => unreachable!(),
-                }
+                unimplemented!("VCF/BCF writing not yet implemented");
             }
             Format::Bam => {
                 unimplemented!("BAM writing not yet implemented");

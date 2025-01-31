@@ -2,8 +2,9 @@
 
 use crate::position::{Position, Positioned};
 use crate::string::String;
+use log::warn;
 pub use simplebed;
-use simplebed::{BedReader, BedRecord as SimpleBedRecord};
+use simplebed::{BedError, BedReader, BedRecord as SimpleBedRecord};
 use std::io::{self, BufRead};
 use std::path::{Path, PathBuf};
 #[derive(Debug, Clone)]
@@ -52,20 +53,21 @@ struct Last {
     stop: u64,
 }
 
-pub struct BedderBed<R>
+pub struct BedderBed<'a, R>
 where
-    R: BufRead,
+    R: BufRead + 'a,
 {
     reader: BedReader<R>,
     last_record: Option<Last>,
     line_number: u64,
+    query_iter: Option<Box<dyn Iterator<Item = Result<SimpleBedRecord, BedError>> + 'a>>,
 }
 
-impl<R> BedderBed<R>
+impl<'a, R> BedderBed<'a, R>
 where
     R: BufRead,
 {
-    pub fn new<P: AsRef<Path>>(r: R, path: Option<P>) -> BedderBed<R> {
+    pub fn new<P: AsRef<Path>>(r: R, path: Option<P>) -> BedderBed<'a, R> {
         let path: PathBuf = path
             .map(|p| p.as_ref().to_path_buf()) // Ensure it's a PathBuf
             .unwrap_or_else(|| PathBuf::from("memory"));
@@ -73,48 +75,86 @@ where
             reader: BedReader::new(r, path).expect("Failed to create BedReader"),
             last_record: None,
             line_number: 0,
+            query_iter: None,
         }
     }
 }
 
-impl<R> crate::position::PositionedIterator for BedderBed<R>
+impl<'a, R> crate::position::PositionedIterator for BedderBed<'a, R>
 where
-    R: BufRead,
+    R: BufRead + std::io::Seek + 'a,
 {
     fn next_position(
         &mut self,
-        _q: Option<&crate::position::Position>,
+        query: Option<&crate::position::Position>,
     ) -> Option<std::result::Result<Position, std::io::Error>> {
-        loop {
-            self.line_number += 1;
-            match self.reader.read_record() {
-                Ok(Some(record)) => {
-                    match &mut self.last_record {
-                        None => {
-                            self.last_record = Some(Last {
-                                chrom: String::from(record.chrom()),
-                                start: record.start() as u64,
-                                stop: record.end() as u64,
-                            })
-                        }
-                        Some(r) => {
-                            if r.chrom != record.chrom() {
-                                r.chrom = String::from(record.chrom())
-                            }
-                            r.start = record.start() as u64;
-                            r.stop = record.end() as u64;
-                        }
-                    }
-                    return Some(Ok(Position::Bed(BedRecord(record))));
+        // If we have a query, set up the query iterator
+        if self.query_iter.is_some() {
+            warn!("query_iter is already set");
+            self.query_iter = None;
+        }
+        if let Some(query) = query {
+            let q = self
+                .reader
+                .query(query.chrom(), query.start() as usize, query.stop() as usize);
+            match q {
+                Ok(iter) => {
+                    let iter: Box<dyn Iterator<Item = Result<SimpleBedRecord, BedError>> + 'a> = unsafe {
+                        std::mem::transmute(Box::new(iter)
+                            as Box<dyn Iterator<Item = Result<SimpleBedRecord, BedError>> + '_>)
+                    };
+                    self.query_iter = Some(iter);
                 }
-                Ok(None) => return None,
                 Err(e) => {
+                    warn!("error querying: {}. it's possible that there was no index or the chromosome was not found", e);
+                }
+            }
+        }
+
+        // If we have an active query iterator, use it
+        if let Some(iter) = &mut self.query_iter {
+            match iter.next() {
+                Some(Ok(record)) => return Some(Ok(Position::Bed(BedRecord(record)))),
+                Some(Err(e)) => {
                     return Some(Err(io::Error::new(
                         io::ErrorKind::InvalidData,
                         e.to_string(),
                     )))
                 }
-            };
+                None => {
+                    self.query_iter = None;
+                    return None;
+                }
+            }
+        }
+
+        // No query iterator, read next record from the reader
+        self.line_number += 1;
+        match self.reader.read_record() {
+            Ok(Some(record)) => {
+                match &mut self.last_record {
+                    None => {
+                        self.last_record = Some(Last {
+                            chrom: String::from(record.chrom()),
+                            start: record.start() as u64,
+                            stop: record.end() as u64,
+                        })
+                    }
+                    Some(r) => {
+                        if r.chrom != record.chrom() {
+                            r.chrom = String::from(record.chrom())
+                        }
+                        r.start = record.start() as u64;
+                        r.stop = record.end() as u64;
+                    }
+                }
+                Some(Ok(Position::Bed(BedRecord(record))))
+            }
+            Ok(None) => None,
+            Err(e) => Some(Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                e.to_string(),
+            ))),
         }
     }
 
