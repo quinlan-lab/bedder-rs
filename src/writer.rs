@@ -2,10 +2,10 @@ use crate::hts_format::{Compression, Format};
 use crate::position::Position;
 use crate::report::{Report, ReportFragment};
 use crate::sniff::HtsFile;
-use bio::io::bed;
 use rust_htslib::bam;
 use rust_htslib::bcf::{self, header::HeaderView};
 use rust_htslib::htslib as hts;
+use simplebed::{self, BedValue};
 use std::mem;
 use std::rc::Rc;
 use std::result::Result;
@@ -80,7 +80,7 @@ pub enum GenomicWriter {
     Bcf(bcf::Writer),
     Bam(bam::Writer),
     Sam(bam::Writer),
-    Bed(bed::Writer<HtsFile>),
+    Bed(simplebed::BedWriter),
     //Gff(gff::Writer<HFile>),
 }
 
@@ -91,7 +91,7 @@ pub struct Writer {
     header: Option<InputHeader>,
 }
 
-pub struct BCFWriter {
+struct BCFWriter {
     _inner: *mut hts::htsFile,
     _header: Rc<HeaderView>,
     _subset: Option<bcf::header::SampleSubset>,
@@ -145,13 +145,8 @@ impl Writer {
                 unimplemented!("BAM writing not yet implemented");
             }
             Format::Bed => {
-                let write_mode = match compression {
-                    Compression::Bgzf => "wz",
-                    _ => "w",
-                };
-                let hf = HtsFile::new(path.as_ref(), write_mode)
+                let bed_writer = simplebed::BedWriter::new(path)
                     .map_err(|e| FormatConversionError::HtslibError(e.to_string()))?;
-                let bed_writer = bio::io::bed::Writer::new(hf);
                 GenomicWriter::Bed(bed_writer)
             }
             _ => return Err(FormatConversionError::UnsupportedFormat(format.into())),
@@ -271,23 +266,62 @@ impl Writer {
             Format::Bed => {
                 eprintln!("report: {:?}", report);
                 for fragment in report {
-                    // return an error if fragment.a is None
-                    let frag_a = fragment.a.as_ref().ok_or_else(|| {
-                        std::io::Error::new(std::io::ErrorKind::InvalidData, "missing chromosome")
-                    })?;
-                    let mut br = bio::io::bed::Record::new();
-                    br.set_chrom(frag_a.chrom());
-                    br.set_start(frag_a.start());
-                    br.set_end(frag_a.stop());
-                    // TODO: br.set_name(), etc.
+                    let abed_interval = match &fragment.a {
+                        Some(position) => {
+                            // get the Bed interval
+                            let bed_interval = if let Position::Bed(interval) = position {
+                                interval
+                            } else {
+                                return Err(std::io::Error::new(
+                                    std::io::ErrorKind::InvalidData,
+                                    "Position is not a BED interval",
+                                ));
+                            };
+                            // TODO: make this generic.
+                            Some(bed_interval)
+                        }
+                        None => {
+                            return Err(std::io::Error::new(
+                                std::io::ErrorKind::InvalidData,
+                                "missing chromosome",
+                            ));
+                        }
+                    };
+
+                    let br = abed_interval.expect("bed_interval").clone();
+                    let br = br.inner();
+                    let mut owned_br = br.clone();
+
                     for cr in crs {
                         if let Ok(value) = cr.value(fragment) {
-                            br.push_aux(self.format_value(&value).as_str());
+                            match value {
+                                Value::Int(i) => owned_br.push_field(BedValue::Integer(i as i64)),
+                                Value::Float(f) => owned_br.push_field(BedValue::Float(f as f64)),
+                                Value::String(s) => owned_br.push_field(BedValue::String(s)),
+                                Value::Flag(b) => {
+                                    owned_br.push_field(BedValue::Integer(if b { 1 } else { 0 }))
+                                }
+                                Value::VecInt(v) => {
+                                    v.iter().for_each(|i| {
+                                        owned_br.push_field(BedValue::Integer(*i as i64));
+                                    });
+                                }
+                                Value::VecFloat(v) => {
+                                    v.iter().for_each(|f| {
+                                        owned_br.push_field(BedValue::Float(*f as f64));
+                                    });
+                                }
+                                Value::VecString(v) => {
+                                    v.iter().for_each(|s| {
+                                        owned_br.push_field(BedValue::String(s.clone()));
+                                    });
+                                }
+                            }
                         }
                     }
 
                     if let GenomicWriter::Bed(ref mut writer) = self.writer {
-                        writer.write(&br).map_err(|e| {
+                        writer.write_record(&owned_br).map_err(|e| {
                             std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string())
                         })?;
                     } else {
@@ -313,6 +347,7 @@ impl Writer {
     }
 
     // TODO: use serde?
+    #[allow(unused)]
     fn format_value(&self, value: &Value) -> String {
         match value {
             Value::Int(i) => i.to_string(),

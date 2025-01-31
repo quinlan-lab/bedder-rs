@@ -1,4 +1,3 @@
-use bio::io::bed;
 use rust_htslib::bcf;
 pub(crate) use rust_htslib::htslib as hts;
 use std::fmt;
@@ -208,7 +207,7 @@ impl HtsFile {
         match hf.format()?.format().as_str() {
             "BED" => {
                 let hts_reader = io::BufReader::new(hf);
-                Ok(Box::new(BedderBed::new(hts_reader)))
+                Ok(Box::new(BedderBed::new(hts_reader, None::<String>)))
             }
             _ => Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
@@ -217,10 +216,13 @@ impl HtsFile {
         }
     }
 
-    pub fn bed(self) -> bed::Reader<HtsFile> {
+    pub fn bed(self) -> Result<simplebed::BedReader<HtsFile>, Box<dyn std::error::Error>> {
         let fmt_str = self.format().unwrap().format();
         assert!(fmt_str == "BED", "unsupported format for bed: {}", fmt_str);
-        bed::Reader::new(self)
+        let filename = unsafe { std::ffi::CStr::from_ptr(self.fh.fn_) }
+            .to_string_lossy()
+            .into_owned();
+        simplebed::BedReader::new(self, filename)
     }
 }
 
@@ -307,7 +309,7 @@ impl From<HtsFile> for Box<dyn position::PositionedIterator> {
             }
             "BED" => {
                 let bed_reader = io::BufReader::new(val);
-                Box::new(BedderBed::new(bed_reader))
+                Box::new(BedderBed::new(bed_reader, None::<String>))
             }
             fmt => panic!("Unsupported format for PositionedIterator: {}", fmt),
         }

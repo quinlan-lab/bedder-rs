@@ -2,11 +2,12 @@
 
 use crate::position::{Position, Positioned};
 use crate::string::String;
-use bio::io::bed;
+pub use simplebed;
+use simplebed::{BedReader, BedRecord as SimpleBedRecord};
 use std::io::{self, BufRead};
-
+use std::path::{Path, PathBuf};
 #[derive(Debug, Clone)]
-pub struct BedRecord(bed::Record);
+pub struct BedRecord(SimpleBedRecord);
 
 impl crate::position::Positioned for BedRecord {
     #[inline]
@@ -16,12 +17,12 @@ impl crate::position::Positioned for BedRecord {
 
     #[inline]
     fn start(&self) -> u64 {
-        self.0.start()
+        self.0.start() as u64
     }
 
     #[inline]
     fn stop(&self) -> u64 {
-        self.0.end()
+        self.0.end() as u64
     }
 
     #[inline]
@@ -39,6 +40,12 @@ impl crate::position::Positioned for BedRecord {
     }
 }
 
+impl BedRecord {
+    pub fn inner(&self) -> &SimpleBedRecord {
+        &self.0
+    }
+}
+
 struct Last {
     chrom: String,
     start: u64,
@@ -49,7 +56,7 @@ pub struct BedderBed<R>
 where
     R: BufRead,
 {
-    reader: bed::Reader<R>,
+    reader: BedReader<R>,
     last_record: Option<Last>,
     line_number: u64,
 }
@@ -58,9 +65,12 @@ impl<R> BedderBed<R>
 where
     R: BufRead,
 {
-    pub fn new(r: R) -> BedderBed<R> {
+    pub fn new<P: AsRef<Path>>(r: R, path: Option<P>) -> BedderBed<R> {
+        let path: PathBuf = path
+            .map(|p| p.as_ref().to_path_buf()) // Ensure it's a PathBuf
+            .unwrap_or_else(|| PathBuf::from("memory"));
         BedderBed {
-            reader: bed::Reader::new(r),
+            reader: BedReader::new(r, path).expect("Failed to create BedReader"),
             last_record: None,
             line_number: 0,
         }
@@ -77,29 +87,33 @@ where
     ) -> Option<std::result::Result<Position, std::io::Error>> {
         loop {
             self.line_number += 1;
-            match self.reader.next() {
-                None => return None,
-                // TODO: handle skipping to _q
-                Some(Ok(record)) => {
+            match self.reader.read_record() {
+                Ok(Some(record)) => {
                     match &mut self.last_record {
                         None => {
                             self.last_record = Some(Last {
                                 chrom: String::from(record.chrom()),
-                                start: record.start(),
-                                stop: record.end(),
+                                start: record.start() as u64,
+                                stop: record.end() as u64,
                             })
                         }
                         Some(r) => {
                             if r.chrom != record.chrom() {
                                 r.chrom = String::from(record.chrom())
                             }
-                            r.start = record.start();
-                            r.stop = record.end();
+                            r.start = record.start() as u64;
+                            r.stop = record.end() as u64;
                         }
                     }
                     return Some(Ok(Position::Bed(BedRecord(record))));
                 }
-                Some(Err(e)) => return Some(Err(io::Error::new(io::ErrorKind::InvalidData, e))),
+                Ok(None) => return None,
+                Err(e) => {
+                    return Some(Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        e.to_string(),
+                    )))
+                }
             };
         }
     }
@@ -120,8 +134,8 @@ mod tests {
     #[test]
     fn test_bed_read() {
         // write a test for bed from a string using BufRead
-        let ar = BedderBed::new(Cursor::new("chr1\t20\t30\nchr1\t21\t33"));
-        let br = BedderBed::new(Cursor::new("chr1\t21\t30\nchr1\t22\t33"));
+        let ar = BedderBed::new(Cursor::new("chr1\t20\t30\nchr1\t21\t33"), None::<String>);
+        let br = BedderBed::new(Cursor::new("chr1\t21\t30\nchr1\t22\t33"), None::<String>);
 
         let chrom_order = HashMap::from([
             (

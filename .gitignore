@@ -1,7 +1,9 @@
-/target
+target/
 /Cargo.lock
 docs/
 *.bed
 *.bed.gz
 *.vcf
 .vscode
+*.gz
+*.bcf
