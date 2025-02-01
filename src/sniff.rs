@@ -6,6 +6,7 @@ use std::io::Read;
 pub enum FileType {
     Bed,
     Vcf,
+    Bcf,
 }
 
 #[derive(Debug)]
@@ -15,6 +16,8 @@ pub enum Compression {
     RAZF,
     None,
 }
+
+// TODO: https://github.com/quinlan-lab/bedder-rs/blob/ffddd2b3a2075594a5375fb81b8672f4f5039acf/src/sniff.rs
 
 pub fn sniff<R: io::BufRead>(
     rdr: &mut R,
@@ -53,8 +56,10 @@ pub fn sniff<R: io::BufRead>(
         _ => &dec_buf,
     };
     // now we guess filel type based on whats in buf
-    let ft = if buf.starts_with(b"##fileformat=VCFv4") {
+    let ft = if buf.starts_with(b"##fileformat=VCF") {
         FileType::Vcf
+    } else if buf.starts_with(b"BCF") && (buf[3] == 0x2 || buf[3] == 0x4) {
+        FileType::Bcf
     } else {
         FileType::Bed
     };
