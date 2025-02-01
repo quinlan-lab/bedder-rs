@@ -35,7 +35,9 @@ pub fn sniff<R: io::BufRead>(
         let res = gz.read_exact(&mut dec_buf);
         if matches!(c, Compression::BGZF) {
             if let Err(e) = res {
-                return Err(e.into());
+                if e.kind() != io::ErrorKind::UnexpectedEof {
+                    return Err(e.into());
+                }
             }
         }
     } else if is_gzipped {
@@ -64,6 +66,7 @@ pub fn sniff<R: io::BufRead>(
 mod tests {
     use super::*;
     use flate2::{write::GzEncoder, GzBuilder};
+    use noodles::bgzf;
     use std::io::Cursor;
     use std::io::Write;
 
@@ -118,37 +121,43 @@ mod tests {
         assert!(matches!(ft, FileType::Vcf));
     }
 
-    /*
     #[test]
     fn test_bgzip_bed() {
         let data = b"chr1\t1000\t2000\nchr2\t3000\t4000";
-        let mut encoder = BgzfEncoder::new(Vec::new(), flate2::Compression::default());
-        encoder.write_all(data).unwrap();
-        let compressed_data = encoder.finish().unwrap();
 
-        let mut cursor = Cursor::new(compressed_data);
+        let mut buf = Vec::new();
+        let mut encoder = bgzf::Writer::new(&mut buf);
+        encoder.write_all(data).unwrap();
+        let res = encoder.finish().unwrap();
+
+        let mut cursor = Cursor::new(&res);
         let (ft, c) = sniff(&mut cursor).unwrap();
         assert!(matches!(ft, FileType::Bed));
         assert!(matches!(c, Compression::BGZF));
+
+        let mut cursor = Cursor::new(&res);
+        let mut rdr = bgzf::Reader::new(&mut cursor);
         let mut s = String::new();
-        cursor.read_to_string(&mut s).unwrap();
+        rdr.read_to_string(&mut s).unwrap();
         assert_eq!(s, "chr1\t1000\t2000\nchr2\t3000\t4000");
     }
 
     #[test]
     fn test_bgzip_vcf() {
         let data = b"##fileformat=VCFv4.3\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\nchr1\t1000\t.\tA\tT\t.\t.\t.";
-        let mut encoder = BgzfEncoder::new(Vec::new(), flate2::Compression::default());
+        let mut encoder = bgzf::Writer::new(Vec::new());
         encoder.write_all(data).unwrap();
         let compressed_data = encoder.finish().unwrap();
 
-        let mut cursor = Cursor::new(compressed_data);
+        let mut cursor = Cursor::new(&compressed_data);
         let (ft, c) = sniff(&mut cursor).unwrap();
         assert!(matches!(ft, FileType::Vcf));
         assert!(matches!(c, Compression::BGZF));
+
+        let mut cursor = Cursor::new(&compressed_data);
+        let mut rdr = bgzf::Reader::new(&mut cursor);
         let mut s = String::new();
-        cursor.read_to_string(&mut s).unwrap();
+        rdr.read_to_string(&mut s).unwrap();
         assert_eq!(s, "##fileformat=VCFv4.3\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\nchr1\t1000\t.\tA\tT\t.\t.\t.");
     }
-    */
 }

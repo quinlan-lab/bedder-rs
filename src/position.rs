@@ -87,9 +87,9 @@ pub enum Position {
 
 impl PartialEq for Position {
     fn eq(&self, other: &Self) -> bool {
-        return self.chrom() == other.chrom()
+        self.chrom() == other.chrom()
             && self.start() == other.start()
-            && self.stop() == other.stop();
+            && self.stop() == other.stop()
     }
 }
 

@@ -18,12 +18,12 @@ impl crate::position::Positioned for BedRecord {
 
     #[inline]
     fn start(&self) -> u64 {
-        self.0.start() as u64
+        self.0.start()
     }
 
     #[inline]
     fn stop(&self) -> u64 {
-        self.0.end() as u64
+        self.0.end()
     }
 
     #[inline]
@@ -136,16 +136,16 @@ where
                     None => {
                         self.last_record = Some(Last {
                             chrom: String::from(record.chrom()),
-                            start: record.start() as u64,
-                            stop: record.end() as u64,
+                            start: record.start(),
+                            stop: record.end(),
                         })
                     }
                     Some(r) => {
                         if r.chrom != record.chrom() {
                             r.chrom = String::from(record.chrom())
                         }
-                        r.start = record.start() as u64;
-                        r.stop = record.end() as u64;
+                        r.start = record.start();
+                        r.stop = record.end();
                     }
                 }
                 Some(Ok(Position::Bed(BedRecord(record))))

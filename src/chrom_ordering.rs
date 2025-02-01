@@ -7,8 +7,8 @@ pub struct Chromosome {
     pub(crate) index: usize,
     pub(crate) length: Option<usize>,
 }
-/// A genome is a map from chromosome name to index with an optional chromosome length.
 
+/// A genome is a map from chromosome name to index with an optional chromosome length.
 pub fn parse_genome<R>(reader: R) -> io::Result<HashMap<String, Chromosome>>
 where
     R: Read,

@@ -264,19 +264,20 @@ impl<'a> IntersectionIterator<'a> {
     }
 
     fn out_of_order(&self, interval: Arc<Position>) -> bool {
-        return match &self.previous_interval {
+        match &self.previous_interval {
             None => false, // first interval in file.
             Some(previous_interval) => {
                 if previous_interval.chrom() != interval.chrom() {
                     let pci = self.chromosome_order[previous_interval.chrom()].index;
                     let ici = self.chromosome_order[interval.chrom()].index;
-                    return pci > ici;
+                    pci > ici
+                } else {
+                    previous_interval.start() > interval.start()
+                        || (previous_interval.start() == interval.start()
+                            && previous_interval.stop() > interval.stop())
                 }
-                previous_interval.start() > interval.start()
-                    || (previous_interval.start() == interval.start()
-                        && previous_interval.stop() > interval.stop())
             }
-        };
+        }
     }
     // reset the array that tracks which iterators have been called with Some(Positioned)
     #[inline]
