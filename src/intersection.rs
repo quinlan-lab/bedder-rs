@@ -10,8 +10,8 @@ use std::sync::Arc;
 use crate::position::{Position, PositionedIterator};
 
 /// An iterator that returns the intersection of multiple iterators.
-pub struct IntersectionIterator<'a> {
-    base_iterator: Box<dyn PositionedIterator>,
+pub struct IntersectionIterator<'a, P: PositionedIterator> {
+    base_iterator: P,
     other_iterators: Vec<Box<dyn PositionedIterator>>,
     min_heap: BinaryHeap<ReverseOrderPosition>,
     chromosome_order: &'a HashMap<String, Chromosome>,
@@ -121,7 +121,7 @@ fn region_str(p: &Position) -> std::string::String {
 }
 
 /// An iterator that returns the intersection of multiple iterators for each query interval
-impl<'a> Iterator for IntersectionIterator<'a> {
+impl<'a, P: PositionedIterator> Iterator for IntersectionIterator<'a, P> {
     type Item = io::Result<Intersections>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -202,9 +202,9 @@ impl<'a> Iterator for IntersectionIterator<'a> {
 }
 
 /// Create a new IntersectionIterator given a query (base) and a vector of other positioned iterators.
-impl<'a> IntersectionIterator<'a> {
+impl<'a, P: PositionedIterator> IntersectionIterator<'a, P> {
     pub fn new(
-        base_iterator: Box<dyn PositionedIterator>,
+        base_iterator: P,
         other_iterators: Vec<Box<dyn PositionedIterator>>,
         chromosome_order: &'a HashMap<String, Chromosome>,
     ) -> io::Result<Self> {
@@ -453,7 +453,7 @@ mod tests {
 
         b_ivs.ivs.sort_by_key(|a| a.start());
 
-        let a_ivs: Box<dyn PositionedIterator> = Box::new(a_ivs);
+        //let a_ivs: Box<dyn PositionedIterator> = Box::new(a_ivs);
 
         let mut iter = IntersectionIterator::new(a_ivs, vec![Box::new(b_ivs)], &chrom_order)
             .expect("error getting iterator");
@@ -525,7 +525,7 @@ mod tests {
             ],
         );
 
-        let iter = IntersectionIterator::new(Box::new(a_ivs), vec![Box::new(b_ivs)], &chrom_order)
+        let iter = IntersectionIterator::new(a_ivs, vec![Box::new(b_ivs)], &chrom_order)
             .expect("error getting iterator");
         iter.for_each(|intersection| {
             let intersection = intersection.expect("intersection");
@@ -558,8 +558,8 @@ mod tests {
                 },
             ],
         );
-        let mut iter = IntersectionIterator::new(Box::new(a_ivs), vec![], &chrom_order)
-            .expect("error getting iterator");
+        let mut iter =
+            IntersectionIterator::new(a_ivs, vec![], &chrom_order).expect("error getting iterator");
 
         let e = iter.nth(1).expect("error getting next");
         assert!(e.is_err());
@@ -588,8 +588,8 @@ mod tests {
                 },
             ],
         );
-        let mut iter = IntersectionIterator::new(Box::new(a_ivs), vec![], &chrom_order)
-            .expect("error getting iterator");
+        let mut iter =
+            IntersectionIterator::new(a_ivs, vec![], &chrom_order).expect("error getting iterator");
 
         let e = iter.nth(1).expect("error getting next");
         assert!(e.is_err());
@@ -633,9 +633,8 @@ mod tests {
             ],
         );
 
-        let mut iter =
-            IntersectionIterator::new(Box::new(a_ivs), vec![Box::new(b_ivs)], &chrom_order)
-                .expect("error getting iterator");
+        let mut iter = IntersectionIterator::new(a_ivs, vec![Box::new(b_ivs)], &chrom_order)
+            .expect("error getting iterator");
         let e = iter.next().expect("error getting next");
         assert!(e.is_err());
         let e = e.err().unwrap();
@@ -673,12 +672,9 @@ mod tests {
                 ..Default::default()
             }],
         );
-        let iter = IntersectionIterator::new(
-            Box::new(a_ivs),
-            vec![Box::new(b_ivs), Box::new(c_ivs)],
-            &chrom_order,
-        )
-        .expect("error getting iterator");
+        let iter =
+            IntersectionIterator::new(a_ivs, vec![Box::new(b_ivs), Box::new(c_ivs)], &chrom_order)
+                .expect("error getting iterator");
         let c = iter
             .map(|intersection| {
                 let intersection = intersection.expect("error getting intersection");
@@ -718,7 +714,7 @@ mod tests {
                 ..Default::default()
             }],
         );
-        let iter = IntersectionIterator::new(Box::new(a_ivs), vec![Box::new(b_ivs)], &chrom_order)
+        let iter = IntersectionIterator::new(a_ivs, vec![Box::new(b_ivs)], &chrom_order)
             .expect("error getting iterator");
         // check that it overlapped by asserting that the loop ran and also that there was an overlap within the loop.
         let c = iter

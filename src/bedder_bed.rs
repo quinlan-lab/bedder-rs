@@ -194,7 +194,7 @@ mod tests {
             ),
         ]);
 
-        let it = IntersectionIterator::new(Box::new(ar), vec![Box::new(br)], &chrom_order)
+        let it = IntersectionIterator::new(ar, vec![Box::new(br)], &chrom_order)
             .expect("error creating iterator");
 
         let mut n = 0;
