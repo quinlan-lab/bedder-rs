@@ -1,6 +1,9 @@
+use crate::bedder_bed::BedderBed;
+use crate::position::PositionedIterator;
 use flate2::bufread::GzDecoder;
-use std::io;
-use std::io::Read;
+use std::fs::File;
+use std::io::{self, Read};
+use std::path::Path;
 
 #[derive(Debug)]
 pub enum FileType {
@@ -17,7 +20,40 @@ pub enum Compression {
     None,
 }
 
+pub enum BedderReader<R>
+where
+    R: io::BufRead + io::Seek + 'static,
+{
+    BedderBed(BedderBed<'static, R>),
+}
+
+impl<R> BedderReader<R>
+where
+    R: io::BufRead + io::Seek + 'static,
+{
+    pub fn new<P: AsRef<Path>>(reader: R, path: P) -> io::Result<Self> {
+        open(reader, path)
+    }
+
+    pub fn into_positioned_iterator(self) -> Box<dyn PositionedIterator> {
+        match self {
+            BedderReader::BedderBed(rdr) => Box::new(rdr),
+        }
+    }
+}
 // TODO: https://github.com/quinlan-lab/bedder-rs/blob/ffddd2b3a2075594a5375fb81b8672f4f5039acf/src/sniff.rs
+pub fn open<P: AsRef<Path>, R: io::BufRead + io::Seek + 'static>(
+    mut reader: R,
+    p: P,
+) -> io::Result<BedderReader<R>> {
+    let (ft, c) =
+        sniff(&mut reader).map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+    let rdr = match ft {
+        FileType::Bed => BedderReader::BedderBed(BedderBed::new(reader, Some(p))),
+        _ => unimplemented!(),
+    };
+    Ok(rdr)
+}
 
 pub fn sniff<R: io::BufRead>(
     rdr: &mut R,

@@ -59,20 +59,19 @@ struct Args {
 fn main() -> io::Result<()> {
     let args = Args::parse();
 
-    let a = bedder::sniff::HtsFile::new(&args.a, "r").expect("Failed to open file");
-
-    let ai = a.into();
+    let a = BufReader::new(fs::File::open(&args.a)?);
+    let ai = bedder::sniff::open(a, &args.a)?;
 
     //let ai = sniff::open_file(&args.a)?;
     let bis = args
         .b
         .iter()
         .map(|b| {
-            bedder::sniff::HtsFile::new(b, "r")
-                .expect("Failed to open file")
-                .into()
+            let f = BufReader::new(fs::File::open(b)?);
+            let b = bedder::sniff::open(f, b)?;
+            Ok(b.into_positioned_iterator())
         })
-        .collect::<Vec<Box<dyn bedder::position::PositionedIterator>>>();
+        .collect::<io::Result<Vec<Box<dyn bedder::position::PositionedIterator>>>>()?;
 
     // bedder always requires a hashmap that indicates the chromosome order
 
@@ -92,6 +91,11 @@ fn main() -> io::Result<()> {
             eprintln!("error: {:?}", e);
             std::process::exit(1);
         }
+    };
+
+    let ai = match ai {
+        bedder::sniff::BedderReader::BedderBed(rdr) => rdr,
+        _ => unimplemented!(),
     };
 
     // we can have any number of b (other_iterators).
@@ -148,7 +152,9 @@ fn main() -> io::Result<()> {
         }
         //eprintln!("report: {:?}", report);
         //eprintln!("args: {:?}", &args);
-        let columns = ["chrom", "start", "stop", "a_id", "b_id", "a_count", "b_count"];
+        let columns = [
+            "chrom", "start", "stop", "a_id", "b_id", "a_count", "b_count",
+        ];
         //let c = ColumnReporter::new();
         let v = vec![];
 
