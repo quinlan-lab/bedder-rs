@@ -59,7 +59,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut stdout = BufWriter::new(std::io::stdout().lock());
 
     Python::with_gil(|py| {
-        let mut compiled =
+        let compiled =
             bedder::py::CompiledFString::new(py, &args.f_string).expect("error compiling f-string");
 
         // iterate over the intersections

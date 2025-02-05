@@ -276,31 +276,27 @@ impl PyPosition {
 
 /// A compiled Python f-string that can be reused for better performance
 pub struct CompiledFString<'py> {
-    code: String,
-    module: Option<Bound<'py, PyModule>>,
-    f: Option<Bound<'py, PyFunction>>,
+    _code: String,
+    _module: Bound<'py, PyModule>,
+    f: Bound<'py, PyFunction>,
 }
 
 use pyo3_ffi::c_str;
 
 impl<'py> CompiledFString<'py> {
-    pub fn new(_py: Python<'py>, f_string_code: &str) -> std::io::Result<Self> {
-        return Ok(CompiledFString {
-            code: f_string_code.to_string(),
-            module: None,
-            f: None,
-        });
+    pub fn new(py: Python<'py>, f_string_code: &str) -> PyResult<Self> {
+        let code = CString::new(f_string_code)?;
+        let module = PyModule::from_code(py, &code, c_str!("user_code"), c_str!("user_code"))?;
+        let f = module.getattr("default")?.extract()?;
+        Ok(CompiledFString {
+            _code: f_string_code.to_string(),
+            _module: module,
+            f,
+        })
     }
 
-    pub fn eval(&mut self, py: Python<'py>, report: PyReportFragment) -> PyResult<String> {
-        if self.module.is_none() {
-            let code = CString::new(self.code.as_str())?;
-            let result = PyModule::from_code(py, &code, c_str!("user_code"), c_str!("user_code"))?;
-            self.module = Some(result.clone());
-            self.f = Some(result.getattr("default")?.extract()?);
-        }
-        let f = self.f.as_ref().unwrap();
-        let result = f.call1((report,))?;
+    pub fn eval(&self, py: Python<'py>, report: PyReportFragment) -> PyResult<String> {
+        let result = self.f.call1((report,))?;
         if let Ok(result) = result.downcast::<PyString>() {
             Ok(result.to_string())
         } else if let Ok(result) = result.extract::<String>() {
