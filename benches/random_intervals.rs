@@ -62,7 +62,7 @@ pub fn intersection_benchmark(c: &mut Criterion) {
 
     c.bench_function("simple intersection", |b| {
         b.iter_with_large_drop(|| {
-            let a_ivs = Box::new(Intervals::new(String::from("a"), 100, 1000));
+            let a_ivs = Intervals::new(String::from("a"), 100, 1000);
             let b_ivs = Box::new(Intervals::new(String::from("b"), 100_000, 100));
             let iter = IntersectionIterator::new(a_ivs, vec![b_ivs], &chrom_order)
                 .expect("error getting iterator");

@@ -1,6 +1,8 @@
 extern crate bedder;
 use clap::Parser;
 use std::env;
+use std::fs::File;
+use std::io::BufReader;
 use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
@@ -29,20 +31,25 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     let chrom_order =
         bedder::chrom_ordering::parse_genome(std::fs::File::open(&args.genome_file)?)?;
 
-    /*
-    let a_iter = HtsFile::new(&args.query_path, "r")?.into();
+    let afhile = BufReader::new(File::open(&args.query_path)?);
+
+    let a_iter = bedder::sniff::open(afhile, &args.query_path)?;
     let b_iters: Vec<_> = args
         .other_paths
         .iter()
-        .map(|p| HtsFile::new(p, "r").expect("error opening file").into())
-        .collect();
+        .map(|p| -> Result<_, Box<dyn std::error::Error>> {
+            let fh = BufReader::new(File::open(p)?);
+            Ok(bedder::sniff::open(fh, p)?.into_positioned_iterator())
+        })
+        .collect::<Result<Vec<_>, _>>()?;
 
-    let ii = bedder::intersection::IntersectionIterator::new(a_iter, b_iters, &chrom_order)?;
+    let bedder::sniff::BedderReader::BedderBed(aiter) = a_iter;
+
+    let ii = bedder::intersection::IntersectionIterator::new(aiter, b_iters, &chrom_order)?;
     // iterate over the intersections
     ii.for_each(|intersection| {
         let intersection = intersection.expect("error getting intersection");
         println!("{:?}", intersection);
     });
-    */
     Ok(())
 }

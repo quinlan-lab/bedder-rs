@@ -1,7 +1,7 @@
 use crate::bedder_bed::BedderBed;
 use crate::position::PositionedIterator;
 use flate2::bufread::GzDecoder;
-use std::fs::File;
+use log::info;
 use std::io::{self, Read};
 use std::path::Path;
 
@@ -48,6 +48,7 @@ pub fn open<P: AsRef<Path>, R: io::BufRead + io::Seek + 'static>(
 ) -> io::Result<BedderReader<R>> {
     let (ft, c) =
         sniff(&mut reader).map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+    info!("sniffed file type: {:?}, compression: {:?}", ft, c);
     let rdr = match ft {
         FileType::Bed => BedderReader::BedderBed(BedderBed::new(reader, Some(p))),
         _ => unimplemented!(),

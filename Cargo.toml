@@ -2,6 +2,9 @@
 name = "bedder"
 version = "0.1.1"
 edition = "2021"
+exclude = [
+    "examples/expressions.rs"
+]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [lib]
@@ -30,7 +33,7 @@ mimalloc = "0.1.39"
 bitflags = "2.4.0"
 rust-htslib = { git = "https://github.com/brentp/rust-htslib.git", rev = "0471b48" }
 tempfile = "^3.14.0"
-simplebed = { git = "https://github.com/brentp/simplebed-rs.git", rev = "11444d5" }
+simplebed = { git = "https://github.com/brentp/simplebed-rs.git", rev = "502d60d" }
 
 
 [features]

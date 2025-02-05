@@ -93,9 +93,9 @@ fn main() -> io::Result<()> {
         }
     };
 
+    // get the bedderbed since the query in IntersectionIterator is not a box<dyn>.
     let ai = match ai {
         bedder::sniff::BedderReader::BedderBed(rdr) => rdr,
-        _ => unimplemented!(),
     };
 
     // we can have any number of b (other_iterators).
@@ -152,9 +152,6 @@ fn main() -> io::Result<()> {
         }
         //eprintln!("report: {:?}", report);
         //eprintln!("args: {:?}", &args);
-        let columns = [
-            "chrom", "start", "stop", "a_id", "b_id", "a_count", "b_count",
-        ];
         //let c = ColumnReporter::new();
         let v = vec![];
 

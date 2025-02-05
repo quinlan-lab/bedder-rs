@@ -84,6 +84,7 @@ pub enum GenomicWriter {
     //Gff(gff::Writer<HFile>),
 }
 
+#[allow(dead_code)]
 pub struct Writer {
     format: Format,
     compression: Compression,
@@ -91,6 +92,7 @@ pub struct Writer {
     header: Option<InputHeader>,
 }
 
+#[allow(dead_code)]
 struct BCFWriter {
     _inner: *mut hts::htsFile,
     _header: Rc<HeaderView>,
@@ -117,11 +119,13 @@ impl Writer {
 
         let writer = match format {
             Format::Vcf | Format::Bcf => {
+                /*
                 let write_mode = match format {
                     Format::Vcf => "wz",
                     Format::Bcf => "wb",
                     _ => unreachable!(),
                 };
+                */
                 unimplemented!("VCF/BCF writing not yet implemented");
             }
             Format::Bam => {

@@ -187,3 +187,16 @@ pub trait PositionedIterator {
         q: Option<&Position>,
     ) -> Option<std::result::Result<Position, io::Error>>;
 }
+
+impl PositionedIterator for Box<dyn PositionedIterator> {
+    fn name(&self) -> String {
+        (**self).name()
+    }
+
+    fn next_position(
+        &mut self,
+        q: Option<&Position>,
+    ) -> Option<std::result::Result<Position, io::Error>> {
+        (**self).next_position(q)
+    }
+}

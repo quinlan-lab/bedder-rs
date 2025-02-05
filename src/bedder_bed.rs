@@ -2,7 +2,6 @@
 
 use crate::position::{Position, Positioned};
 use crate::string::String;
-use log::warn;
 pub use simplebed;
 use simplebed::{BedError, BedReader, BedRecord as SimpleBedRecord};
 use std::io::{self, BufRead};
@@ -90,10 +89,11 @@ where
     ) -> Option<std::result::Result<Position, std::io::Error>> {
         // If we have a query, set up the query iterator
         if self.query_iter.is_some() {
-            warn!("query_iter is already set");
+            log::warn!("query_iter is already set");
             self.query_iter = None;
         }
         if let Some(query) = query {
+            log::trace!("querying: {:?}", query);
             let q = self
                 .reader
                 .query(query.chrom(), query.start() as usize, query.stop() as usize);
@@ -106,7 +106,7 @@ where
                     self.query_iter = Some(iter);
                 }
                 Err(e) => {
-                    warn!("error querying: {}. it's possible that there was no index or the chromosome was not found", e);
+                    log::info!("error querying: {}. it's possible that there was no index or the chromosome was not found", e);
                 }
             }
         }

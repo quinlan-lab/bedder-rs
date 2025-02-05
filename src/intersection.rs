@@ -121,7 +121,7 @@ fn region_str(p: &Position) -> std::string::String {
 }
 
 /// An iterator that returns the intersection of multiple iterators for each query interval
-impl<'a, P: PositionedIterator> Iterator for IntersectionIterator<'a, P> {
+impl<P: PositionedIterator> Iterator for IntersectionIterator<'_, P> {
     type Item = io::Result<Intersections>;
 
     fn next(&mut self) -> Option<Self::Item> {
