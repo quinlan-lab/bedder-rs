@@ -5,7 +5,7 @@ use clap::Parser;
 use pyo3::prelude::*;
 use std::env;
 use std::fs::File;
-use std::io::BufReader;
+use std::io::{BufReader, BufWriter, Write};
 use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
@@ -56,6 +56,8 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let ii = bedder::intersection::IntersectionIterator::new(aiter, b_iters, &chrom_order)?;
 
+    let mut stdout = BufWriter::new(std::io::stdout().lock());
+
     Python::with_gil(|py| {
         let mut compiled =
             bedder::py::CompiledFString::new(py, &args.f_string).expect("error compiling f-string");
@@ -74,7 +76,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
             if let Some(fragment) = report.into_iter().next() {
                 let py_fragment = bedder::py::PyReportFragment::from(fragment.clone());
                 match compiled.eval(py, py_fragment) {
-                    Ok(result) => println!("{}", result),
+                    Ok(result) => writeln!(stdout, "{}", result).expect("error writing to stdout"),
                     Err(e) => eprintln!("Error formatting: {}", e),
                 }
             }
