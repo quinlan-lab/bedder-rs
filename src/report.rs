@@ -1,13 +1,13 @@
 use crate::position::Position;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ReportFragment {
     pub a: Option<Position>,
     pub b: Vec<Position>,
     pub id: usize,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Report(Vec<ReportFragment>);
 
 /// implement Iteration for Report to get each fragment
@@ -45,7 +45,10 @@ impl Report {
 
     /// The number of overlaps from each source(id)
     pub fn count_overlaps_by_id(&self) -> Vec<u64> {
-        let mut result = Vec::with_capacity(1.min(self.0.len()));
+        if self.0.is_empty() {
+            return vec![];
+        }
+        let mut result = vec![0; 1];
         self.0.iter().for_each(|frag| {
             if frag.id >= result.len() {
                 result.resize(frag.id + 1, 0);
@@ -58,7 +61,10 @@ impl Report {
     /// The number of b-bases in each fragment from each source(id)
     /// This is determined by the overlap requirements, modes, and parts.
     pub fn count_bases_by_id(&self) -> Vec<u64> {
-        let mut result = Vec::with_capacity(1.min(self.0.len()));
+        if self.0.is_empty() {
+            return vec![];
+        }
+        let mut result = vec![0; 1];
         self.0.iter().for_each(|frag| {
             if frag.id >= result.len() {
                 result.resize(frag.id + 1, 0);

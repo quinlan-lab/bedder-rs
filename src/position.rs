@@ -85,6 +85,17 @@ pub enum Position {
     Other(Box<dyn Positioned>),
 }
 
+impl Clone for Position {
+    fn clone(&self) -> Self {
+        match self {
+            Position::Bed(b) => Position::Bed(b.to_owned()),
+            Position::Vcf(v) => Position::Vcf(Box::new((**v).clone())),
+            Position::Interval(i) => Position::Interval(i.dup()),
+            Position::Other(_) => unimplemented!("Clone not implemented for Position::Other"),
+        }
+    }
+}
+
 impl PartialEq for Position {
     fn eq(&self, other: &Self) -> bool {
         self.chrom() == other.chrom()

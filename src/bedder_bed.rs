@@ -7,7 +7,7 @@ use simplebed::{BedError, BedReader, BedRecord as SimpleBedRecord};
 use std::io::{self, BufRead};
 use std::path::{Path, PathBuf};
 #[derive(Debug, Clone)]
-pub struct BedRecord(SimpleBedRecord);
+pub struct BedRecord(pub SimpleBedRecord);
 
 impl crate::position::Positioned for BedRecord {
     #[inline]
@@ -168,6 +168,7 @@ mod tests {
     use super::*;
     use crate::chrom_ordering::Chromosome;
     use crate::intersection::IntersectionIterator;
+    use crate::string::String;
     use hashbrown::HashMap;
     use std::io::Cursor;
 

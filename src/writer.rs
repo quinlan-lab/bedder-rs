@@ -251,7 +251,6 @@ impl Writer {
                 }
             }
             Format::Bed => {
-                eprintln!("report: {:?}", report);
                 for fragment in report {
                     let abed_interval = match &fragment.a {
                         Some(position) => {

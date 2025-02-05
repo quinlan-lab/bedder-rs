@@ -398,7 +398,7 @@ mod tests {
     }
     impl PositionedIterator for Intervals {
         fn name(&self) -> String {
-            format!("{}:{}", self.name, self.i)
+            format!("{}:{}", self.name, self.i).into()
         }
 
         fn next_position(&mut self, _o: Option<&Position>) -> Option<io::Result<Position>> {
