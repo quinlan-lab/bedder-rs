@@ -1,5 +1,8 @@
 extern crate bedder;
+use bedder::intersections::{IntersectionMode, IntersectionPart};
+use bedder::report::ReportFragment;
 use clap::Parser;
+use pyo3::prelude::*;
 use std::env;
 use std::fs::File;
 use std::io::BufReader;
@@ -18,6 +21,12 @@ struct Args {
         required = true
     )]
     genome_file: PathBuf,
+    #[arg(
+        help = "python f-string expression",
+        short = 'f',
+        default_value = "def default(report): return f'{report.a.chrom}\t{report.a.start}\t{report.a.stop}\t{len(report.b)}'"
+    )]
+    f_string: String,
 }
 
 pub fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -46,10 +55,30 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     let bedder::sniff::BedderReader::BedderBed(aiter) = a_iter;
 
     let ii = bedder::intersection::IntersectionIterator::new(aiter, b_iters, &chrom_order)?;
-    // iterate over the intersections
-    ii.for_each(|intersection| {
-        let intersection = intersection.expect("error getting intersection");
-        println!("{:?}", intersection);
+
+    Python::with_gil(|py| {
+        let mut compiled =
+            bedder::py::CompiledFString::new(py, &args.f_string).expect("error compiling f-string");
+
+        // iterate over the intersections
+        ii.for_each(|intersection| {
+            let intersection = intersection.expect("error getting intersection");
+            let report = intersection.report(
+                &IntersectionMode::Default,
+                &IntersectionMode::Default,
+                &IntersectionPart::Whole,
+                &IntersectionPart::Whole,
+                &bedder::intersections::OverlapAmount::Bases(1),
+                &bedder::intersections::OverlapAmount::Bases(1),
+            );
+            if let Some(fragment) = report.into_iter().next() {
+                let py_fragment = bedder::py::PyReportFragment::from(fragment.clone());
+                match compiled.eval(py, py_fragment) {
+                    Ok(result) => println!("{}", result),
+                    Err(e) => eprintln!("Error formatting: {}", e),
+                }
+            }
+        });
     });
     Ok(())
 }

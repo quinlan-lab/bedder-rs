@@ -1,8 +1,9 @@
+use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
-use pyo3::types::PyDict;
+use pyo3::types::{PyCode, PyDict, PyFunction, PyString};
 use pyo3::wrap_pyfunction;
 use simplebed::BedRecord as SimpleBedRecord; // Import directly
-use std::ffi::CString;
+use std::ffi::{CStr, CString};
 
 use crate::position::Position; // Import Position
 
@@ -273,28 +274,41 @@ impl PyPosition {
     }
 }
 
-/// Format a report fragment using an f-string.
-///
-/// Args:
-///     report (ReportFragment): The report fragment to format
-///     f_string_code (str): The f-string code to use for formatting
-///
-/// Returns:
-///     str: The formatted string
-#[pyfunction]
-fn py_run_f_string(
-    py: Python<'_>,
-    report: PyReportFragment,
-    f_string_code: &str,
-) -> PyResult<String> {
-    let globals = PyDict::new(py);
-    globals.set_item("report", report)?;
+/// A compiled Python f-string that can be reused for better performance
+pub struct CompiledFString<'py> {
+    code: String,
+    module: Option<Bound<'py, PyModule>>,
+    f: Option<Bound<'py, PyFunction>>,
+}
 
-    let code = format!("f'{}'", f_string_code.replace("'", "\\'"));
-    let code = CString::new(code).unwrap();
-    let result = py.eval(code.as_ref(), Some(&globals), None)?;
+use pyo3_ffi::c_str;
 
-    result.extract()
+impl<'py> CompiledFString<'py> {
+    pub fn new(_py: Python<'py>, f_string_code: &str) -> std::io::Result<Self> {
+        return Ok(CompiledFString {
+            code: f_string_code.to_string(),
+            module: None,
+            f: None,
+        });
+    }
+
+    pub fn eval(&mut self, py: Python<'py>, report: PyReportFragment) -> PyResult<String> {
+        if self.module.is_none() {
+            let code = CString::new(self.code.as_str())?;
+            let result = PyModule::from_code(py, &code, c_str!("user_code"), c_str!("user_code"))?;
+            self.module = Some(result.clone());
+            self.f = Some(result.getattr("default")?.extract()?);
+        }
+        let f = self.f.as_ref().unwrap();
+        let result = f.call1((report,))?;
+        if let Ok(result) = result.downcast::<PyString>() {
+            Ok(result.to_string())
+        } else if let Ok(result) = result.extract::<String>() {
+            Ok(result)
+        } else {
+            Err(PyTypeError::new_err("Result is not a string"))
+        }
+    }
 }
 
 /// A Python module implemented in Rust.
@@ -304,7 +318,6 @@ fn bedder_py(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyReportFragment>()?;
     m.add_class::<PyReport>()?;
     m.add_class::<PyPosition>()?;
-    m.add_function(wrap_pyfunction!(py_run_f_string, py)?)?;
 
     Ok(())
 }

@@ -40,4 +40,5 @@ mod tests;
 
 pub mod hts_format;
 
-mod py;
+/// Python bindings for bedder
+pub mod py;
