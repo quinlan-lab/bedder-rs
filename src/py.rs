@@ -1,9 +1,8 @@
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
-use pyo3::types::{PyCode, PyDict, PyFunction, PyString};
-use pyo3::wrap_pyfunction;
+use pyo3::types::{PyFunction, PyString};
 use simplebed::BedRecord as SimpleBedRecord; // Import directly
-use std::ffi::{CStr, CString};
+use std::ffi::CString;
 
 use crate::position::Position; // Import Position
 
@@ -287,7 +286,7 @@ impl<'py> CompiledFString<'py> {
     pub fn new(py: Python<'py>, f_string_code: &str) -> PyResult<Self> {
         let code = CString::new(f_string_code)?;
         let module = PyModule::from_code(py, &code, c_str!("user_code"), c_str!("user_code"))?;
-        let f = module.getattr("default")?.extract()?;
+        let f = module.getattr("main")?.extract()?;
         Ok(CompiledFString {
             _code: f_string_code.to_string(),
             _module: module,
@@ -295,7 +294,7 @@ impl<'py> CompiledFString<'py> {
         })
     }
 
-    pub fn eval(&self, py: Python<'py>, report: PyReportFragment) -> PyResult<String> {
+    pub fn eval(&self, report: PyReportFragment) -> PyResult<String> {
         let result = self.f.call1((report,))?;
         if let Ok(result) = result.downcast::<PyString>() {
             Ok(result.to_string())
@@ -309,7 +308,7 @@ impl<'py> CompiledFString<'py> {
 
 /// A Python module implemented in Rust.
 #[pymodule]
-fn bedder_py(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
+fn bedder_py(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyBedRecord>()?;
     m.add_class::<PyReportFragment>()?;
     m.add_class::<PyReport>()?;

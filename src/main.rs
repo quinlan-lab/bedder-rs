@@ -1,6 +1,5 @@
 extern crate bedder;
 use bedder::intersections::{IntersectionMode, IntersectionPart};
-use bedder::report::ReportFragment;
 use clap::Parser;
 use pyo3::prelude::*;
 use std::env;
@@ -24,7 +23,7 @@ struct Args {
     #[arg(
         help = "python f-string expression",
         short = 'f',
-        default_value = "def default(report): return f'{report.a.chrom}\t{report.a.start}\t{report.a.stop}\t{len(report.b)}'"
+        default_value = "def main(report): return f'{report.a.chrom}\t{report.a.start}\t{report.a.stop}\t{len(report.b)}'"
     )]
     f_string: String,
 }
@@ -75,7 +74,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
             );
             if let Some(fragment) = report.into_iter().next() {
                 let py_fragment = bedder::py::PyReportFragment::from(fragment.clone());
-                match compiled.eval(py, py_fragment) {
+                match compiled.eval(py_fragment) {
                     Ok(result) => writeln!(stdout, "{}", result).expect("error writing to stdout"),
                     Err(e) => eprintln!("Error formatting: {}", e),
                 }
