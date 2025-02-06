@@ -25,7 +25,16 @@ struct Args {
         default_value = "def main(intersection): return f'{intersection.base_interval.chrom}\t{intersection.base_interval.start}\t{intersection.base_interval.stop}\t{len(intersection.overlapping)}'"
     )]
     f_string: String,
+    #[arg(
+        help = "use Lua instead of Python for expression",
+        short = 'l',
+        long = "lua"
+    )]
+    use_lua: bool,
 }
+
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     if env::var("RUST_LOG").is_err() {
@@ -56,19 +65,39 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut stdout = BufWriter::new(std::io::stdout().lock());
 
-    Python::with_gil(|py| {
-        let compiled =
-            bedder::py::CompiledPython::new(py, &args.f_string).expect("error compiling f-string");
+    if args.use_lua {
+        // Use Lua expression
+        let compiled = bedder::lua_wrapper::CompiledLua::new(&args.f_string)
+            .expect("error compiling Lua expression");
 
         // iterate over the intersections
         ii.for_each(|intersection| {
             let intersection = intersection.expect("error getting intersection");
-            let py_intersection = bedder::py::PyIntersections::from(intersection);
-            match compiled.eval(py_intersection) {
+            match compiled.eval(intersection) {
                 Ok(result) => writeln!(stdout, "{}", result).expect("error writing to stdout"),
-                Err(e) => eprintln!("Error formatting: {}", e),
+                Err(e) => {
+                    panic!("Error formatting: {}", e);
+                }
             }
         });
-    });
+    } else {
+        // Use Python expression (default)
+        Python::with_gil(|py| {
+            let compiled = bedder::py::CompiledPython::new(py, &args.f_string)
+                .expect("error compiling f-string");
+
+            // iterate over the intersections
+            for intersection in ii {
+                let intersection = intersection.expect("error getting intersection");
+                let py_intersection = bedder::py::PyIntersections::from(intersection);
+                match compiled.eval(py_intersection) {
+                    Ok(result) => writeln!(stdout, "{}", result).expect("error writing to stdout"),
+                    Err(e) => {
+                        panic!("Error formatting: {}", e);
+                    }
+                }
+            }
+        });
+    }
     Ok(())
 }

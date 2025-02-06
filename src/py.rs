@@ -496,7 +496,7 @@ impl<'py> CompiledPython<'py> {
 
     pub fn eval(&self, intersections: PyIntersections) -> PyResult<String> {
         let result = self.f.call1((intersections,))?;
-        if let Ok(result) = result.downcast::<PyString>() {
+        if let Ok(result) = result.downcast_exact::<PyString>() {
             Ok(result.to_string())
         } else if let Ok(result) = result.extract::<String>() {
             Ok(result)
