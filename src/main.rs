@@ -1,5 +1,4 @@
 extern crate bedder;
-use bedder::intersections::{IntersectionMode, IntersectionPart};
 use clap::Parser;
 use pyo3::prelude::*;
 use std::env;
@@ -23,7 +22,7 @@ struct Args {
     #[arg(
         help = "python f-string expression",
         short = 'f',
-        default_value = "def main(report): return f'{report.a.chrom}\t{report.a.start}\t{report.a.stop}\t{len(report.b)}'"
+        default_value = "def main(intersection): return f'{intersection.base_interval.chrom}\t{intersection.base_interval.start}\t{intersection.base_interval.stop}\t{len(intersection.overlapping)}'"
     )]
     f_string: String,
 }
@@ -59,25 +58,15 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     Python::with_gil(|py| {
         let compiled =
-            bedder::py::CompiledFString::new(py, &args.f_string).expect("error compiling f-string");
+            bedder::py::CompiledPython::new(py, &args.f_string).expect("error compiling f-string");
 
         // iterate over the intersections
         ii.for_each(|intersection| {
             let intersection = intersection.expect("error getting intersection");
-            let report = intersection.report(
-                &IntersectionMode::Default,
-                &IntersectionMode::Default,
-                &IntersectionPart::Whole,
-                &IntersectionPart::Whole,
-                &bedder::intersections::OverlapAmount::Bases(1),
-                &bedder::intersections::OverlapAmount::Bases(1),
-            );
-            if let Some(fragment) = report.into_iter().next() {
-                let py_fragment = bedder::py::PyReportFragment::from(fragment.clone());
-                match compiled.eval(py_fragment) {
-                    Ok(result) => writeln!(stdout, "{}", result).expect("error writing to stdout"),
-                    Err(e) => eprintln!("Error formatting: {}", e),
-                }
+            let py_intersection = bedder::py::PyIntersections::from(intersection);
+            match compiled.eval(py_intersection) {
+                Ok(result) => writeln!(stdout, "{}", result).expect("error writing to stdout"),
+                Err(e) => eprintln!("Error formatting: {}", e),
             }
         });
     });

@@ -52,7 +52,7 @@ impl Clone for Intersection {
 }
 
 /// An Intersections wraps the base interval and a vector of overlapping intervals.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Intersections {
     pub base_interval: Arc<Position>,
     pub overlapping: Vec<Intersection>,
