@@ -314,6 +314,15 @@ impl<'a, P: PositionedIterator> IntersectionIterator<'a, P> {
             } else {
                 None
             };
+            /*
+            log::warn!(
+                "arg: {:?}, file_index: {} heap-len: {} q-len: {}",
+                arg,
+                file_index,
+                self.min_heap.len(),
+                self.dequeue.len()
+            );
+            */
             if let Some(next_position) = f.next_position(arg) {
                 let next_position = next_position?;
                 let next_chromosome = match self.chromosome_order.get(next_position.chrom()) {
@@ -360,7 +369,7 @@ impl<'a, P: PositionedIterator> IntersectionIterator<'a, P> {
                 base_interval.as_ref(),
                 rc_pos.as_ref(),
                 self.chromosome_order,
-            ) == Ordering::Greater
+            ) == Ordering::Less
             {
                 break;
             }
