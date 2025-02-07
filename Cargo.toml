@@ -36,6 +36,7 @@ tempfile = "^3.14.0"
 simplebed = { git = "https://github.com/brentp/simplebed-rs.git", rev = "502d60d" }
 pyo3 = {version = "0.23.4", features=["auto-initialize"]}
 pyo3-ffi = "0.23.4"
+mlua = {version = "0.10.3", features=["luau", "send"]}
 
 
 [features]
@@ -53,7 +54,6 @@ dyn_positioned = []
 [dev-dependencies]
 criterion = { version = "0.4", features = ["html_reports"] }
 clap = { version = "4.5.21", features = ["derive"] }
-mlua = {version = "0.9.9", features=["luau", "send", "parking_lot"]}
 
 [[bench]]
 name = "random_intervals"

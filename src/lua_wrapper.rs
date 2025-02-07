@@ -99,15 +99,21 @@ pub fn register_types(lua: &Lua) -> mlua::Result<()> {
                 Ok(None)
             }
         });
+        reg.add_meta_method(LuaMetaMethod::Index, |_, _this, key: String| {
+            Err::<LuaValue, _>(mlua::Error::RuntimeError(format!(
+                "no index operator for {}",
+                key
+            )))
+        });
     })?;
 
     // Register Intersections
     lua.register_userdata_type::<LuaIntersections>(|reg| {
-        reg.add_field_method_get("base_interval", |_lua, this| {
-            Ok(LuaPosition::new(Arc::new(
-                this.inner.base_interval.as_ref().clone(),
-            )))
+        reg.add_field_method_get("base_interval", |lua, this| {
+            let l = LuaPosition::new(this.inner.base_interval.clone());
+            lua.create_any_userdata(l)
         });
+        reg.add_field_method_get("n_overlapping", |_, this| Ok(this.inner.overlapping.len()));
         reg.add_method("overlapping", |lua, this, ()| {
             let overlapping = this
                 .inner
@@ -232,19 +238,24 @@ pub struct CompiledLua {
 impl CompiledLua {
     pub fn new(code: &str) -> mlua::Result<Self> {
         let lua = Lua::new();
-        eprintln!("registering types");
+        log::trace!("registering types");
         register_types(&lua)?;
-        let chunk = lua.load(code).into_function()?;
+        let chunk = lua.load(code).set_name("user-code").into_function()?;
         Ok(CompiledLua { lua, chunk })
     }
 
     pub fn eval(&self, intersections: crate::intersection::Intersections) -> mlua::Result<String> {
         let intersections = LuaIntersections::new(intersections);
+        let ud = self.lua.create_any_userdata(intersections)?;
+        self.lua.globals().set("intersection", ud)?;
+        self.chunk.call::<String>(())
+        /*
         self.lua.scope(|scope| {
             let ud = scope.create_any_userdata_ref(&intersections)?;
             self.lua.globals().set("intersection", ud)?;
             self.chunk.call::<String>(())
         })
+        */
     }
 }
 
