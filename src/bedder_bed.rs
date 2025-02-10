@@ -85,18 +85,20 @@ where
 {
     fn next_position(
         &mut self,
-        query: Option<&crate::position::Position>,
+        _query: Option<&crate::position::Position>,
     ) -> Option<std::result::Result<Position, std::io::Error>> {
         // If we have a query, set up the query iterator
         if self.query_iter.is_some() {
-            log::warn!("query_iter is already set");
             self.query_iter = None;
         }
+        /*
         if let Some(query) = query {
             log::trace!("querying: {:?}", query);
-            let q = self
-                .reader
-                .query(query.chrom(), query.start() as usize, query.stop() as usize);
+            let q = self.reader.query(
+                query.chrom(),
+                (query.start() as usize) + 1,
+                query.stop() as usize,
+            );
             match q {
                 Ok(iter) => {
                     let iter: Box<dyn Iterator<Item = Result<SimpleBedRecord, BedError>> + 'a> = unsafe {
@@ -105,11 +107,17 @@ where
                     };
                     self.query_iter = Some(iter);
                 }
+                Err(BedError::NoChromosomeOrder) => {
+                    log::trace!("no chromosome order");
+                    self.query_iter = None;
+                }
                 Err(e) => {
                     log::info!("error querying: {}. it's possible that there was no index or the chromosome was not found", e);
+                    self.query_iter = None;
                 }
             }
         }
+        */
 
         // If we have an active query iterator, use it
         if let Some(iter) = &mut self.query_iter {

@@ -128,6 +128,8 @@ pub fn register_types(lua: &Lua) -> mlua::Result<()> {
             }
             Ok(table)
         });
+
+        #[allow(clippy::type_complexity)] // TODO: fix this later
         reg.add_method(
             "report",
             |lua,
@@ -179,7 +181,7 @@ pub fn register_types(lua: &Lua) -> mlua::Result<()> {
                     &a_requirements,
                     &b_requirements,
                 );
-                Ok(lua.create_userdata(LuaReport::new(report))?)
+                lua.create_userdata(LuaReport::new(report))
             },
         );
     })?;
@@ -197,7 +199,7 @@ pub fn register_types(lua: &Lua) -> mlua::Result<()> {
             if index == 0 || index > this.inner.len() {
                 return Err(mlua::Error::RuntimeError("index out of bounds".to_string()));
             }
-            Ok(lua.create_userdata(LuaReportFragment::new(this.inner[index - 1].clone()))?)
+            lua.create_userdata(LuaReportFragment::new(this.inner[index - 1].clone()))
         });
     })?;
 
