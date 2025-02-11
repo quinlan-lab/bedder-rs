@@ -73,13 +73,12 @@ pub enum InputHeader {
     None,
 }
 
-#[allow(clippy::large_enum_variant)]
 /// A writer for the possible genomic formats
 pub enum GenomicWriter {
     Vcf(bcf::Writer),
     Bcf(bcf::Writer),
-    Bam(bam::Writer),
-    Sam(bam::Writer),
+    //Bam(bam::Writer),
+    //Sam(bam::Writer),
     Bed(simplebed::BedWriter),
     //Gff(gff::Writer<HFile>),
 }
@@ -189,14 +188,113 @@ impl Writer {
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()))
     }
 
+    fn update(
+        format: Format,
+        fragment: &mut ReportFragment,
+        crs: &[Box<dyn ColumnReporter>],
+    ) -> Result<(), std::io::Error> {
+        match format {
+            Format::Vcf => {
+                // Get mutable reference to the VCF record
+                let record = match &mut fragment.a {
+                    Some(Position::Vcf(record)) => &mut record.record,
+                    Some(_) => {
+                        return Err(std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            "Position is not a VCF record",
+                        ))
+                    }
+                    None => {
+                        return Err(std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            "missing position",
+                        ))
+                    }
+                };
+
+                for cr in crs {
+                    if let Ok(value) = cr.value(fragment) {
+                        Self::add_info_field_to_vcf_record(record, cr.name(), value)?;
+                    }
+                }
+            }
+            Format::Bed => {
+                let bed_record = match &mut fragment.a {
+                    Some(Position::Bed(ref mut interval)) => interval,
+                    Some(_) => {
+                        return Err(std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            "Position is not a BED interval",
+                        ))
+                    }
+                    None => {
+                        return Err(std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            "missing chromosome",
+                        ))
+                    }
+                };
+
+                for cr in crs {
+                    if let Ok(value) = cr.value(fragment) {
+                        match value {
+                            Value::Int(i) => bed_record
+                                .inner_mut()
+                                .push_field(BedValue::Integer(i as i64)),
+                            Value::Float(f) => {
+                                bed_record.inner_mut().push_field(BedValue::Float(f as f64))
+                            }
+                            Value::String(s) => {
+                                bed_record.inner_mut().push_field(BedValue::String(s))
+                            }
+                            Value::Flag(b) => bed_record
+                                .inner_mut()
+                                .push_field(BedValue::Integer(if b { 1 } else { 0 })),
+                            Value::VecInt(v) => {
+                                v.iter().for_each(|i| {
+                                    bed_record
+                                        .inner_mut()
+                                        .push_field(BedValue::Integer(*i as i64));
+                                });
+                            }
+                            Value::VecFloat(v) => {
+                                v.iter().for_each(|f| {
+                                    bed_record
+                                        .inner_mut()
+                                        .push_field(BedValue::Float(*f as f64));
+                                });
+                            }
+                            Value::VecString(v) => {
+                                v.iter().for_each(|s| {
+                                    bed_record
+                                        .inner_mut()
+                                        .push_field(BedValue::String(s.clone()));
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+            Format::Sam => unimplemented!("SAM writing not yet implemented"),
+            _ => {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::Unsupported,
+                    format!("Unsupported output format: {:?}", format),
+                ))
+            }
+        }
+        Ok(())
+    }
+
     pub fn write(
         &mut self,
-        report: &Report,
+        report: &mut Report,
         crs: &[Box<dyn ColumnReporter>],
     ) -> Result<(), std::io::Error> {
         if report.is_empty() {
             return Ok(());
         }
+
         match self.format {
             Format::Vcf => {
                 let vcf_writer = match &mut self.writer {
@@ -209,124 +307,41 @@ impl Writer {
                     }
                 };
 
-                for fragment in report {
-                    // Extract the VCF record from the position using matches!
-                    let record = match &fragment.a {
-                        Some(position) => match position {
-                            Position::Vcf(record) => record, /*.clone() */
-                            _ => {
-                                return Err(std::io::Error::new(
-                                    std::io::ErrorKind::InvalidData,
-                                    "Position is not a VCF record",
-                                ))
-                            }
-                        },
-                        None => {
-                            return Err(std::io::Error::new(
-                                std::io::ErrorKind::InvalidData,
-                                "missing position",
-                            ))
-                        }
-                    };
-
-                    // Add INFO fields
-                    if !matches!(fragment.a, Some(Position::Vcf(_))) {
-                        return Err(std::io::Error::new(
-                            std::io::ErrorKind::InvalidData,
-                            "Fragment.a is not a VCF record",
-                        ));
+                for fragment in report.iter_mut() {
+                    Self::update(self.format, fragment, crs)?;
+                    if let Some(Position::Vcf(record)) = &fragment.a {
+                        vcf_writer.write(&record.record).map_err(|e| {
+                            std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string())
+                        })?;
                     }
-                    let mut vcf_record = record.record.clone();
-
-                    for cr in crs {
-                        if let Ok(value) = cr.value(fragment) {
-                            Self::add_info_field_to_vcf_record(&mut vcf_record, cr.name(), value)?;
-                        }
-                    }
-                    let vcf_record = &record.record;
-
-                    vcf_writer.write(vcf_record).map_err(|e| {
-                        std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string())
-                    })?;
                 }
             }
             Format::Bed => {
-                for fragment in report {
-                    let abed_interval = match &fragment.a {
-                        Some(position) => {
-                            // get the Bed interval
-                            let bed_interval = if let Position::Bed(interval) = position {
-                                interval
-                            } else {
-                                return Err(std::io::Error::new(
-                                    std::io::ErrorKind::InvalidData,
-                                    "Position is not a BED interval",
-                                ));
-                            };
-                            // TODO: make this generic.
-                            Some(bed_interval)
-                        }
-                        None => {
-                            return Err(std::io::Error::new(
-                                std::io::ErrorKind::InvalidData,
-                                "missing chromosome",
-                            ));
-                        }
-                    };
-
-                    let br = abed_interval.expect("bed_interval").clone();
-                    let br = br.inner();
-                    let mut owned_br = br.clone();
-
-                    for cr in crs {
-                        if let Ok(value) = cr.value(fragment) {
-                            match value {
-                                Value::Int(i) => owned_br.push_field(BedValue::Integer(i as i64)),
-                                Value::Float(f) => owned_br.push_field(BedValue::Float(f as f64)),
-                                Value::String(s) => owned_br.push_field(BedValue::String(s)),
-                                Value::Flag(b) => {
-                                    owned_br.push_field(BedValue::Integer(if b { 1 } else { 0 }))
-                                }
-                                Value::VecInt(v) => {
-                                    v.iter().for_each(|i| {
-                                        owned_br.push_field(BedValue::Integer(*i as i64));
-                                    });
-                                }
-                                Value::VecFloat(v) => {
-                                    v.iter().for_each(|f| {
-                                        owned_br.push_field(BedValue::Float(*f as f64));
-                                    });
-                                }
-                                Value::VecString(v) => {
-                                    v.iter().for_each(|s| {
-                                        owned_br.push_field(BedValue::String(s.clone()));
-                                    });
-                                }
-                            }
-                        }
-                    }
-
-                    if let GenomicWriter::Bed(ref mut writer) = self.writer {
-                        writer.write_record(&owned_br).map_err(|e| {
-                            std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string())
-                        })?;
-                    } else {
+                let bed_writer = match &mut self.writer {
+                    GenomicWriter::Bed(writer) => writer,
+                    _ => {
                         return Err(std::io::Error::new(
                             std::io::ErrorKind::InvalidInput,
                             "Expected BED writer, but found a different format",
-                        ));
+                        ))
+                    }
+                };
+
+                for fragment in report {
+                    Self::update(self.format, fragment, crs)?;
+                    if let Some(Position::Bed(interval)) = &fragment.a {
+                        bed_writer.write_record(interval.inner()).map_err(|e| {
+                            std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string())
+                        })?;
                     }
                 }
             }
-            Format::Sam => {
-                // Implement SAM writing logic
-                unimplemented!("SAM writing not yet implemented");
-            }
+            Format::Sam => unimplemented!("SAM writing not yet implemented"),
             _ => {
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::Unsupported,
                     format!("Unsupported output format: {:?}", self.format),
-                ));
+                ))
             }
         }
         Ok(())

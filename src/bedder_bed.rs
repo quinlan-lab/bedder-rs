@@ -44,6 +44,10 @@ impl BedRecord {
     pub fn inner(&self) -> &SimpleBedRecord {
         &self.0
     }
+
+    pub fn inner_mut(&mut self) -> &mut SimpleBedRecord {
+        &mut self.0
+    }
 }
 
 struct Last {

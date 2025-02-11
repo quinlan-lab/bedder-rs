@@ -19,6 +19,15 @@ impl<'a> IntoIterator for &'a Report {
     }
 }
 
+/// implement mutable Iteration for Report to get each fragment
+impl<'a> IntoIterator for &'a mut Report {
+    type Item = &'a mut ReportFragment;
+    type IntoIter = std::slice::IterMut<'a, ReportFragment>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.iter_mut()
+    }
+}
+
 /// implement Indexing for Report to get each fragment
 impl std::ops::Index<usize> for Report {
     type Output = ReportFragment;
@@ -31,6 +40,11 @@ impl Report {
     /// Create a new report from a vector of fragments.
     pub fn new(frags: Vec<ReportFragment>) -> Self {
         Self(frags)
+    }
+
+    /// Get a mutable iterator over the fragments.
+    pub fn iter_mut(&mut self) -> std::slice::IterMut<'_, ReportFragment> {
+        self.0.iter_mut()
     }
 
     /// The number of fragments in the report.
