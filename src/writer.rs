@@ -196,6 +196,7 @@ impl Writer {
         match format {
             Format::Vcf => {
                 // Get mutable reference to the VCF record
+                /*
                 let record = match &mut fragment.a {
                     Some(Position::Vcf(record)) => &mut record.record,
                     Some(_) => {
@@ -217,8 +218,17 @@ impl Writer {
                         Self::add_info_field_to_vcf_record(record, cr.name(), value)?;
                     }
                 }
+                */
+                unimplemented!("VCF writing not yet implemented");
             }
             Format::Bed => {
+                let mut values = Vec::with_capacity(crs.len());
+
+                for cr in crs.into_iter() {
+                    if let Ok(value) = cr.value(fragment) {
+                        values.push(value);
+                    }
+                }
                 let bed_record = match &mut fragment.a {
                     Some(Position::Bed(ref mut interval)) => interval,
                     Some(_) => {
@@ -230,47 +240,43 @@ impl Writer {
                     None => {
                         return Err(std::io::Error::new(
                             std::io::ErrorKind::InvalidData,
-                            "missing chromosome",
+                            "no a interval",
                         ))
                     }
                 };
 
-                for cr in crs {
-                    if let Ok(value) = cr.value(fragment) {
-                        match value {
-                            Value::Int(i) => bed_record
-                                .inner_mut()
-                                .push_field(BedValue::Integer(i as i64)),
-                            Value::Float(f) => {
-                                bed_record.inner_mut().push_field(BedValue::Float(f as f64))
-                            }
-                            Value::String(s) => {
-                                bed_record.inner_mut().push_field(BedValue::String(s))
-                            }
-                            Value::Flag(b) => bed_record
-                                .inner_mut()
-                                .push_field(BedValue::Integer(if b { 1 } else { 0 })),
-                            Value::VecInt(v) => {
-                                v.iter().for_each(|i| {
-                                    bed_record
-                                        .inner_mut()
-                                        .push_field(BedValue::Integer(*i as i64));
-                                });
-                            }
-                            Value::VecFloat(v) => {
-                                v.iter().for_each(|f| {
-                                    bed_record
-                                        .inner_mut()
-                                        .push_field(BedValue::Float(*f as f64));
-                                });
-                            }
-                            Value::VecString(v) => {
-                                v.iter().for_each(|s| {
-                                    bed_record
-                                        .inner_mut()
-                                        .push_field(BedValue::String(s.clone()));
-                                });
-                            }
+                for value in values {
+                    match value {
+                        Value::Int(i) => bed_record
+                            .inner_mut()
+                            .push_field(BedValue::Integer(i as i64)),
+                        Value::Float(f) => {
+                            bed_record.inner_mut().push_field(BedValue::Float(f as f64))
+                        }
+                        Value::String(s) => bed_record.inner_mut().push_field(BedValue::String(s)),
+                        Value::Flag(b) => bed_record
+                            .inner_mut()
+                            .push_field(BedValue::Integer(if b { 1 } else { 0 })),
+                        Value::VecInt(v) => {
+                            v.iter().for_each(|i| {
+                                bed_record
+                                    .inner_mut()
+                                    .push_field(BedValue::Integer(*i as i64));
+                            });
+                        }
+                        Value::VecFloat(v) => {
+                            v.iter().for_each(|f| {
+                                bed_record
+                                    .inner_mut()
+                                    .push_field(BedValue::Float(*f as f64));
+                            });
+                        }
+                        Value::VecString(v) => {
+                            v.iter().for_each(|s| {
+                                bed_record
+                                    .inner_mut()
+                                    .push_field(BedValue::String(s.clone()));
+                            });
                         }
                     }
                 }

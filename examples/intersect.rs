@@ -107,7 +107,7 @@ fn main() -> io::Result<()> {
 
     for intersection in it {
         let intersection = intersection?;
-        let report = intersection.report(
+        let mut report = intersection.report(
             &args.a_mode,
             &args.b_mode,
             &args.a_part,
@@ -155,7 +155,7 @@ fn main() -> io::Result<()> {
         //let c = ColumnReporter::new();
         let v = vec![];
 
-        wtr.write(&report, &v)?;
+        wtr.write(&mut report, &v)?;
     }
 
     Ok(())
