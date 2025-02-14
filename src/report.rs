@@ -36,6 +36,12 @@ impl std::ops::Index<usize> for Report {
     }
 }
 
+impl std::ops::IndexMut<usize> for Report {
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        &mut self.0[index]
+    }
+}
+
 impl Report {
     /// Create a new report from a vector of fragments.
     pub fn new(frags: Vec<ReportFragment>) -> Self {

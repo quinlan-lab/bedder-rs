@@ -45,3 +45,6 @@ pub mod py;
 
 /// Lua bindings for bedder
 pub mod lua_wrapper;
+
+/// Column reporters for bedder
+pub mod column;

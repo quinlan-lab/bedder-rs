@@ -323,10 +323,12 @@ impl<'a, P: PositionedIterator> IntersectionIterator<'a, P> {
                 self.dequeue.len()
             );
             */
+            // IMPORTANT!
             // TODO: next_position is called with Some(interval) every time.
             // TODO: problem. if we query, e.g. chr1:1-1000, then we already pushed on the heap intervals
             // TODO: ... then we query e.g. chr1:900-1100 and it could appear as though we have intervals out of order.
-            // TODO: need a way to clear the heap of intervals from this file.
+            // TODO: need to get all intervals from the first query and then query from 1000 to 1100. and not take any intervals
+            // TODO: ... that start before 1000.
             if let Some(next_position) = f.next_position(arg) {
                 let next_position = next_position?;
                 let next_chromosome = match self.chromosome_order.get(next_position.chrom()) {

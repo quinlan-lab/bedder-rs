@@ -1,3 +1,4 @@
+use crate::column::{ColumnReporter, Value};
 use crate::hts_format::{Compression, Format};
 use crate::position::Position;
 use crate::report::{Report, ReportFragment};
@@ -10,49 +11,6 @@ use std::mem;
 use std::rc::Rc;
 use std::result::Result;
 use std::string::String;
-
-pub enum Type {
-    Integer,
-    Float,
-    Character,
-    String,
-    Flag,
-}
-
-/// The number of Values to expect (similar to Number attribute in VCF INFO/FMT fields)
-pub enum Number {
-    Not,
-    One,
-    R,
-    A,
-    Dot,
-}
-
-pub enum Value {
-    Int(i32),
-    Float(f32),
-    String(String),
-    Flag(bool),
-    VecInt(Vec<i32>),
-    VecFloat(Vec<f32>),
-    VecString(Vec<String>),
-}
-
-pub enum ColumnError {
-    InvalidValue(String),
-}
-
-/// A ColumnReporter tells bedder how to report a column in the output.
-pub trait ColumnReporter {
-    /// report the name, e.g. `count` for the INFO field of the VCF
-    fn name(&self) -> String;
-    /// report the type, for the INFO field of the VCF
-    fn ftype(&self) -> Type; // Type is some enum from noodles or here that limits to relevant types
-    fn description(&self) -> String;
-    fn number(&self) -> Number;
-
-    fn value(&self, r: &ReportFragment) -> Result<Value, ColumnError>; // Value probably something from noodles that encapsulates Float/Int/Vec<Float>/String/...
-}
 
 #[derive(Debug)]
 pub enum FormatConversionError {
@@ -98,6 +56,46 @@ struct BCFWriter {
     _subset: Option<bcf::header::SampleSubset>,
 }
 const _: () = assert!(mem::size_of::<BCFWriter>() == mem::size_of::<bcf::Writer>());
+
+// This helper function converts a given `Value` into one or more `BedValue`s and
+// pushes them onto the provided mutable bed record.
+fn push_value_to_bed_record(bed_record: &mut crate::bedder_bed::BedRecord, value: Value) {
+    match value {
+        Value::Int(i) => {
+            bed_record
+                .inner_mut()
+                .push_field(BedValue::Integer(i as i64));
+        }
+        Value::Float(f) => {
+            bed_record.inner_mut().push_field(BedValue::Float(f as f64));
+        }
+        Value::String(s) => {
+            bed_record.inner_mut().push_field(BedValue::String(s));
+        }
+        Value::Flag(b) => {
+            bed_record
+                .inner_mut()
+                .push_field(BedValue::Integer(if b { 1 } else { 0 }));
+        }
+        Value::VecInt(v) => {
+            v.into_iter().for_each(|i| {
+                bed_record
+                    .inner_mut()
+                    .push_field(BedValue::Integer(i as i64));
+            });
+        }
+        Value::VecFloat(v) => {
+            v.into_iter().for_each(|f| {
+                bed_record.inner_mut().push_field(BedValue::Float(f as f64));
+            });
+        }
+        Value::VecString(v) => {
+            v.into_iter().for_each(|s| {
+                bed_record.inner_mut().push_field(BedValue::String(s));
+            });
+        }
+    }
+}
 
 impl Writer {
     pub fn init(
@@ -152,6 +150,7 @@ impl Writer {
         })
     }
 
+    #[allow(dead_code)]
     fn add_info_field_to_vcf_record(
         record: &mut bcf::Record,
         key: String,
@@ -224,7 +223,7 @@ impl Writer {
             Format::Bed => {
                 let mut values = Vec::with_capacity(crs.len());
 
-                for cr in crs.into_iter() {
+                for cr in crs.iter() {
                     if let Ok(value) = cr.value(fragment) {
                         values.push(value);
                     }
@@ -246,46 +245,13 @@ impl Writer {
                 };
 
                 for value in values {
-                    match value {
-                        Value::Int(i) => bed_record
-                            .inner_mut()
-                            .push_field(BedValue::Integer(i as i64)),
-                        Value::Float(f) => {
-                            bed_record.inner_mut().push_field(BedValue::Float(f as f64))
-                        }
-                        Value::String(s) => bed_record.inner_mut().push_field(BedValue::String(s)),
-                        Value::Flag(b) => bed_record
-                            .inner_mut()
-                            .push_field(BedValue::Integer(if b { 1 } else { 0 })),
-                        Value::VecInt(v) => {
-                            v.iter().for_each(|i| {
-                                bed_record
-                                    .inner_mut()
-                                    .push_field(BedValue::Integer(*i as i64));
-                            });
-                        }
-                        Value::VecFloat(v) => {
-                            v.iter().for_each(|f| {
-                                bed_record
-                                    .inner_mut()
-                                    .push_field(BedValue::Float(*f as f64));
-                            });
-                        }
-                        Value::VecString(v) => {
-                            v.iter().for_each(|s| {
-                                bed_record
-                                    .inner_mut()
-                                    .push_field(BedValue::String(s.clone()));
-                            });
-                        }
-                    }
+                    push_value_to_bed_record(bed_record, value);
                 }
             }
-            Format::Sam => unimplemented!("SAM writing not yet implemented"),
             _ => {
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::Unsupported,
-                    format!("Unsupported output format: {:?}", format),
+                    format!("Currently unsupported output format: {:?}", format),
                 ))
             }
         }
