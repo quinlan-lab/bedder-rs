@@ -18,6 +18,8 @@ pub enum Type {
     Flag,
 }
 
+// TODO! make value parser an enum for python-expression|count|sum|bases|...
+
 /// The number of Values to expect (similar to Number attribute in VCF INFO/FMT fields)
 pub enum Number {
     Not,
@@ -43,7 +45,7 @@ pub trait ColumnReporter {
     fn description(&self) -> &str;
     fn number(&self) -> &Number;
 
-    fn value(&self, r: &ReportFragment) -> Result<Value, ColumnError>; // Value probably something from noodles that encapsulates Float/Int/Vec<Float>/String/...
+    fn value(&self, r: &ReportFragment) -> Result<Value, ColumnError>;
 }
 
 pub struct Column {
@@ -122,12 +124,34 @@ impl TryFrom<&str> for Column {
     type Error = ColumnError;
 
     fn try_from(s: &str) -> Result<Self, ColumnError> {
-        let parts = s.split(':').collect::<Vec<&str>>();
+        let parts: Vec<&str> = s.split(':').collect();
+
+        if parts.len() < 2 {
+            return Err(ColumnError::InvalidValue(format!(
+                "Expected at least two fields (name and type), got: {}",
+                s
+            )));
+        }
+
+        let name = parts[0].to_string();
+        let ftype = parts[1].try_into()?;
+        let description = if parts.len() > 2 && !parts[2].is_empty() {
+            parts[2].to_string()
+        } else {
+            name.clone()
+        };
+        let number = if parts.len() > 3 && !parts[3].is_empty() {
+            parts[3].try_into()?
+        } else {
+            // default to "1", which in our conversion becomes Number::One.
+            Number::One
+        };
+
         Ok(Column {
-            name: parts[0].to_string(),
-            ftype: parts[1].try_into()?,
-            description: parts[2].to_string(),
-            number: parts[3].try_into()?,
+            name,
+            ftype,
+            description,
+            number,
         })
     }
 }
