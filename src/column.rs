@@ -60,6 +60,7 @@ pub enum ValueParser {
     Sum,
     Bases,
     ChromStartEnd,
+    OriginalInterval,
 }
 pub struct Column<'py> {
     name: String,
@@ -109,6 +110,8 @@ impl TryFrom<&str> for ValueParser {
             Ok(ValueParser::Bases)
         } else if s == "chrom_start_end" || s == "cse" {
             Ok(ValueParser::ChromStartEnd)
+        } else if s == "original_interval" || s == "oi" {
+            Ok(ValueParser::OriginalInterval)
         } else {
             Err(ColumnError::InvalidValueParser(s.to_string()))
         }
@@ -124,6 +127,7 @@ impl std::fmt::Display for ValueParser {
             ValueParser::Sum => write!(f, "sum"),
             ValueParser::Bases => write!(f, "bases"),
             ValueParser::ChromStartEnd => write!(f, "chrom_start_end"),
+            ValueParser::OriginalInterval => write!(f, "original_interval"),
         }
     }
 }
@@ -348,5 +352,47 @@ mod tests {
             Column::try_from(input),
             Err(ColumnError::InvalidValueParser(_))
         ));
+    }
+}
+
+impl std::fmt::Display for Value {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Value::Int(i) => write!(f, "{}", i),
+            Value::Float(fl) => write!(f, "{:.4}", fl),
+            Value::String(s) => write!(f, "{}", s),
+            Value::Flag(b) => write!(f, "{}", b),
+            Value::VecInt(v) => write!(
+                f,
+                "{}",
+                v.iter()
+                    .map(|i| i.to_string())
+                    .collect::<Vec<_>>()
+                    .join(",")
+            ),
+            Value::VecFloat(v) => write!(
+                f,
+                "{}",
+                v.iter()
+                    .map(|f| format!("{:.4}", f))
+                    .map(|s| {
+                        if s.contains('.') {
+                            s.trim_end_matches('0').trim_end_matches('.').to_string()
+                        } else {
+                            s
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join(",")
+            ),
+            Value::VecString(v) => write!(
+                f,
+                "{}",
+                v.iter()
+                    .map(|s| s.to_string())
+                    .collect::<Vec<_>>()
+                    .join(",")
+            ),
+        }
     }
 }
