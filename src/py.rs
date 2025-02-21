@@ -1,7 +1,7 @@
+use crate::bedder_bed::BedRecord;
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use pyo3::types::{PyFunction, PyString};
-use simplebed::BedRecord as SimpleBedRecord; // Import directly
 use std::ffi::CString;
 
 use crate::intersections::{IntersectionMode, IntersectionPart, OverlapAmount};
@@ -19,7 +19,7 @@ use crate::position::Position; // Import Position
 #[pyclass]
 #[derive(Clone, Debug)] // Added Debug for easier inspection
 pub struct PyBedRecord {
-    inner: SimpleBedRecord,
+    inner: Arc<BedRecord>,
 }
 
 #[pymethods]
@@ -27,31 +27,31 @@ impl PyBedRecord {
     #[getter]
     /// Get the chromosome name
     fn chrom(&self) -> PyResult<String> {
-        Ok(self.inner.chrom().to_string())
+        Ok(self.inner.0.chrom().to_string())
     }
 
     #[getter]
     /// Get the start position (0-based)
     fn start(&self) -> PyResult<u64> {
-        Ok(self.inner.start())
+        Ok(self.inner.0.start())
     }
 
     #[getter]
     /// Get the end position (exclusive)
     fn stop(&self) -> PyResult<u64> {
-        Ok(self.inner.end())
+        Ok(self.inner.0.end())
     }
 
     #[getter]
     /// Get the name field if present
     fn name(&self) -> PyResult<Option<String>> {
-        Ok(self.inner.name().map(|s| s.to_string()))
+        Ok(self.inner.0.name().map(|s| s.to_string()))
     }
 
     #[getter]
     /// Get the score field if present
     fn score(&self) -> PyResult<Option<f64>> {
-        Ok(self.inner.score())
+        Ok(self.inner.0.score())
     }
 
     fn __repr__(&self) -> String {
@@ -66,6 +66,7 @@ impl PyBedRecord {
     fn other_fields(&self) -> PyResult<Vec<String>> {
         Ok(self
             .inner
+            .0
             .other_fields()
             .iter()
             .map(|f| f.to_string())
@@ -73,8 +74,8 @@ impl PyBedRecord {
     }
 }
 
-impl From<SimpleBedRecord> for PyBedRecord {
-    fn from(inner: SimpleBedRecord) -> Self {
+impl From<Arc<BedRecord>> for PyBedRecord {
+    fn from(inner: Arc<BedRecord>) -> Self {
         PyBedRecord { inner }
     }
 }
@@ -223,6 +224,7 @@ impl PyReportIter {
     }
 }
 
+use std::sync::Arc;
 // Wrapper for Position
 /// A genomic interval that can represent BED or other formats.
 ///
@@ -233,15 +235,17 @@ impl PyReportIter {
 #[pyclass]
 #[derive(Clone, Debug)]
 pub struct PyPosition {
-    inner: Position, // Use the trait object
+    inner: Arc<Position>, // Use the trait object
 }
 
 #[pymethods]
 impl PyPosition {
     /// Get the BED record if this position represents a BED interval
     fn bed(&self) -> PyResult<Option<PyBedRecord>> {
-        if let Position::Bed(b) = &self.inner {
-            Ok(Some(PyBedRecord::from(b.0.clone())))
+        if let Position::Bed(b) = &self.inner.as_ref() {
+            // get an Arc to the underlying BedRecord
+            let bed_record = Arc::new(b.clone());
+            Ok(Some(PyBedRecord::from(bed_record)))
         } else {
             Ok(None)
         }
@@ -404,7 +408,7 @@ impl PyIntersections {
     /// Get the base interval
     fn base_interval(&self) -> PyResult<PyPosition> {
         Ok(PyPosition {
-            inner: self.inner.base_interval.as_ref().clone(),
+            inner: self.inner.base_interval.clone(),
         })
     }
 
@@ -416,7 +420,7 @@ impl PyIntersections {
             .overlapping
             .iter()
             .map(|i| PyPosition {
-                inner: i.interval.as_ref().clone(),
+                inner: i.interval.clone(),
             })
             .collect())
     }

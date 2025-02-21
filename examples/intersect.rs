@@ -106,8 +106,8 @@ fn main() -> io::Result<()> {
     let mut stdout = BufWriter::new(io::stdout());
 
     for intersection in it {
-        let intersection = intersection?;
-        let mut report = intersection.report(
+        let mut intersection = intersection?;
+        let report = intersection.report(
             &args.a_mode,
             &args.b_mode,
             &args.a_part,
@@ -155,7 +155,7 @@ fn main() -> io::Result<()> {
         //let c = ColumnReporter::new();
         let v = vec![];
 
-        wtr.write(&mut report, &v)?;
+        wtr.write(&mut intersection, &v)?;
     }
 
     Ok(())

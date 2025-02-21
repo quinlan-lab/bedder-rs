@@ -1,9 +1,9 @@
 use crate::position::Position;
-
+use std::sync::Arc;
 #[derive(Debug, Clone)]
 pub struct ReportFragment {
-    pub a: Option<Position>,
-    pub b: Vec<Position>,
+    pub a: Option<Arc<Position>>,
+    pub b: Vec<Arc<Position>>,
     pub id: usize,
 }
 

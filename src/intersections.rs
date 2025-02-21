@@ -117,7 +117,7 @@ impl Default for OverlapAmount {
 }
 
 /// Extract pieces of base_interval that do no overlap overlaps
-fn inverse(base_interval: &Position, overlaps: &[Intersection]) -> Vec<Position> {
+fn inverse(base_interval: &Position, overlaps: &[Intersection]) -> Vec<Arc<Position>> {
     let mut last_start = base_interval.start();
     let mut result = Vec::new();
     for o in overlaps {
@@ -125,14 +125,14 @@ fn inverse(base_interval: &Position, overlaps: &[Intersection]) -> Vec<Position>
             let mut p = base_interval.clone_box();
             p.set_start(last_start);
             p.set_stop(o.interval.start());
-            result.push(p)
+            result.push(Arc::new(p))
         }
         last_start = o.interval.stop();
     }
     if last_start < base_interval.stop() {
         let mut p = base_interval.clone_box();
         p.set_start(last_start);
-        result.push(p)
+        result.push(Arc::new(p))
     }
     result
 }
@@ -270,15 +270,15 @@ impl Intersections {
 
         let a_positions = match a_part {
             // for None, we still need the a_interval to report the b_interval
-            IntersectionPart::None => vec![self.base_interval.clone_box()],
+            IntersectionPart::None => vec![Arc::new(self.base_interval.clone_box())],
             IntersectionPart::Part => {
                 // Create and adjust a_position if a_part is Part
                 // Q: TODO: what to do here with multiple b files? keep intersection to smallest joint overlap?
                 let mut a_interval = self.base_interval.clone_box();
                 self.adjust_bounds(&mut a_interval, overlaps);
-                vec![a_interval]
+                vec![Arc::new(a_interval)]
             }
-            IntersectionPart::Whole => vec![self.base_interval.clone_box()],
+            IntersectionPart::Whole => vec![self.base_interval.clone()],
             IntersectionPart::Inverse => inverse(&self.base_interval, overlaps),
         };
 
@@ -286,7 +286,7 @@ impl Intersections {
             let a_pos = if matches!(a_part, IntersectionPart::None) {
                 None
             } else {
-                Some(a_position.clone_box())
+                Some(a_position.clone())
             };
             result.push(match b_part {
                 // None, Part, Whole
@@ -301,7 +301,7 @@ impl Intersections {
                         let mut b_interval = o.interval.clone_box();
                         b_interval.set_start(b_interval.start().max(self.base_interval.start()));
                         b_interval.set_stop(b_interval.stop().min(self.base_interval.stop()));
-                        b_positions.push(b_interval);
+                        b_positions.push(Arc::new(b_interval));
                     }
                     ReportFragment {
                         a: a_pos,
@@ -317,12 +317,12 @@ impl Intersections {
                         if o.interval.start() < self.base_interval.start() {
                             let mut b_interval = o.interval.clone_box();
                             b_interval.set_stop(b_interval.start());
-                            b_positions.push(b_interval);
+                            b_positions.push(Arc::new(b_interval));
                         }
                         if o.interval.stop() > self.base_interval.stop() {
                             let mut b_interval = o.interval.clone_box();
                             b_interval.set_start(self.base_interval.stop());
-                            b_positions.push(b_interval);
+                            b_positions.push(Arc::new(b_interval));
                         }
                     }
                     ReportFragment {
@@ -335,7 +335,7 @@ impl Intersections {
                     a: a_pos,
                     b: overlaps
                         .iter()
-                        .map(|o| o.interval.clone_box())
+                        .map(|o| o.interval.clone())
                         .collect::<Vec<_>>(),
                     id: b_idx,
                 },

@@ -207,9 +207,7 @@ pub fn register_types(lua: &Lua) -> mlua::Result<()> {
     lua.register_userdata_type::<LuaReportFragment>(|reg| {
         reg.add_field_method_get("id", |_, this| Ok(this.inner.id));
         reg.add_method("a", |lua, this, ()| match &this.inner.a {
-            Some(pos) => Ok(Some(
-                lua.create_userdata(LuaPosition::new(Arc::new(pos.clone())))?,
-            )),
+            Some(pos) => Ok(Some(lua.create_userdata(LuaPosition::new(pos.clone()))?)),
             None => Ok(None),
         });
         reg.add_method("b", |lua, this, ()| {
@@ -217,7 +215,7 @@ pub fn register_types(lua: &Lua) -> mlua::Result<()> {
                 .inner
                 .b
                 .iter()
-                .map(|pos| LuaPosition::new(Arc::new(pos.clone())))
+                .map(|pos| LuaPosition::new(pos.clone()))
                 .collect::<Vec<_>>();
 
             let table = lua.create_table()?;
