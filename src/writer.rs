@@ -1,8 +1,7 @@
 use crate::column::{ColumnReporter, Value};
 use crate::hts_format::{Compression, Format};
+use crate::intersection::Intersections;
 use crate::position::Position;
-use crate::report::{Report, ReportFragment};
-//use crate::sniff::HtsFile;
 use rust_htslib::bam;
 use rust_htslib::bcf::{self, header::HeaderView};
 use rust_htslib::htslib as hts;
@@ -11,6 +10,7 @@ use std::mem;
 use std::rc::Rc;
 use std::result::Result;
 use std::string::String;
+use std::sync::Arc;
 
 #[derive(Debug)]
 pub enum FormatConversionError {
@@ -189,7 +189,7 @@ impl Writer {
 
     fn update(
         format: Format,
-        fragment: &mut ReportFragment,
+        intersections: &mut Intersections,
         crs: &[Box<dyn ColumnReporter>],
     ) -> Result<(), std::io::Error> {
         match format {
@@ -224,24 +224,22 @@ impl Writer {
                 let mut values = Vec::with_capacity(crs.len());
 
                 for cr in crs.iter() {
-                    if let Ok(value) = cr.value(fragment) {
+                    if let Ok(value) = cr.value(intersections) {
                         values.push(value);
                     }
                 }
-                let bed_record = match &mut fragment.a {
-                    Some(Position::Bed(ref mut interval)) => interval,
-                    Some(_) => {
-                        return Err(std::io::Error::new(
-                            std::io::ErrorKind::InvalidData,
-                            "Position is not a BED interval",
-                        ))
-                    }
-                    None => {
-                        return Err(std::io::Error::new(
-                            std::io::ErrorKind::InvalidData,
-                            "no a interval",
-                        ))
-                    }
+                let Position::Bed(bed_record) = Arc::get_mut(&mut intersections.base_interval)
+                    .ok_or_else(|| {
+                        std::io::Error::new(
+                            std::io::ErrorKind::Other,
+                            "Cannot get mutable reference to base_interval",
+                        )
+                    })?
+                else {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        "Position is not a BED interval",
+                    ));
                 };
 
                 for value in values {
@@ -260,15 +258,12 @@ impl Writer {
 
     pub fn write(
         &mut self,
-        report: &mut Report,
+        intersections: &mut Intersections,
         crs: &[Box<dyn ColumnReporter>],
     ) -> Result<(), std::io::Error> {
-        if report.is_empty() {
-            return Ok(());
-        }
-
         match self.format {
             Format::Vcf => {
+                /*
                 let vcf_writer = match &mut self.writer {
                     GenomicWriter::Vcf(writer) => writer,
                     _ => {
@@ -287,6 +282,7 @@ impl Writer {
                         })?;
                     }
                 }
+                */
             }
             Format::Bed => {
                 let bed_writer = match &mut self.writer {
@@ -299,14 +295,23 @@ impl Writer {
                     }
                 };
 
-                for fragment in report {
-                    Self::update(self.format, fragment, crs)?;
-                    if let Some(Position::Bed(interval)) = &fragment.a {
-                        bed_writer.write_record(interval.inner()).map_err(|e| {
-                            std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string())
-                        })?;
-                    }
-                }
+                Self::update(self.format, intersections, crs)?;
+                let Position::Bed(bed_record) = Arc::get_mut(&mut intersections.base_interval)
+                    .ok_or_else(|| {
+                        std::io::Error::new(
+                            std::io::ErrorKind::Other,
+                            "Cannot get mutable reference to base_interval",
+                        )
+                    })?
+                else {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        "Position is not a BED interval",
+                    ));
+                };
+                bed_writer.write_record(bed_record.inner()).map_err(|e| {
+                    std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string())
+                })?;
             }
             Format::Sam => unimplemented!("SAM writing not yet implemented"),
             _ => {

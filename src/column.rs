@@ -1,5 +1,5 @@
+use crate::intersection::Intersections;
 use crate::py::CompiledPython;
-use crate::report::ReportFragment;
 
 #[derive(Debug, PartialEq)]
 pub enum Value {
@@ -50,7 +50,7 @@ pub trait ColumnReporter {
     fn description(&self) -> &str;
     fn number(&self) -> &Number;
 
-    fn value(&self, r: &ReportFragment) -> Result<Value, ColumnError>;
+    fn value(&self, r: &Intersections) -> Result<Value, ColumnError>;
 }
 
 pub enum ValueParser {
@@ -151,7 +151,7 @@ impl ColumnReporter for Column<'_> {
         &self.number
     }
 
-    fn value(&self, _r: &ReportFragment) -> Result<Value, ColumnError> {
+    fn value(&self, _r: &Intersections) -> Result<Value, ColumnError> {
         todo!()
     }
 }
