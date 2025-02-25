@@ -91,7 +91,16 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let intersection = intersection.expect("error getting intersection");
                 let py_intersection = bedder::py::PyIntersections::from(intersection);
                 match compiled.eval(py_intersection) {
-                    Ok(result) => writeln!(stdout, "{}", result).expect("error writing to stdout"),
+                    Ok(result) => match writeln!(stdout, "{}", result) {
+                        Ok(_) => {}
+                        Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => {
+                            std::process::exit(0);
+                        }
+                        Err(e) => {
+                            panic!("Error formatting: {}", e);
+                        }
+                    },
+
                     Err(e) => {
                         panic!("Error formatting: {}", e);
                     }

@@ -21,8 +21,6 @@ pub enum Type {
     Flag,
 }
 
-// TODO! make value parser an enum for python-expression|count|sum|bases|...
-
 /// The number of Values to expect (similar to Number attribute in VCF INFO/FMT fields)
 #[derive(Debug, PartialEq, Eq)]
 pub enum Number {
@@ -156,7 +154,7 @@ impl ColumnReporter for Column<'_> {
     }
 
     fn value(&self, _r: &Intersections) -> Result<Value, ColumnError> {
-        todo!()
+        todo!() // brent start here
     }
 }
 
