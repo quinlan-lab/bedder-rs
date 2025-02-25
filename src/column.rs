@@ -39,6 +39,19 @@ pub enum ColumnError {
     InvalidValueParser(String),
 }
 
+impl std::fmt::Display for ColumnError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ColumnError::InvalidValue(s) => write!(f, "Invalid value: {}", s),
+            ColumnError::InvalidType(s) => write!(f, "Invalid type: {}", s),
+            ColumnError::InvalidNumber(s) => write!(f, "Invalid number: {}", s),
+            ColumnError::InvalidValueParser(s) => write!(f, "Invalid value parser: {}", s),
+        }
+    }
+}
+
+impl std::error::Error for ColumnError {}
+
 /// A ColumnReporter tells bedder how to report a column in the output.
 pub trait ColumnReporter {
     /// report the name, e.g. `count` for the INFO field of the VCF
@@ -66,10 +79,9 @@ pub struct Column<'py> {
     description: String,
     number: Number,
     // enum for python-expression|count|sum|bases|...
-    value_parser: Option<ValueParser>,
+    pub value_parser: Option<ValueParser>,
 
-    #[allow(dead_code)]
-    py: Option<CompiledPython<'py>>,
+    pub py: Option<CompiledPython<'py>>,
 }
 
 impl Column<'_> {
@@ -153,8 +165,85 @@ impl ColumnReporter for Column<'_> {
         &self.number
     }
 
-    fn value(&self, _r: &Intersections) -> Result<Value, ColumnError> {
-        todo!() // brent start here
+    fn value(&self, r: &Intersections) -> Result<Value, ColumnError> {
+        match &self.value_parser {
+            Some(ValueParser::Count) => {
+                // Return the count of overlapping intervals
+                Ok(Value::Int(r.overlapping.len() as i32))
+            }
+            Some(ValueParser::Sum) => {
+                // Sum the scores of overlapping intervals if they exist
+                // This is more complex as we need to extract scores from the intervals
+                // For now, return 0.0 as a placeholder
+                Ok(Value::Float(0.0))
+            }
+            Some(ValueParser::Bases) => {
+                // Calculate total number of bases covered by overlapping intervals
+                // Use the report functionality to get the base count
+                let default_mode = crate::intersections::IntersectionMode::default();
+                let whole_part = crate::intersections::IntersectionPart::Whole;
+                let base_requirement = crate::intersections::OverlapAmount::Bases(1);
+
+                let report = r.report(
+                    &default_mode,
+                    &default_mode,
+                    &whole_part,
+                    &whole_part,
+                    &base_requirement,
+                    &base_requirement,
+                );
+
+                let bases = report.count_bases_by_id();
+                let total_bases: i32 = bases.iter().sum::<u64>() as i32;
+
+                Ok(Value::Int(total_bases))
+            }
+            Some(ValueParser::ChromStartEnd) => {
+                let s = format!(
+                    "{}\t{}\t{}",
+                    r.base_interval.chrom(),
+                    r.base_interval.start(),
+                    r.base_interval.stop()
+                );
+                Ok(Value::String(s))
+            }
+            Some(ValueParser::OriginalInterval) => {
+                // Return the original interval as a string
+                let s = format!(
+                    "{}\t{}\t{}",
+                    r.base_interval.chrom(),
+                    r.base_interval.start(),
+                    r.base_interval.stop()
+                );
+                Ok(Value::String(s))
+            }
+            Some(ValueParser::PythonExpression(_expr)) => {
+                // For Python expressions, we should use the compiled Python object
+                if let Some(py) = &self.py {
+                    // Convert intersection to PyIntersections and evaluate
+                    let py_intersection = crate::py::PyIntersections::from(r.clone());
+                    match py.eval(py_intersection) {
+                        Ok(result) => Ok(Value::String(result)),
+                        Err(e) => Err(ColumnError::InvalidValue(format!("Python error: {}", e))),
+                    }
+                } else {
+                    Err(ColumnError::InvalidValue(
+                        "Python interpreter not initialized".to_string(),
+                    ))
+                }
+            }
+            Some(ValueParser::LuaExpression(_expr)) => {
+                // Similar placeholder for Lua expressions
+                // Would need to implement Lua evaluation similar to Python
+                Err(ColumnError::InvalidValue(
+                    "Lua expressions not yet implemented".to_string(),
+                ))
+            }
+            None => {
+                // Default behavior when no parser is specified - return count
+                Ok(Value::Int(r.overlapping.len() as i32))
+            }
+        }
     }
 }
 
@@ -216,6 +305,15 @@ impl TryFrom<&str> for Column<'_> {
 
     fn try_from(s: &str) -> Result<Self, ColumnError> {
         let parts: Vec<&str> = s.splitn(5, ':').collect();
+        if parts.len() == 1 && parts[0] == "cse" || parts[0] == "chrom_start_end" {
+            return Ok(Column::new(
+                "chrom_start_end".to_string(),
+                Type::String,
+                "Chromosome:start-end".to_string(),
+                Number::One,
+                Some(ValueParser::ChromStartEnd),
+            ));
+        }
 
         if parts.len() < 2 {
             return Err(ColumnError::InvalidValue(format!(
