@@ -175,6 +175,7 @@ impl ColumnReporter for Column<'_> {
                 // Sum the scores of overlapping intervals if they exist
                 // This is more complex as we need to extract scores from the intervals
                 // For now, return 0.0 as a placeholder
+                todo!("sum");
                 Ok(Value::Float(0.0))
             }
             Some(ValueParser::Bases) => {
@@ -305,14 +306,55 @@ impl TryFrom<&str> for Column<'_> {
 
     fn try_from(s: &str) -> Result<Self, ColumnError> {
         let parts: Vec<&str> = s.splitn(5, ':').collect();
-        if parts.len() == 1 && parts[0] == "cse" || parts[0] == "chrom_start_end" {
-            return Ok(Column::new(
-                "chrom_start_end".to_string(),
-                Type::String,
-                "Chromosome:start-end".to_string(),
-                Number::One,
-                Some(ValueParser::ChromStartEnd),
-            ));
+        if parts.len() == 1
+            && (parts[0] == "cse"
+                || parts[0] == "chrom_start_end"
+                || parts[0] == "oi"
+                || parts[0] == "original_interval")
+        {
+            return Ok(match parts[0] {
+                "cse" | "chrom_start_end" => Column::new(
+                    "chrom_start_end".to_string(),
+                    Type::String,
+                    "Chromosome:start-end".to_string(),
+                    Number::One,
+                    Some(ValueParser::ChromStartEnd),
+                ),
+                "oi" | "original_interval" => Column::new(
+                    "original_interval".to_string(),
+                    Type::String,
+                    "Original interval".to_string(),
+                    Number::One,
+                    Some(ValueParser::OriginalInterval),
+                ),
+                _ => unreachable!(),
+            });
+        }
+        if parts.len() == 1 && (parts[0] == "count" || parts[0] == "sum" || parts[0] == "bases") {
+            return Ok(match parts[0] {
+                "count" => Column::new(
+                    "count".to_string(),
+                    Type::Integer,
+                    "Count".to_string(),
+                    Number::One,
+                    Some(ValueParser::Count),
+                ),
+                "sum" => Column::new(
+                    "sum".to_string(),
+                    Type::Float,
+                    "Sum".to_string(),
+                    Number::One,
+                    Some(ValueParser::Sum),
+                ),
+                "bases" => Column::new(
+                    "bases".to_string(),
+                    Type::Integer,
+                    "Bases".to_string(),
+                    Number::One,
+                    Some(ValueParser::Bases),
+                ),
+                _ => unreachable!(),
+            });
         }
 
         if parts.len() < 2 {

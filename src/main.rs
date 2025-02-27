@@ -21,21 +21,10 @@ struct Args {
     )]
     genome_file: PathBuf,
     #[arg(
-        help = "python f-string expression",
-        short = 'f',
-        default_value = "def main(intersection): return f'{intersection.base_interval.chrom}\t{intersection.base_interval.start}\t{intersection.base_interval.stop}\t{len(intersection.overlapping)}'"
-    )]
-    f_string: String,
-    #[arg(
-        help = "use Lua instead of Python for expression",
-        short = 'l',
-        long = "lua"
-    )]
-    use_lua: bool,
-    #[arg(
         help = "columns to output (format: name:type:description:number:value_parser)",
         short = 'c',
-        long = "columns"
+        long = "columns",
+        required = true
     )]
     columns: Vec<String>,
 }
@@ -72,138 +61,62 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut stdout = BufWriter::new(std::io::stdout().lock());
 
-    // Check if we're using columns or legacy mode
-    let use_columns = !args.columns.is_empty();
+    // Parse columns
+    let columns: Vec<Column> = args
+        .columns
+        .iter()
+        .map(|c| Column::try_from(c.as_str()))
+        .collect::<Result<Vec<_>, _>>()?;
 
-    if use_columns {
-        // Parse columns
-        let columns: Vec<Column> = args
-            .columns
+    // Print header
+    writeln!(
+        stdout,
+        "#{}",
+        columns
             .iter()
-            .map(|c| Column::try_from(c.as_str()))
-            .collect::<Result<Vec<_>, _>>()?;
+            .map(|c| c.name())
+            .collect::<Vec<_>>()
+            .join("\t")
+    )?;
 
-        // Print header
-        writeln!(
-            stdout,
-            "#{}",
-            columns
+    // Use Python for columns that need it
+    Python::with_gil(|py| {
+        // Initialize Python expressions in columns if needed
+        let py_columns: Vec<Column> = columns
+            .into_iter()
+            .map(|mut col| {
+                if let Some(bedder::column::ValueParser::PythonExpression(expr)) = &col.value_parser
+                {
+                    let compiled = bedder::py::CompiledPython::new(py, expr)
+                        .expect("error compiling Python expression");
+                    col.py = Some(compiled);
+                }
+                col
+            })
+            .collect();
+        log::info!("py_columns: {:?}", py_columns);
+
+        // Process intersections with columns
+        for intersection in ii {
+            let intersection = intersection.expect("error getting intersection");
+            let values: Vec<String> = py_columns
                 .iter()
-                .map(|c| c.name())
-                .collect::<Vec<_>>()
-                .join("\t")
-        )?;
-
-        // Process with columns
-        if args.use_lua {
-            // Initialize Lua expressions in columns if needed
-            // (This would require implementing Lua support for columns)
-
-            // Process intersections with columns
-            for intersection in ii {
-                let intersection = intersection.expect("error getting intersection");
-                let values: Vec<String> = columns
-                    .iter()
-                    .map(|col| match col.value(&intersection) {
-                        Ok(val) => val.to_string(),
-                        Err(e) => panic!("Error getting column value: {:?}", e),
-                    })
-                    .collect();
-
-                match writeln!(stdout, "{}", values.join("\t")) {
-                    Ok(_) => {}
-                    Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => {
-                        std::process::exit(0);
-                    }
-                    Err(e) => {
-                        panic!("Error writing to stdout: {}", e);
-                    }
+                .map(|col| match col.value(&intersection) {
+                    Ok(val) => val.to_string(),
+                    Err(e) => panic!("Error getting column value: {:?}", e),
+                })
+                .collect();
+            match writeln!(stdout, "{}", values.join("\t")) {
+                Ok(_) => {}
+                Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => {
+                    std::process::exit(0);
+                }
+                Err(e) => {
+                    panic!("Error writing to stdout: {}", e);
                 }
             }
-        } else {
-            // Use Python for columns that need it
-            Python::with_gil(|py| {
-                // Initialize Python expressions in columns if needed
-                let mut py_columns: Vec<Column> = columns
-                    .into_iter()
-                    .map(|mut col| {
-                        if let Some(bedder::column::ValueParser::PythonExpression(expr)) =
-                            &col.value_parser
-                        {
-                            let compiled = bedder::py::CompiledPython::new(py, expr)
-                                .expect("error compiling Python expression");
-                            col.py = Some(compiled);
-                        }
-                        col
-                    })
-                    .collect();
-                log::info!("py_columns: {:?}", py_columns);
-
-                // Process intersections with columns
-                for intersection in ii {
-                    let intersection = intersection.expect("error getting intersection");
-                    let values: Vec<String> = py_columns
-                        .iter()
-                        .map(|col| match col.value(&intersection) {
-                            Ok(val) => val.to_string(),
-                            Err(e) => panic!("Error getting column value: {:?}", e),
-                        })
-                        .collect();
-                    match writeln!(stdout, "{}", values.join("\t")) {
-                        Ok(_) => {}
-                        Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => {
-                            std::process::exit(0);
-                        }
-                        Err(e) => {
-                            panic!("Error writing to stdout: {}", e);
-                        }
-                    }
-                }
-            });
         }
-    } else {
-        // Legacy mode with f-string
-        if args.use_lua {
-            let compiled = bedder::lua_wrapper::CompiledLua::new(&args.f_string)
-                .expect("error compiling Lua expression");
-
-            // iterate over the intersections
-            ii.for_each(|intersection| {
-                let intersection = intersection.expect("error getting intersection");
-                match compiled.eval(intersection) {
-                    Ok(result) => writeln!(stdout, "{}", result).expect("error writing to stdout"),
-                    Err(e) => {
-                        panic!("Error formatting: {}", e);
-                    }
-                }
-            });
-        } else {
-            Python::with_gil(|py| {
-                let compiled = bedder::py::CompiledPython::new(py, &args.f_string)
-                    .expect("error compiling f-string");
-
-                // iterate over the intersections
-                for intersection in ii {
-                    let intersection = intersection.expect("error getting intersection");
-                    let py_intersection = bedder::py::PyIntersections::from(intersection);
-                    match compiled.eval(py_intersection) {
-                        Ok(result) => match writeln!(stdout, "{}", result) {
-                            Ok(_) => {}
-                            Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => {
-                                std::process::exit(0);
-                            }
-                            Err(e) => {
-                                panic!("Error formatting: {}", e);
-                            }
-                        },
-                        Err(e) => {
-                            panic!("Error formatting: {}", e);
-                        }
-                    }
-                }
-            });
-        }
-    }
+    });
 
     Ok(())
 }
