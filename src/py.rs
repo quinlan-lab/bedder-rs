@@ -496,7 +496,7 @@ fn wrap_python_code(code: &str) -> String {
         .collect::<Vec<String>>();
 
     // Try to add a return statement to the last line if it's not already there
-    if indented_code_lines.len() > 0
+    if !indented_code_lines.is_empty()
         && !indented_code_lines[indented_code_lines.len() - 1]
             .trim()
             .starts_with("return")

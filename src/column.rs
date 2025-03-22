@@ -37,6 +37,7 @@ pub enum ColumnError {
     InvalidType(String),
     InvalidNumber(String),
     InvalidValueParser(String),
+    PythonError(String),
 }
 
 impl std::fmt::Display for ColumnError {
@@ -46,6 +47,7 @@ impl std::fmt::Display for ColumnError {
             ColumnError::InvalidType(s) => write!(f, "Invalid type: {}", s),
             ColumnError::InvalidNumber(s) => write!(f, "Invalid number: {}", s),
             ColumnError::InvalidValueParser(s) => write!(f, "Invalid value parser: {}", s),
+            ColumnError::PythonError(s) => write!(f, "Python error: {}", s),
         }
     }
 }
@@ -74,6 +76,7 @@ pub enum ValueParser {
     OriginalInterval,
 }
 pub struct Column<'py> {
+    // name is also used as the header in the output
     name: String,
     ftype: Type,
     description: String,
@@ -217,17 +220,20 @@ impl ColumnReporter for Column<'_> {
                 );
                 Ok(Value::String(s))
             }
-            Some(ValueParser::PythonExpression(_expr)) => {
+            Some(ValueParser::PythonExpression(expr)) => {
                 // For Python expressions, we should use the compiled Python object
                 if let Some(py) = &self.py {
                     // Convert intersection to PyIntersections and evaluate
                     let py_intersection = crate::py::PyIntersections::from(r.clone());
                     match py.eval(py_intersection) {
                         Ok(result) => Ok(Value::String(result)),
-                        Err(e) => Err(ColumnError::InvalidValue(format!("Python error: {}", e))),
+                        Err(e) => Err(ColumnError::PythonError(format!(
+                            "Python error when evaluating expression: \"{}\": {}",
+                            expr, e
+                        ))),
                     }
                 } else {
-                    Err(ColumnError::InvalidValue(
+                    Err(ColumnError::PythonError(
                         "Python interpreter not initialized".to_string(),
                     ))
                 }
@@ -313,7 +319,7 @@ impl TryFrom<&str> for Column<'_> {
         {
             return Ok(match parts[0] {
                 "cse" | "chrom_start_end" => Column::new(
-                    "chrom_start_end".to_string(),
+                    "chrom\tstart\tend".to_string(),
                     Type::String,
                     "Chromosome:start-end".to_string(),
                     Number::One,
