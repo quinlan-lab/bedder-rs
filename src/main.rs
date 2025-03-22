@@ -12,14 +12,17 @@ use std::path::PathBuf;
 struct Args {
     #[arg(help = "input file", short = 'a')]
     query_path: PathBuf,
+
     #[arg(help = "other file", short = 'b', required = true)]
     other_paths: Vec<PathBuf>,
+
     #[arg(
         help = "genome file for chromosome ordering",
         short = 'g',
         required = true
     )]
     genome_file: PathBuf,
+
     #[arg(
         help = "columns to output (format: name:type:description:number:value_parser)",
         short = 'c',
@@ -87,7 +90,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
             .map(|mut col| {
                 if let Some(bedder::column::ValueParser::PythonExpression(expr)) = &col.value_parser
                 {
-                    let compiled = bedder::py::CompiledPython::new(py, expr)
+                    let compiled = bedder::py::CompiledPython::new(py, expr, true)
                         .expect("error compiling Python expression");
                     col.py = Some(compiled);
                 }

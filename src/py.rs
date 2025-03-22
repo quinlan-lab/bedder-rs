@@ -486,11 +486,50 @@ pub struct CompiledPython<'py> {
 
 use pyo3_ffi::c_str;
 
+const FN_NAME: &str = "main";
+
+fn wrap_python_code(code: &str) -> String {
+    let mut indented_code_lines: Vec<String> = code
+        .lines()
+        .map(|line| format!("    {}", line)) // Add indentation to each line
+        .collect::<Vec<String>>();
+
+    // Try to add a return statement to the last line if it's not already there
+    if indented_code_lines.len() > 0
+        && !indented_code_lines[indented_code_lines.len() - 1]
+            .trim()
+            .starts_with("return")
+    {
+        let last_line = indented_code_lines.pop().unwrap();
+        indented_code_lines.push(format!(
+            "    return {}",
+            last_line.strip_prefix("    ").unwrap()
+        ));
+    }
+
+    let indented_code = indented_code_lines.join("\n");
+
+    format!("def {FN_NAME}(intersection):\n{}", indented_code)
+}
+
 impl<'py> CompiledPython<'py> {
-    pub fn new(py: Python<'py>, f_string_code: &str) -> PyResult<Self> {
-        let code = CString::new(f_string_code)?;
-        let module = PyModule::from_code(py, &code, c_str!("user_code"), c_str!("user_code"))?;
-        let f = module.getattr("main")?.extract()?;
+    /// Create a new compiled Python function
+    ///
+    /// If snippet is true, the code will be wrapped in a function called `main`
+    /// and the function will be returned. Otherwise, the code will be executed directly.
+    /// It must then be a function.
+    pub fn new(py: Python<'py>, f_string_code: &str, snippet: bool) -> PyResult<Self> {
+        let module = if snippet {
+            let wrapped_code = wrap_python_code(f_string_code);
+            log::info!("wrapped_code: {}", wrapped_code);
+            let code = CString::new(wrapped_code)?;
+            PyModule::from_code(py, &code, c_str!("user_code"), c_str!("user_code"))?
+        } else {
+            let code = CString::new(f_string_code)?;
+            PyModule::from_code(py, &code, c_str!("user_code"), c_str!("user_code"))?
+        };
+        let f = module.getattr(FN_NAME)?.extract()?;
+
         Ok(CompiledPython {
             _code: f_string_code.to_string(),
             _module: module,
@@ -502,8 +541,11 @@ impl<'py> CompiledPython<'py> {
         let result = self.f.call1((intersections,))?;
         if let Ok(result) = result.downcast_exact::<PyString>() {
             Ok(result.to_string())
-        } else if let Ok(result) = result.extract::<String>() {
-            Ok(result)
+        } else if let Ok(s) = result
+            .str()
+            .and_then(|py_str| py_str.to_str().map(|s| s.to_owned()))
+        {
+            Ok(s)
         } else {
             Err(PyTypeError::new_err("Result is not a string"))
         }

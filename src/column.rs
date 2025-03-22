@@ -176,7 +176,6 @@ impl ColumnReporter for Column<'_> {
                 // This is more complex as we need to extract scores from the intervals
                 // For now, return 0.0 as a placeholder
                 todo!("sum");
-                Ok(Value::Float(0.0))
             }
             Some(ValueParser::Bases) => {
                 // Calculate total number of bases covered by overlapping intervals
