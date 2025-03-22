@@ -48,3 +48,6 @@ pub mod lua_wrapper;
 
 /// Column reporters for bedder
 pub mod column;
+
+#[cfg(test)]
+mod py_test;

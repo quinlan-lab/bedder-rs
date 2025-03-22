@@ -3,11 +3,36 @@
 use crate::position::{Position, Positioned};
 use crate::string::String;
 pub use simplebed;
-use simplebed::{BedError, BedReader, BedRecord as SimpleBedRecord};
+use simplebed::{BedError, BedReader, BedRecord as SimpleBedRecord, BedValue};
 use std::io::{self, BufRead};
 use std::path::{Path, PathBuf};
 #[derive(Debug, Clone)]
 pub struct BedRecord(pub SimpleBedRecord);
+
+impl BedRecord {
+    #[allow(dead_code)]
+    pub(crate) fn new(
+        chrom: &str,
+        start: u64,
+        end: u64,
+        name: Option<&str>,
+        score: Option<f64>,
+        other_fields: Vec<String>,
+    ) -> Self {
+        let record = SimpleBedRecord::new(
+            chrom.to_string(),
+            start,
+            end,
+            name.map(|s| s.to_string()),
+            score,
+            other_fields
+                .into_iter()
+                .map(|s| BedValue::String(s))
+                .collect(),
+        );
+        Self(record)
+    }
+}
 
 impl crate::position::Positioned for BedRecord {
     #[inline]

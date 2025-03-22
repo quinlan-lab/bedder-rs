@@ -491,6 +491,7 @@ const FN_NAME: &str = "main";
 fn wrap_python_code(code: &str) -> String {
     let mut indented_code_lines: Vec<String> = code
         .lines()
+        .filter(|line| !line.trim().is_empty())
         .map(|line| format!("    {}", line)) // Add indentation to each line
         .collect::<Vec<String>>();
 
