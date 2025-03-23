@@ -99,9 +99,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
             })
             .collect();
         log::info!("py_columns: {:?}", py_columns);
-
-        py.run(c_str!("from bedder_py import *"), None, None)
-            .expect("error importing bedder");
+        bedder::py::initialize_python(py).expect("Failed to initialize Python environment");
 
         // Process intersections with columns
         for intersection in ii {

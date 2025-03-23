@@ -37,9 +37,9 @@ It is common to require certain *constraints* on the intersections like a percen
 We can get those with:
 
 ```python
-start:integer:start:1:py:a_mode = PyIntersectionMode.default() # report the full interval like -v in bedtools
-b_part = PyIntersectinPart.inverse() # report the part of the b-intervals that do not overlap the a-interval
-a_requirements = PyOverlapRequirements.fraction(0.5) # require at least 50% of the a_interval to be covered
+a_mode = PyIntersectionMode.default() # report the full interval like -v in bedtools
+b_part = PyIntersectionPart.inverse() # report the part of the b-intervals that do not overlap the a-interval
+a_requirements = PyOverlapAmount.fraction(0.5) # require at least 50% of the a_interval to be covered
 report = intersection.report(a_mode, None, None, b_part, a_requirements, None)
 result = []
 for ov in report:
@@ -47,7 +47,7 @@ for ov in report:
     for b in ov.b:
         line.append(f"{b.start}\t{b.stop}")
     result.append("\t".join(line))
-result
+"\n".join(result)
 ```
 
 This library aims to provide:

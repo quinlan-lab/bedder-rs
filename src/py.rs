@@ -513,6 +513,36 @@ fn wrap_python_code(code: &str) -> String {
     format!("def {FN_NAME}(intersection):\n{}", indented_code)
 }
 
+// Add this function to initialize the Python environment
+pub fn initialize_python(py: Python<'_>) -> PyResult<()> {
+    // Register the bedder_py module in sys.modules
+    let bedder_module = PyModule::new(py, "bedder_py")?;
+    bedder_py(&bedder_module)?;
+    py.import("sys")?
+        .getattr("modules")?
+        .set_item("bedder_py", &bedder_module)?;
+
+    // Import bedder classes into the __builtins__ module so they're globally available
+    let builtins = py.import("builtins")?;
+    let bedder_classes = [
+        "PyBedRecord",
+        "PyPosition",
+        "PyReport",
+        "PyReportFragment",
+        "PyIntersections",
+        "PyIntersectionMode",
+        "PyIntersectionPart",
+        "PyOverlapAmount",
+    ];
+
+    for class_name in bedder_classes {
+        let class = &bedder_module.getattr(class_name)?;
+        builtins.setattr(class_name, class)?;
+    }
+
+    Ok(())
+}
+
 impl<'py> CompiledPython<'py> {
     /// Create a new compiled Python function
     ///
@@ -529,6 +559,7 @@ impl<'py> CompiledPython<'py> {
             let code = CString::new(f_string_code)?;
             PyModule::from_code(py, &code, c_str!("user_code"), c_str!("user_code"))?
         };
+
         let f = module.getattr(FN_NAME)?.extract()?;
 
         Ok(CompiledPython {
