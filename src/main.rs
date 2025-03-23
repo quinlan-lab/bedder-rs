@@ -2,6 +2,7 @@ extern crate bedder;
 use bedder::column::{Column, ColumnReporter};
 use clap::Parser;
 use pyo3::prelude::*;
+use pyo3_ffi::c_str;
 use std::env;
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Write};
@@ -98,6 +99,9 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
             })
             .collect();
         log::info!("py_columns: {:?}", py_columns);
+
+        py.run(c_str!("from bedder_py import *"), None, None)
+            .expect("error importing bedder");
 
         // Process intersections with columns
         for intersection in ii {

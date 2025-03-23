@@ -13,16 +13,53 @@ cargo test --release --target $target \
 This is an early release of the library for feedback, especially from rust practitioners. If interested,
 read below and then, for example, have a look at [issue 2](https://github.com/quinlan-lab/bedder-rs/issues/2) and the associated [discussion](https://github.com/quinlan-lab/bedder-rs/discussions/3)
 
+## Problem statement
+
+BEDTools is extremely useful but adding features and maintaining existing ones is a challenge.
+We want a library (in bedder) that is:
+
+1. flexible enough to support most use-cases in BEDTools
+2. fast enough
+3. extensible so that we don't need a custom tool for every possible use-case.
+
+## Solution
+
+To do this, we provide the machinery to intersect common genomics file formats (and more can be added by implementing a simple trait)
+and we allow the user to write custom python snippets that are applied to that intersection.
+As a silly example, the user may want to count overlaps but only if the start position of the overlapping interval is even; that could be
+done with this expression:
+
+```Python
+len(o for o in intersection.overlapping if o.start % 2 == 0])
+```
+
+It is common to require certain *constraints* on the intersections like a percent or number of bases of overlap.
+We can get those with:
+
+```python
+start:integer:start:1:py:a_mode = PyIntersectionMode.default() # report the full interval like -v in bedtools
+b_part = PyIntersectinPart.inverse() # report the part of the b-intervals that do not overlap the a-interval
+a_requirements = PyOverlapRequirements.fraction(0.5) # require at least 50% of the a_interval to be covered
+report = intersection.report(a_mode, None, None, b_part, a_requirements, None)
+result = []
+for ov in report:
+    line = [f"{ov.a.chrom}\t{ov.a.start}\t{ov.a.stop}"]
+    for b in ov.b:
+        line.append(f"{b.start}\t{b.stop}")
+    result.append("\t".join(line))
+result
+```
+
 This library aims to provide:
 
 - [x] an abstraction so any interval types from sorted sources can be intersected together
 - [x] the rust implementation of the heap and Queue to find intersections with minimal overhead
 - [ ] bedder wrappers for:
-  + [x] bed
-  + [x] vcf/bcf
-  + [ ] sam/bam/cram
-  + [ ] gff/gtf
-  + [ ] generalized tabixed/csi files
+  - [x] bed
+  - [x] vcf/bcf
+  - [ ] sam/bam/cram
+  - [ ] gff/gtf
+  - [ ] generalized tabixed/csi files
 - [ ] downstream APIs to perform operations on the intersections
 - [ ] a python library to interact with the intersections
 
@@ -34,32 +71,13 @@ Any genomic position from any data source can be intersected by this library as 
 
 pub trait Positioned {
     fn chrom(&self) -> &str;
+
     fn start(&self) -> u64;
+    fn set_start(&self, u64);
+
     fn stop(&self) -> u64;
-
-    // extract a value from the Positioned object Field
-    fn value(&self, f: Field) -> Result<Value, FieldError>;
+    fn set_stop(&self, u64);
 }
-
-/// Value can be any number of Ints, Floats, or Strings.
-pub enum Value {
-    Ints(Vec<i64>),
-    Floats(Vec<f64>),
-    Strings(Vec<String>),
-}
-
-/// Field is either an integer: the i'th column.
-/// Or a String, e.g. "INFO.DP".
-pub enum Field {
-    String(String),
-    Int(usize),
-}
-
-pub enum FieldError {
-    InvalidFieldIndex(usize),
-    InvalidFieldName(String),
-}
-
 ```
 
 Then each file-type (VCF/BAM/etc) would implement this trait
@@ -67,13 +85,12 @@ Then each file-type (VCF/BAM/etc) would implement this trait
 ```rust
 // something that generates Positioned things (BED/VCF/BAM/GFF/etc.)
 pub trait PositionedIterator {
-    type Item: Positioned;
+    /// A name for the iterator. This is most often the file path, perhaps with the line number appended.
+    /// Used to provide informative messages to the user.
+    fn name(&self) -> String;
 
-    /// Q can be ignored. See below for more detail.
-    fn next_position(&mut self, q: Option<&dyn Positioned>) -> Option<Self::Item>;
-
-    /// A name for the iterator (likely filename) used by this library when logging.
-    fn name(&self)
+    /// return the next Positioned from the iterator.
+    fn next_position(&mut self, q: Option<&Position>) -> Option<std::io::Result<Position>>;
 }
 ```
 
@@ -93,8 +110,8 @@ same interval will be called with `q` of `None`. The implementer must:
 
 All Positioned structs are pulled through a min-heap. Each time an interval (with the smallest genomic position) is pulled from the min heap,
 a new struct is pulled from the file where that interval originated. Then the pulled interval is pushed onto a `queue` (actually a deque becase that's what is in the rust standard library).
-We then know the queue is in order. For each query interval, we drop from the queue any interval that is strictly _before_ the interval,
-then pull into the Intersection result any interval that is not _after_ the interval. Then return the result from the `next` call.
+We then know the queue is in order. For each query interval, we drop from the queue any interval that is strictly *before* the interval,
+then pull into the Intersection result any interval that is not *after* the interval. Then return the result from the `next` call.
 We use `Rc` because each database interval may be attached to more than one query interval.
 
 # Acknowledgements

@@ -193,10 +193,7 @@ pub trait PositionedIterator {
     /// and they should always be returned in order (querys will always be in order).
     /// Thus, if the implementer heeds `q` it should check that the returned Positioned is greater than the previously
     /// returned position (Positioned equal to previously returned position should have already been returned).
-    fn next_position(
-        &mut self,
-        q: Option<&Position>,
-    ) -> Option<std::result::Result<Position, io::Error>>;
+    fn next_position(&mut self, q: Option<&Position>) -> Option<io::Result<Position>>;
 }
 
 impl PositionedIterator for Box<dyn PositionedIterator> {
@@ -204,10 +201,7 @@ impl PositionedIterator for Box<dyn PositionedIterator> {
         (**self).name()
     }
 
-    fn next_position(
-        &mut self,
-        q: Option<&Position>,
-    ) -> Option<std::result::Result<Position, io::Error>> {
+    fn next_position(&mut self, q: Option<&Position>) -> Option<io::Result<Position>> {
         (**self).next_position(q)
     }
 }
