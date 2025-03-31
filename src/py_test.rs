@@ -46,7 +46,7 @@ mod tests {
     #[test]
     fn test_full_function() {
         Python::with_gil(|py| {
-            let code = r#"def main(intersection):
+            let code = r#"def bedder(intersection):
                 overlaps = len(intersection.overlapping)
                 return str(overlaps)
             "#;

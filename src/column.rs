@@ -112,7 +112,12 @@ impl TryFrom<&str> for ValueParser {
     fn try_from(s: &str) -> Result<Self, ColumnError> {
         // if it start with py: use python :lua, use lua, then others are count, sum, bases
         if let Some(rest) = s.strip_prefix("py:") {
-            Ok(ValueParser::PythonExpression(rest.to_string()))
+            // check if rest is an existing path ane read it into a string
+            if let Ok(content) = std::fs::read_to_string(rest) {
+                Ok(ValueParser::PythonExpression(content))
+            } else {
+                Ok(ValueParser::PythonExpression(rest.to_string()))
+            }
         } else if let Some(rest) = s.strip_prefix("lua:") {
             Ok(ValueParser::LuaExpression(rest.to_string()))
         } else if s == "count" {

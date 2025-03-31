@@ -2,7 +2,6 @@ extern crate bedder;
 use bedder::column::{Column, ColumnReporter};
 use clap::Parser;
 use pyo3::prelude::*;
-use pyo3_ffi::c_str;
 use std::env;
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Write};
@@ -91,7 +90,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
             .map(|mut col| {
                 if let Some(bedder::column::ValueParser::PythonExpression(expr)) = &col.value_parser
                 {
-                    let compiled = bedder::py::CompiledPython::new(py, expr, true)
+                    let compiled = bedder::py::CompiledPython::new(py, expr, false)
                         .expect("error compiling Python expression");
                     col.py = Some(compiled);
                 }
@@ -111,13 +110,15 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
                     Err(e) => panic!("Error getting column value: {:?}", e),
                 })
                 .collect();
-            match writeln!(stdout, "{}", values.join("\t")) {
-                Ok(_) => {}
-                Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => {
-                    std::process::exit(0);
-                }
-                Err(e) => {
-                    panic!("Error writing to stdout: {}", e);
+            if values.iter().any(|v| !v.is_empty()) {
+                match writeln!(stdout, "{}", values.join("\t")) {
+                    Ok(_) => {}
+                    Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => {
+                        std::process::exit(0);
+                    }
+                    Err(e) => {
+                        panic!("Error writing to stdout: {}", e);
+                    }
                 }
             }
         }

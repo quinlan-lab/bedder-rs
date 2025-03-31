@@ -486,7 +486,7 @@ pub struct CompiledPython<'py> {
 
 use pyo3_ffi::c_str;
 
-const FN_NAME: &str = "main";
+const FN_NAME: &str = "bedder";
 
 fn wrap_python_code(code: &str) -> String {
     let mut indented_code_lines: Vec<String> = code
@@ -546,7 +546,7 @@ pub fn initialize_python(py: Python<'_>) -> PyResult<()> {
 impl<'py> CompiledPython<'py> {
     /// Create a new compiled Python function
     ///
-    /// If snippet is true, the code will be wrapped in a function called `main`
+    /// If snippet is true, the code will be wrapped in a function called `bedder`
     /// and the function will be returned. Otherwise, the code will be executed directly.
     /// It must then be a function.
     pub fn new(py: Python<'py>, f_string_code: &str, snippet: bool) -> PyResult<Self> {
