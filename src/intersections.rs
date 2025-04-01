@@ -26,6 +26,15 @@ bitflags! {
     }
 }
 
+pub struct ReportOptions {
+    pub a_mode: IntersectionMode,
+    pub b_mode: IntersectionMode,
+    pub a_part: IntersectionPart,
+    pub b_part: IntersectionPart,
+    pub a_requirements: OverlapAmount,
+    pub b_requirements: OverlapAmount,
+}
+
 impl From<&str> for IntersectionMode {
     fn from(s: &str) -> Self {
         let mut result = Self::Default;
@@ -65,9 +74,27 @@ impl std::fmt::Display for IntersectionPart {
     }
 }
 
+impl Default for IntersectionPart {
+    fn default() -> Self {
+        Self::Whole
+    }
+}
+
+impl Default for &IntersectionPart {
+    fn default() -> Self {
+        &IntersectionPart::Whole
+    }
+}
+
 impl Default for IntersectionMode {
     fn default() -> Self {
         Self::Default
+    }
+}
+
+impl Default for &IntersectionMode {
+    fn default() -> Self {
+        &IntersectionMode::Default
     }
 }
 
@@ -113,6 +140,12 @@ impl std::fmt::Display for OverlapAmount {
 impl Default for OverlapAmount {
     fn default() -> Self {
         Self::Bases(1)
+    }
+}
+
+impl Default for &OverlapAmount {
+    fn default() -> Self {
+        &OverlapAmount::Bases(1)
     }
 }
 

@@ -3,6 +3,7 @@ use std::io::{self, BufReader, BufWriter, Write};
 use std::path::PathBuf;
 
 use bedder::hts_format::Format;
+use bedder::intersections::ReportOptions;
 use bedder::writer::InputHeader;
 use clap::Parser;
 extern crate bedder;
@@ -154,7 +155,7 @@ fn main() -> io::Result<()> {
         //eprintln!("args: {:?}", &args);
         //let c = ColumnReporter::new();
         let v = vec![];
-
+        let report_options = ReportOptions::new(&args);
         wtr.write(&mut intersection, &v)?;
     }
 

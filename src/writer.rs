@@ -1,6 +1,7 @@
 use crate::column::{ColumnReporter, Value};
 use crate::hts_format::{Compression, Format};
 use crate::intersection::Intersections;
+use crate::intersections::ReportOptions;
 use crate::position::Position;
 use rust_htslib::bam;
 use rust_htslib::bcf::{self, header::HeaderView};
@@ -190,6 +191,7 @@ impl Writer {
     fn update(
         format: Format,
         intersections: &mut Intersections,
+        report_options: Option<&ReportOptions>,
         crs: &[Box<dyn ColumnReporter>],
     ) -> Result<(), std::io::Error> {
         match format {
@@ -224,7 +226,7 @@ impl Writer {
                 let mut values = Vec::with_capacity(crs.len());
 
                 for cr in crs.iter() {
-                    if let Ok(value) = cr.value(intersections) {
+                    if let Ok(value) = cr.value(intersections, report_options) {
                         values.push(value);
                     }
                 }
@@ -259,6 +261,7 @@ impl Writer {
     pub fn write(
         &mut self,
         intersections: &mut Intersections,
+        report_options: Option<&ReportOptions>,
         crs: &[Box<dyn ColumnReporter>],
     ) -> Result<(), std::io::Error> {
         match self.format {
@@ -295,7 +298,7 @@ impl Writer {
                     }
                 };
 
-                Self::update(self.format, intersections, crs)?;
+                Self::update(self.format, intersections, report_options, crs)?;
                 let Position::Bed(bed_record) = Arc::get_mut(&mut intersections.base_interval)
                     .ok_or_else(|| {
                         std::io::Error::new(

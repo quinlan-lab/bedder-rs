@@ -82,6 +82,9 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
             .join("\t")
     )?;
 
+    // TODO: start here. add the appropriate argugments above and get a report options struct here.
+    let report_options = ReportOptions::new(&args);
+
     // Use Python for columns that need it
     Python::with_gil(|py| {
         // Initialize Python expressions in columns if needed
@@ -105,7 +108,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
             let intersection = intersection.expect("error getting intersection");
             let values: Vec<String> = py_columns
                 .iter()
-                .map(|col| match col.value(&intersection) {
+                .map(|col| match col.value(&intersection, &report_options) {
                     Ok(val) => val.to_string(),
                     Err(e) => panic!("Error getting column value: {:?}", e),
                 })

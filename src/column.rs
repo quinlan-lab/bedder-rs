@@ -1,4 +1,5 @@
 use crate::intersection::Intersections;
+use crate::intersections::ReportOptions;
 use crate::py::CompiledPython;
 
 #[derive(Debug, PartialEq)]
@@ -63,13 +64,18 @@ pub trait ColumnReporter {
     fn description(&self) -> &str;
     fn number(&self) -> &Number;
 
-    fn value(&self, r: &Intersections) -> Result<Value, ColumnError>;
+    fn value(
+        &self,
+        r: &Intersections,
+        report_options: Option<&ReportOptions>,
+    ) -> Result<Value, ColumnError>;
 }
 
 pub enum ValueParser {
     PythonExpression(String),
     LuaExpression(String),
-    Count,
+    // bool indicates whether we should use the intersection.report() constraints or just the count of overlaps
+    Count(bool),
     Sum,
     Bases,
     ChromStartEnd,
@@ -121,7 +127,9 @@ impl TryFrom<&str> for ValueParser {
         } else if let Some(rest) = s.strip_prefix("lua:") {
             Ok(ValueParser::LuaExpression(rest.to_string()))
         } else if s == "count" {
-            Ok(ValueParser::Count)
+            Ok(ValueParser::Count(false))
+        } else if s == "report_count" {
+            Ok(ValueParser::Count(true))
         } else if s == "sum" {
             Ok(ValueParser::Sum)
         } else if s == "bases" {
@@ -141,7 +149,8 @@ impl std::fmt::Display for ValueParser {
         match self {
             ValueParser::PythonExpression(s) => write!(f, "py:{}", s),
             ValueParser::LuaExpression(s) => write!(f, "lua:{}", s),
-            ValueParser::Count => write!(f, "count"),
+            ValueParser::Count(false) => write!(f, "count"),
+            ValueParser::Count(true) => write!(f, "report_count"),
             ValueParser::Sum => write!(f, "sum"),
             ValueParser::Bases => write!(f, "bases"),
             ValueParser::ChromStartEnd => write!(f, "chrom_start_end"),
@@ -173,11 +182,32 @@ impl ColumnReporter for Column<'_> {
         &self.number
     }
 
-    fn value(&self, r: &Intersections) -> Result<Value, ColumnError> {
+    fn value(
+        &self,
+        r: &Intersections,
+        report_options: Option<&ReportOptions>,
+    ) -> Result<Value, ColumnError> {
         match &self.value_parser {
-            Some(ValueParser::Count) => {
+            Some(ValueParser::Count(false)) => {
                 // Return the count of overlapping intervals
                 Ok(Value::Int(r.overlapping.len() as i32))
+            }
+            Some(ValueParser::Count(true)) => {
+                // Return the count of overlapping intervals
+                // BARF: TODO: this sucks.
+                let report = r.report(
+                    &report_options.map(|o| &o.a_mode).unwrap_or_default(),
+                    &report_options.map(|o| &o.b_mode).unwrap_or_default(),
+                    &report_options.map(|o| &o.a_part).unwrap_or_default(),
+                    &report_options.map(|o| &o.b_part).unwrap_or_default(),
+                    &report_options
+                        .map(|o| &o.a_requirements)
+                        .unwrap_or_default(),
+                    &report_options
+                        .map(|o| &o.b_requirements)
+                        .unwrap_or_default(),
+                );
+                Ok(Value::Int(report.len() as i32))
             }
             Some(ValueParser::Sum) => {
                 // Sum the scores of overlapping intervals if they exist
@@ -347,7 +377,7 @@ impl TryFrom<&str> for Column<'_> {
                     Type::Integer,
                     "Count".to_string(),
                     Number::One,
-                    Some(ValueParser::Count),
+                    Some(ValueParser::Count(false)),
                 ),
                 "sum" => Column::new(
                     "sum".to_string(),
