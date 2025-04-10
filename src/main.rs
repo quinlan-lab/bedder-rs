@@ -40,11 +40,7 @@ struct Args {
     )]
     output_path: PathBuf,
 
-    #[arg(
-        help = "intersection mode for a-file",
-        short = 'm',
-        default_value = "all"
-    )]
+    #[arg(help = "intersection mode for a-file", short = 'm', default_value = "")]
     intersection_mode: IntersectionMode,
 
     #[arg(help = "a-part", short = 'p', default_value = "whole")]

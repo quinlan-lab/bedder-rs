@@ -178,6 +178,7 @@ impl Default for &OverlapAmount {
 ///     .b_requirements(OverlapAmount::Fraction(0.5))
 ///     .build();
 /// ```
+#[derive(Debug, Clone)]
 pub struct ReportOptions {
     pub a_mode: IntersectionMode,
     pub b_mode: IntersectionMode,

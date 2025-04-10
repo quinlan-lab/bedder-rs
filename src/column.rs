@@ -1,5 +1,5 @@
 use crate::intersection::Intersections;
-use crate::py::CompiledPython;
+use crate::py::{CompiledPython, PyReportOptions};
 use crate::report_options::ReportOptions;
 
 #[derive(Debug, PartialEq)]
@@ -260,7 +260,9 @@ impl ColumnReporter for Column<'_> {
                 if let Some(py) = &self.py {
                     // Convert intersection to PyIntersections and evaluate
                     let py_intersection = crate::py::PyIntersections::from(r.clone());
-                    match py.eval(py_intersection) {
+                    let py_report_options =
+                        report_options.map(|ro| PyReportOptions::new(ro.clone()));
+                    match py.eval(py_intersection, py_report_options) {
                         Ok(result) => Ok(Value::String(result)),
                         Err(e) => Err(ColumnError::PythonError(format!(
                             "Python error when evaluating expression: \"{}\": {}",

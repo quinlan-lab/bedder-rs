@@ -5,7 +5,7 @@ use pyo3::types::{PyFunction, PyString};
 use std::ffi::CString;
 
 use crate::position::Position;
-use crate::report_options::{IntersectionMode, IntersectionPart, OverlapAmount};
+use crate::report_options::{IntersectionMode, IntersectionPart, OverlapAmount, ReportOptions};
 
 // Wrapper for simplebed::BedRecord
 /// A Python wrapper for a BED record.
@@ -91,6 +91,31 @@ impl From<Arc<BedRecord>> for PyBedRecord {
 #[derive(Clone, Debug)]
 pub struct PyReportFragment {
     inner: crate::report::ReportFragment,
+}
+
+#[pyclass]
+#[derive(Clone, Debug)]
+pub struct PyReportOptions {
+    inner: ReportOptions,
+}
+
+#[pymethods] // TODO: start here and implement
+impl PyReportOptions {
+    fn __repr__(&self) -> String {
+        format!("{:?}", self.inner)
+    }
+
+    fn __str__(&self) -> String {
+        self.__repr__()
+    }
+}
+
+impl PyReportOptions {
+    pub(crate) fn new(report_options: ReportOptions) -> Self {
+        PyReportOptions {
+            inner: report_options,
+        }
+    }
 }
 
 // No changes needed to ReportFragment relative to previous good answer
@@ -411,6 +436,12 @@ impl PyIntersections {
             inner: self.inner.base_interval.clone(),
         })
     }
+    /// Get the base interval
+    fn a(&self) -> PyResult<PyPosition> {
+        Ok(PyPosition {
+            inner: self.inner.base_interval.clone(),
+        })
+    }
 
     #[getter]
     /// Get the list of overlapping intervals
@@ -569,8 +600,12 @@ impl<'py> CompiledPython<'py> {
         })
     }
 
-    pub fn eval(&self, intersections: PyIntersections) -> PyResult<String> {
-        let result = self.f.call1((intersections,))?;
+    pub fn eval(
+        &self,
+        intersections: PyIntersections,
+        report_options: Option<PyReportOptions>,
+    ) -> PyResult<String> {
+        let result = self.f.call1((intersections, report_options))?;
         if let Ok(result) = result.downcast_exact::<PyString>() {
             Ok(result.to_string())
         } else if let Ok(s) = result
