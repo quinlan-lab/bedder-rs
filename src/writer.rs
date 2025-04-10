@@ -1,8 +1,8 @@
 use crate::column::{ColumnReporter, Value};
 use crate::hts_format::{Compression, Format};
 use crate::intersection::Intersections;
-use crate::intersections::ReportOptions;
 use crate::position::Position;
+use crate::report_options::ReportOptions;
 use rust_htslib::bam;
 use rust_htslib::bcf::{self, header::HeaderView};
 use rust_htslib::htslib as hts;

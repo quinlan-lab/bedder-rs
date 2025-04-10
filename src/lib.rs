@@ -17,6 +17,7 @@ pub mod sniff;
 
 /// Reports from intersections.
 pub mod report;
+pub mod report_options;
 
 /// a std::String::String unless other string features are enabled.
 pub mod string;

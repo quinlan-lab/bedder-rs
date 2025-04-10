@@ -4,8 +4,8 @@ use pyo3::prelude::*;
 use pyo3::types::{PyFunction, PyString};
 use std::ffi::CString;
 
-use crate::intersections::{IntersectionMode, IntersectionPart, OverlapAmount};
-use crate::position::Position; // Import Position
+use crate::position::Position;
+use crate::report_options::{IntersectionMode, IntersectionPart, OverlapAmount};
 
 // Wrapper for simplebed::BedRecord
 /// A Python wrapper for a BED record.

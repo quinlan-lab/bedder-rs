@@ -1,8 +1,8 @@
 use mlua::prelude::*;
 use simplebed::BedRecord as SimpleBedRecord;
 
-use crate::intersections::{IntersectionMode, IntersectionPart, OverlapAmount};
 use crate::position::Position;
+use crate::report_options::{IntersectionMode, IntersectionPart, OverlapAmount};
 use std::sync::Arc;
 
 // Wrapper for simplebed::BedRecord

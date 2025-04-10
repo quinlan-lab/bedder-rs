@@ -1,5 +1,6 @@
 extern crate bedder;
 use bedder::column::{Column, ColumnReporter};
+use bedder::report_options::{IntersectionMode, IntersectionPart, OverlapAmount, ReportOptions};
 use clap::Parser;
 use pyo3::prelude::*;
 use std::env;
@@ -8,7 +9,7 @@ use std::io::{BufReader, BufWriter, Write};
 use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
-#[command(author, version, about, long_about=None)]
+#[command(author, version, about, long_about=None, rename_all = "kebab-case")]
 struct Args {
     #[arg(help = "input file", short = 'a')]
     query_path: PathBuf,
@@ -30,6 +31,30 @@ struct Args {
         required = true
     )]
     columns: Vec<String>,
+
+    #[arg(
+        help = "output file (default: stdout)",
+        short = 'o',
+        long = "output",
+        default_value = "-"
+    )]
+    output_path: PathBuf,
+
+    #[arg(
+        help = "intersection mode for a-file",
+        short = 'm',
+        default_value = "all"
+    )]
+    intersection_mode: IntersectionMode,
+
+    #[arg(help = "a-part", short = 'p', default_value = "whole")]
+    a_part: IntersectionPart,
+
+    #[arg(help = "b-part", default_value = "whole")]
+    b_part: IntersectionPart,
+
+    #[arg(help = "a-requirements", short = 'r', default_value = "1")]
+    a_requirements: OverlapAmount,
 }
 
 #[global_allocator]
@@ -83,8 +108,12 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     )?;
 
     // TODO: start here. add the appropriate argugments above and get a report options struct here.
-    let report_options = ReportOptions::new(&args);
-
+    let report_options = ReportOptions::builder()
+        .a_mode(args.intersection_mode)
+        .a_part(args.a_part)
+        .b_part(args.b_part)
+        .a_requirements(args.a_requirements)
+        .build();
     // Use Python for columns that need it
     Python::with_gil(|py| {
         // Initialize Python expressions in columns if needed
@@ -108,10 +137,12 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
             let intersection = intersection.expect("error getting intersection");
             let values: Vec<String> = py_columns
                 .iter()
-                .map(|col| match col.value(&intersection, &report_options) {
-                    Ok(val) => val.to_string(),
-                    Err(e) => panic!("Error getting column value: {:?}", e),
-                })
+                .map(
+                    |col| match col.value(&intersection, Some(&report_options)) {
+                        Ok(val) => val.to_string(),
+                        Err(e) => panic!("Error getting column value: {:?}", e),
+                    },
+                )
                 .collect();
             if values.iter().any(|v| !v.is_empty()) {
                 match writeln!(stdout, "{}", values.join("\t")) {

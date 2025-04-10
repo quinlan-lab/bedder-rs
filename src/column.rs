@@ -1,6 +1,6 @@
 use crate::intersection::Intersections;
-use crate::intersections::ReportOptions;
 use crate::py::CompiledPython;
+use crate::report_options::ReportOptions;
 
 #[derive(Debug, PartialEq)]
 pub enum Value {
@@ -218,9 +218,9 @@ impl ColumnReporter for Column<'_> {
             Some(ValueParser::Bases) => {
                 // Calculate total number of bases covered by overlapping intervals
                 // Use the report functionality to get the base count
-                let default_mode = crate::intersections::IntersectionMode::default();
-                let whole_part = crate::intersections::IntersectionPart::Whole;
-                let base_requirement = crate::intersections::OverlapAmount::Bases(1);
+                let default_mode = crate::report_options::IntersectionMode::default();
+                let whole_part = crate::report_options::IntersectionPart::Whole;
+                let base_requirement = crate::report_options::OverlapAmount::Bases(1);
 
                 let report = r.report(
                     &default_mode,
