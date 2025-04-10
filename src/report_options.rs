@@ -1,4 +1,5 @@
 use bitflags::bitflags;
+use clap::ValueEnum;
 use std::{num::ParseFloatError, str::FromStr};
 
 bitflags! {
@@ -42,7 +43,7 @@ impl FromStr for IntersectionMode {
 }
 
 /// IntersectionPart indicates what to report for the intersection.
-#[derive(Eq, PartialEq, Debug, Clone)]
+#[derive(Eq, PartialEq, Debug, Clone, ValueEnum)]
 pub enum IntersectionPart {
     /// Don't report the intersection.
     /// This is commonly used for -b to not report b intervals.
@@ -68,7 +69,7 @@ impl std::fmt::Display for IntersectionPart {
 
 impl From<&str> for IntersectionPart {
     fn from(s: &str) -> Self {
-        Self::from_str(s).unwrap_or(Self::Whole)
+        <Self as ValueEnum>::from_str(s, true).unwrap_or(Self::Whole)
     }
 }
 

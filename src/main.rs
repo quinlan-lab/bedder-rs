@@ -53,7 +53,11 @@ struct Args {
     #[arg(help = "b-part", default_value = "whole")]
     b_part: IntersectionPart,
 
-    #[arg(help = "a-requirements", short = 'r', default_value = "1")]
+    #[arg(
+        help = "a-requirements for overlap. A float value < 1 or a number ending with % will be the fraction (or %) of the interval. And integer will be the number of bases.",
+        short = 'r',
+        default_value = "1"
+    )]
     a_requirements: OverlapAmount,
 }
 
