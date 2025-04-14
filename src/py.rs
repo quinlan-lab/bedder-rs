@@ -96,7 +96,7 @@ pub struct PyReportFragment {
 #[pyclass]
 #[derive(Clone, Debug)]
 pub struct PyReportOptions {
-    inner: ReportOptions,
+    inner: Arc<ReportOptions>,
 }
 
 #[pymethods] // TODO: start here and implement
@@ -111,7 +111,7 @@ impl PyReportOptions {
 }
 
 impl PyReportOptions {
-    pub(crate) fn new(report_options: ReportOptions) -> Self {
+    pub(crate) fn new(report_options: Arc<ReportOptions>) -> Self {
         PyReportOptions {
             inner: report_options,
         }
@@ -425,8 +425,20 @@ impl PyOverlapAmount {
 #[derive(Clone, Debug)]
 pub struct PyIntersections {
     inner: crate::intersection::Intersections,
+    report_options: Arc<ReportOptions>,
 }
 
+impl PyIntersections {
+    pub fn new(
+        inner: crate::intersection::Intersections,
+        report_options: Arc<ReportOptions>,
+    ) -> Self {
+        PyIntersections {
+            inner,
+            report_options,
+        }
+    }
+}
 #[pymethods]
 impl PyIntersections {
     #[getter]
@@ -457,39 +469,9 @@ impl PyIntersections {
     }
 
     /// Report intersections based on specified modes and requirements
-    #[pyo3(signature = (
-        a_mode=None,
-        b_mode=None,
-        a_part=None,
-        b_part=None,
-        a_requirements=None,
-        b_requirements=None
-    ))]
-    fn report(
-        &self,
-        a_mode: Option<PyIntersectionMode>,
-        b_mode: Option<PyIntersectionMode>,
-        a_part: Option<PyIntersectionPart>,
-        b_part: Option<PyIntersectionPart>,
-        a_requirements: Option<PyOverlapAmount>,
-        b_requirements: Option<PyOverlapAmount>,
-    ) -> PyResult<PyReport> {
-        let a_mode = a_mode.unwrap_or_else(PyIntersectionMode::default);
-        let b_mode = b_mode.unwrap_or_else(PyIntersectionMode::default);
-        let a_part = a_part.unwrap_or_else(PyIntersectionPart::whole);
-        let b_part = b_part.unwrap_or_else(PyIntersectionPart::whole);
-        let a_requirements = a_requirements.unwrap_or_else(|| PyOverlapAmount::bases(1));
-        let b_requirements = b_requirements.unwrap_or_else(|| PyOverlapAmount::bases(1));
-
+    fn report(&self) -> PyResult<PyReport> {
         Ok(PyReport {
-            inner: self.inner.report(
-                &a_mode.inner,
-                &b_mode.inner,
-                &a_part.inner,
-                &b_part.inner,
-                &a_requirements.inner,
-                &b_requirements.inner,
-            ),
+            inner: self.inner.report(self.report_options.clone()),
         })
     }
 
@@ -499,12 +481,6 @@ impl PyIntersections {
 
     fn __str__(&self) -> String {
         self.__repr__()
-    }
-}
-
-impl From<crate::intersection::Intersections> for PyIntersections {
-    fn from(inner: crate::intersection::Intersections) -> Self {
-        PyIntersections { inner }
     }
 }
 
@@ -600,12 +576,8 @@ impl<'py> CompiledPython<'py> {
         })
     }
 
-    pub fn eval(
-        &self,
-        intersections: PyIntersections,
-        report_options: Option<PyReportOptions>,
-    ) -> PyResult<String> {
-        let result = self.f.call1((intersections, report_options))?;
+    pub fn eval(&self, intersections: PyIntersections) -> PyResult<String> {
+        let result = self.f.call1((intersections,))?;
         if let Ok(result) = result.downcast_exact::<PyString>() {
             Ok(result.to_string())
         } else if let Ok(s) = result

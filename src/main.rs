@@ -7,6 +7,7 @@ use std::env;
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Write};
 use std::path::PathBuf;
+use std::sync::Arc;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about=None, rename_all = "kebab-case")]
@@ -108,12 +109,14 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     )?;
 
     // TODO: start here. add the appropriate argugments above and get a report options struct here.
-    let report_options = ReportOptions::builder()
-        .a_mode(args.intersection_mode)
-        .a_part(args.a_part)
-        .b_part(args.b_part)
-        .a_requirements(args.a_requirements)
-        .build();
+    let report_options = Arc::new(
+        ReportOptions::builder()
+            .a_mode(args.intersection_mode)
+            .a_part(args.a_part)
+            .b_part(args.b_part)
+            .a_requirements(args.a_requirements)
+            .build(),
+    );
     // Use Python for columns that need it
     Python::with_gil(|py| {
         // Initialize Python expressions in columns if needed
@@ -138,7 +141,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
             let values: Vec<String> = py_columns
                 .iter()
                 .map(
-                    |col| match col.value(&intersection, Some(&report_options)) {
+                    |col| match col.value(&intersection, report_options.clone()) {
                         Ok(val) => val.to_string(),
                         Err(e) => panic!("Error getting column value: {:?}", e),
                     },

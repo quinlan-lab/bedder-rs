@@ -1,7 +1,7 @@
 use crate::intersection::Intersections;
 use crate::py::{CompiledPython, PyReportOptions};
 use crate::report_options::ReportOptions;
-
+use std::sync::Arc;
 #[derive(Debug, PartialEq)]
 pub enum Value {
     Int(i32),
@@ -67,7 +67,7 @@ pub trait ColumnReporter {
     fn value(
         &self,
         r: &Intersections,
-        report_options: Option<&ReportOptions>,
+        report_options: Arc<ReportOptions>,
     ) -> Result<Value, ColumnError>;
 }
 
@@ -185,7 +185,7 @@ impl ColumnReporter for Column<'_> {
     fn value(
         &self,
         r: &Intersections,
-        report_options: Option<&ReportOptions>,
+        report_options: Arc<ReportOptions>,
     ) -> Result<Value, ColumnError> {
         match &self.value_parser {
             Some(ValueParser::Count(false)) => {
@@ -193,20 +193,7 @@ impl ColumnReporter for Column<'_> {
                 Ok(Value::Int(r.overlapping.len() as i32))
             }
             Some(ValueParser::Count(true)) => {
-                // Return the count of overlapping intervals
-                // BARF: TODO: this sucks.
-                let report = r.report(
-                    &report_options.map(|o| &o.a_mode).unwrap_or_default(),
-                    &report_options.map(|o| &o.b_mode).unwrap_or_default(),
-                    &report_options.map(|o| &o.a_part).unwrap_or_default(),
-                    &report_options.map(|o| &o.b_part).unwrap_or_default(),
-                    &report_options
-                        .map(|o| &o.a_requirements)
-                        .unwrap_or_default(),
-                    &report_options
-                        .map(|o| &o.b_requirements)
-                        .unwrap_or_default(),
-                );
+                let report = r.report(report_options.clone());
                 Ok(Value::Int(report.len() as i32))
             }
             Some(ValueParser::Sum) => {
@@ -218,18 +205,8 @@ impl ColumnReporter for Column<'_> {
             Some(ValueParser::Bases) => {
                 // Calculate total number of bases covered by overlapping intervals
                 // Use the report functionality to get the base count
-                let default_mode = crate::report_options::IntersectionMode::default();
-                let whole_part = crate::report_options::IntersectionPart::Whole;
-                let base_requirement = crate::report_options::OverlapAmount::Bases(1);
 
-                let report = r.report(
-                    &default_mode,
-                    &default_mode,
-                    &whole_part,
-                    &whole_part,
-                    &base_requirement,
-                    &base_requirement,
-                );
+                let report = r.report(report_options.clone());
 
                 let bases = report.count_bases_by_id();
                 let total_bases: i32 = bases.iter().sum::<u64>() as i32;
@@ -259,10 +236,9 @@ impl ColumnReporter for Column<'_> {
                 // For Python expressions, we should use the compiled Python object
                 if let Some(py) = &self.py {
                     // Convert intersection to PyIntersections and evaluate
-                    let py_intersection = crate::py::PyIntersections::from(r.clone());
-                    let py_report_options =
-                        report_options.map(|ro| PyReportOptions::new(ro.clone()));
-                    match py.eval(py_intersection, py_report_options) {
+                    let py_intersection =
+                        crate::py::PyIntersections::new(r.clone(), report_options.clone());
+                    match py.eval(py_intersection) {
                         Ok(result) => Ok(Value::String(result)),
                         Err(e) => Err(ColumnError::PythonError(format!(
                             "Python error when evaluating expression: \"{}\": {}",

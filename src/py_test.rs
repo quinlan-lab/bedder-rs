@@ -4,6 +4,7 @@ mod tests {
     use crate::intersection::{Intersection, Intersections};
     use crate::position::Position;
     use crate::py::{CompiledPython, PyIntersections};
+    use crate::report_options::ReportOptions;
     use pyo3::Python;
     use std::sync::Arc;
 
@@ -25,7 +26,7 @@ mod tests {
             }],
         };
 
-        PyIntersections::from(intersections)
+        PyIntersections::new(intersections, Arc::new(ReportOptions::default()))
     }
 
     #[test]

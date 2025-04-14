@@ -191,7 +191,7 @@ impl Writer {
     fn update(
         format: Format,
         intersections: &mut Intersections,
-        report_options: Option<&ReportOptions>,
+        report_options: Arc<ReportOptions>,
         crs: &[Box<dyn ColumnReporter>],
     ) -> Result<(), std::io::Error> {
         match format {
@@ -226,7 +226,7 @@ impl Writer {
                 let mut values = Vec::with_capacity(crs.len());
 
                 for cr in crs.iter() {
-                    if let Ok(value) = cr.value(intersections, report_options) {
+                    if let Ok(value) = cr.value(intersections, report_options.clone()) {
                         values.push(value);
                     }
                 }
@@ -261,7 +261,7 @@ impl Writer {
     pub fn write(
         &mut self,
         intersections: &mut Intersections,
-        report_options: Option<&ReportOptions>,
+        report_options: Arc<ReportOptions>,
         crs: &[Box<dyn ColumnReporter>],
     ) -> Result<(), std::io::Error> {
         match self.format {

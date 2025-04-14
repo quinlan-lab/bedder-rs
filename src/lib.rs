@@ -44,8 +44,8 @@ pub mod hts_format;
 /// Python bindings for bedder
 pub mod py;
 
-/// Lua bindings for bedder
-pub mod lua_wrapper;
+// Lua bindings for bedder
+//pub mod lua_wrapper;
 
 /// Column reporters for bedder
 pub mod column;
