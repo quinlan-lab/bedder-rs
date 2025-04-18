@@ -88,7 +88,11 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let ii = bedder::intersection::IntersectionIterator::new(aiter, b_iters, &chrom_order)?;
 
-    let mut stdout = BufWriter::new(std::io::stdout().lock());
+    let mut output: Box<dyn Write> = if args.output_path.to_str().unwrap() == "-" {
+        Box::new(BufWriter::new(std::io::stdout().lock()))
+    } else {
+        Box::new(BufWriter::new(File::create(&args.output_path)?))
+    };
 
     // Parse columns
     let columns: Vec<Column> = args
@@ -99,7 +103,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Print header
     writeln!(
-        stdout,
+        output,
         "#{}",
         columns
             .iter()
@@ -148,13 +152,13 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
                 )
                 .collect();
             if values.iter().any(|v| !v.is_empty()) {
-                match writeln!(stdout, "{}", values.join("\t")) {
+                match writeln!(output, "{}", values.join("\t")) {
                     Ok(_) => {}
                     Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => {
                         std::process::exit(0);
                     }
                     Err(e) => {
-                        panic!("Error writing to stdout: {}", e);
+                        panic!("Error writing to output({:?}): {}", args.output_path, e);
                     }
                 }
             }
