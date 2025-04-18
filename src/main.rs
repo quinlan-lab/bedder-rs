@@ -41,7 +41,11 @@ struct Args {
     )]
     output_path: PathBuf,
 
-    #[arg(help = "intersection mode for a-file", short = 'm', default_value = "")]
+    #[arg(
+        help = "intersection mode for a-file",
+        short = 'm',
+        default_value = "d"
+    )]
     intersection_mode: IntersectionMode,
 
     #[arg(help = "a-part", short = 'p', default_value = "whole")]
@@ -51,7 +55,7 @@ struct Args {
     b_part: IntersectionPart,
 
     #[arg(
-        help = "a-requirements for overlap. A float value < 1 or a number ending with % will be the fraction (or %) of the interval. And integer will be the number of bases.",
+        help = "a-requirements for overlap. A float value < 1 or a number ending with % will be the fraction (or %) of the interval. An integer will be the number of bases.",
         short = 'r',
         default_value = "1"
     )]
@@ -141,6 +145,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         // Process intersections with columns
         for intersection in ii {
+            // TODO: brent start here. need to auto call report when needed.
             let intersection = intersection.expect("error getting intersection");
             let values: Vec<String> = py_columns
                 .iter()

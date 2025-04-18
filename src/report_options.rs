@@ -33,6 +33,7 @@ impl FromStr for IntersectionMode {
         let mut result = Self::Default;
         for c in s.chars() {
             match c {
+                'd' => result |= Self::Default,
                 'v' => result |= Self::Not,
                 'p' => result |= Self::PerPiece,
                 _ => return Err(format!("unknown intersection mode {}", c)),

@@ -471,7 +471,7 @@ impl PyIntersections {
     /// Report intersections based on specified modes and requirements
     fn report(&self) -> PyResult<PyReport> {
         Ok(PyReport {
-            inner: self.inner.report(self.report_options.clone()),
+            inner: self.inner.report(&self.report_options),
         })
     }
 

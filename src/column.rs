@@ -187,13 +187,14 @@ impl ColumnReporter for Column<'_> {
         r: &Intersections,
         report_options: Arc<ReportOptions>,
     ) -> Result<Value, ColumnError> {
+        // TODO: accept writer and write to it directly.
         match &self.value_parser {
             Some(ValueParser::Count(false)) => {
                 // Return the count of overlapping intervals
                 Ok(Value::Int(r.overlapping.len() as i32))
             }
             Some(ValueParser::Count(true)) => {
-                let report = r.report(report_options.clone());
+                let report = r.report(&report_options);
                 Ok(Value::Int(report.len() as i32))
             }
             Some(ValueParser::Sum) => {
@@ -206,7 +207,7 @@ impl ColumnReporter for Column<'_> {
                 // Calculate total number of bases covered by overlapping intervals
                 // Use the report functionality to get the base count
 
-                let report = r.report(report_options.clone());
+                let report = r.report(&report_options);
 
                 let bases = report.count_bases_by_id();
                 let total_bases: i32 = bases.iter().sum::<u64>() as i32;
@@ -237,7 +238,7 @@ impl ColumnReporter for Column<'_> {
                 if let Some(py) = &self.py {
                     // Convert intersection to PyIntersections and evaluate
                     let py_intersection =
-                        crate::py::PyIntersections::new(r.clone(), report_options.clone());
+                        crate::py::PyIntersections::new(r.clone(), report_options);
                     match py.eval(py_intersection) {
                         Ok(result) => Ok(Value::String(result)),
                         Err(e) => Err(ColumnError::PythonError(format!(

@@ -28,7 +28,9 @@ fn inverse(base_interval: &Position, overlaps: &[Intersection]) -> Vec<Arc<Posit
 }
 
 impl Intersections {
-    pub fn report(&self, report_options: Arc<ReportOptions>) -> Report {
+    // TODO: brenth cache report with report options as this is expensive.
+    // add a new field to Intersections to cache the report.
+    pub fn report(&self, report_options: &ReportOptions) -> Report {
         // usually the result is [query, [[b1-part, b1-part2, ...], [b2-part, ...]]]],
         // in fact, usually, there's only a single b and a single interval from b, so it's:
         // [query, [[b1-part]]]
@@ -281,7 +283,7 @@ mod tests {
         ro.a_requirements = OverlapAmount::Bases(5);
         ro.b_requirements = OverlapAmount::Bases(1);
 
-        let r = intersections.report(Arc::new(ro));
+        let r = intersections.report(&ro);
         eprintln!("{:?}", r);
         assert_eq!(r.len(), 1);
         let rf = &r[0];
@@ -333,12 +335,12 @@ mod tests {
         ro.b_part = IntersectionPart::Whole;
         ro.a_requirements = OverlapAmount::Bases(5);
         ro.b_requirements = OverlapAmount::Bases(1);
-        let r = intersections.report(Arc::new(ro.clone()));
+        let r = intersections.report(&ro);
         assert_eq!(r.len(), 0);
 
         // now we increase the a base requirement so it is NOT met.
         ro.a_requirements = OverlapAmount::Bases(10);
-        let r = intersections.report(Arc::new(ro.clone()));
+        let r = intersections.report(&ro);
         assert_eq!(r.len(), 1);
         let rf = &r[0];
         assert_eq!(rf.a.as_ref().unwrap().start(), 1);
@@ -348,7 +350,7 @@ mod tests {
 
         // now we also use b not
         ro.b_mode = IntersectionMode::Not;
-        let r = intersections.report(Arc::new(ro.clone()));
+        let r = intersections.report(&ro);
         assert_eq!(r.len(), 0);
 
         // now we also use b not
@@ -358,7 +360,7 @@ mod tests {
         ro.b_part = IntersectionPart::Part;
         ro.b_requirements = OverlapAmount::Bases(10);
         ro.a_requirements = OverlapAmount::Bases(10);
-        let r = intersections.report(Arc::new(ro.clone()));
+        let r = intersections.report(&ro);
         assert_eq!(r.len(), 1);
         let rf = &r[0];
         assert_eq!(rf.a.as_ref().unwrap().start(), 1);
@@ -383,10 +385,10 @@ mod tests {
         ro.b_part = IntersectionPart::Whole;
         ro.a_requirements = OverlapAmount::Bases(1);
         ro.b_requirements = OverlapAmount::Bases(1);
-        let r = intersections.report(Arc::new(ro.clone()));
+        let r = intersections.report(&ro);
         assert!(r.is_empty());
         ro.a_requirements = OverlapAmount::Bases(6);
-        let r = intersections.report(Arc::new(ro.clone()));
+        let r = intersections.report(&ro);
         assert_eq!(r.len(), 2);
     }
 
@@ -400,7 +402,7 @@ mod tests {
         ro.b_part = IntersectionPart::Whole;
         ro.a_requirements = OverlapAmount::Bases(1);
         ro.b_requirements = OverlapAmount::Bases(1);
-        let r = intersections.report(Arc::new(ro.clone()));
+        let r = intersections.report(&ro);
         assert_eq!(1, r.len());
         assert_eq!(r[0].id, usize::MAX);
     }
@@ -415,7 +417,7 @@ mod tests {
         ro.b_part = IntersectionPart::Inverse;
         ro.a_requirements = OverlapAmount::Bases(1);
         ro.b_requirements = OverlapAmount::Bases(1);
-        let r = intersections.report(Arc::new(ro.clone()));
+        let r = intersections.report(&ro);
         assert_eq!(r.len(), 2);
 
         assert_eq!(r[0].b.len(), 1);
@@ -435,7 +437,7 @@ mod tests {
         ro.b_part = IntersectionPart::Whole;
         ro.a_requirements = OverlapAmount::Bases(1);
         ro.b_requirements = OverlapAmount::Bases(1);
-        let r = intersections.report(Arc::new(ro.clone()));
+        let r = intersections.report(&ro);
         assert_eq!(r.len(), 2); // one for each b.
         assert!(r[0].id == 0);
         assert!(r[1].id == 1);
@@ -455,7 +457,7 @@ mod tests {
         ro.b_part = IntersectionPart::Whole;
         ro.a_requirements = OverlapAmount::Bases(1);
         ro.b_requirements = OverlapAmount::Bases(1);
-        let r = intersections.report(Arc::new(ro.clone()));
+        let r = intersections.report(&ro);
         assert_eq!(r.len(), 2);
         let rf = &r[0];
         // test that a is 1-10
@@ -484,7 +486,7 @@ mod tests {
         ro.b_part = IntersectionPart::Part;
         ro.a_requirements = OverlapAmount::Bases(1);
         ro.b_requirements = OverlapAmount::Bases(1);
-        let r = intersections.report(Arc::new(ro.clone()));
+        let r = intersections.report(&ro);
         // a: 3-6, b: 3-6
         // a: 8-10, b: 8-10
         assert_eq!(r.len(), 2);
@@ -515,11 +517,11 @@ mod tests {
         ro.b_part = IntersectionPart::Part;
         ro.a_requirements = OverlapAmount::Bases(5);
         ro.b_requirements = OverlapAmount::Bases(1);
-        let r = intersections.report(Arc::new(ro.clone()));
+        let r = intersections.report(&ro);
         assert_eq!(r.len(), 0);
         ro.a_requirements = OverlapAmount::Bases(4);
         ro.b_requirements = OverlapAmount::Bases(1);
-        let r = intersections.report(Arc::new(ro.clone()));
+        let r = intersections.report(&ro);
         assert_eq!(r.len(), 1);
         let rf = &r[0];
         assert_eq!(rf.a.as_ref().unwrap().start(), 4);
@@ -544,7 +546,7 @@ mod tests {
         ro.b_part = IntersectionPart::None;
         ro.a_requirements = OverlapAmount::Bases(1);
         ro.b_requirements = OverlapAmount::Bases(1);
-        let r = intersections.report(Arc::new(ro.clone()));
+        let r = intersections.report(&ro);
         assert_eq!(r.len(), 1);
         assert_eq!(r[0].a.as_ref().unwrap().start(), 4);
         assert_eq!(r[0].a.as_ref().unwrap().stop(), 10);
@@ -561,7 +563,7 @@ mod tests {
         ro.b_part = IntersectionPart::Part;
         ro.a_requirements = OverlapAmount::Bases(1);
         ro.b_requirements = OverlapAmount::Bases(1);
-        let r = intersections.report(Arc::new(ro.clone()));
+        let r = intersections.report(&ro);
         assert_eq!(r.len(), 1);
         assert_eq!(r[0].a, None);
         let rf = &r[0];
