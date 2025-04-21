@@ -7,6 +7,7 @@ use rust_htslib::bam;
 use rust_htslib::bcf::{self, header::HeaderView};
 use rust_htslib::htslib as hts;
 use simplebed::{self, BedValue};
+use std::fmt;
 use std::mem;
 use std::rc::Rc;
 use std::result::Result;
@@ -18,6 +19,27 @@ pub enum FormatConversionError {
     HtslibError(String),
     UnsupportedFormat(hts::htsExactFormat),
     IoError(std::io::Error),
+}
+
+impl fmt::Display for FormatConversionError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            FormatConversionError::HtslibError(msg) => write!(f, "HTSlib error: {}", msg),
+            FormatConversionError::UnsupportedFormat(format) => {
+                write!(f, "Unsupported format: {:?}", format)
+            }
+            FormatConversionError::IoError(e) => write!(f, "IO error: {}", e),
+        }
+    }
+}
+
+impl std::error::Error for FormatConversionError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            FormatConversionError::IoError(e) => Some(e),
+            _ => None,
+        }
+    }
 }
 
 impl From<std::io::Error> for FormatConversionError {
@@ -188,11 +210,11 @@ impl Writer {
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()))
     }
 
-    fn update(
+    fn update<T: ColumnReporter>(
         format: Format,
         intersections: &mut Intersections,
         report_options: Arc<ReportOptions>,
-        crs: &[Box<dyn ColumnReporter>],
+        crs: &[T],
     ) -> Result<(), std::io::Error> {
         match format {
             Format::Vcf => {
@@ -258,11 +280,11 @@ impl Writer {
         Ok(())
     }
 
-    pub fn write(
+    pub fn write<T: ColumnReporter>(
         &mut self,
         intersections: &mut Intersections,
         report_options: Arc<ReportOptions>,
-        crs: &[Box<dyn ColumnReporter>],
+        crs: &[T],
     ) -> Result<(), std::io::Error> {
         match self.format {
             Format::Vcf => {

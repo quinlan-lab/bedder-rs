@@ -1,6 +1,8 @@
 extern crate bedder;
 use bedder::column::{Column, ColumnReporter};
+use bedder::hts_format::Format;
 use bedder::report_options::{IntersectionMode, IntersectionPart, OverlapAmount, ReportOptions};
+use bedder::writer::{InputHeader, Writer};
 use clap::Parser;
 use pyo3::prelude::*;
 use std::env;
@@ -92,11 +94,20 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let ii = bedder::intersection::IntersectionIterator::new(aiter, b_iters, &chrom_order)?;
 
+    /*
     let mut output: Box<dyn Write> = if args.output_path.to_str().unwrap() == "-" {
         Box::new(BufWriter::new(std::io::stdout().lock()))
     } else {
         Box::new(BufWriter::new(File::create(&args.output_path)?))
     };
+    */
+
+    let mut output = Writer::init(
+        args.output_path.to_str().unwrap(),
+        Some(Format::Bed),
+        None,
+        InputHeader::None,
+    )?;
 
     // Parse columns
     let columns: Vec<Column> = args
@@ -106,6 +117,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         .collect::<Result<Vec<_>, _>>()?;
 
     // Print header
+    /*
     writeln!(
         output,
         "#{}",
@@ -115,8 +127,8 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
             .collect::<Vec<_>>()
             .join("\t")
     )?;
+    */
 
-    // TODO: start here. add the appropriate argugments above and get a report options struct here.
     let report_options = Arc::new(
         ReportOptions::builder()
             .a_mode(args.intersection_mode)
@@ -128,7 +140,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Use Python for columns that need it
     Python::with_gil(|py| {
         // Initialize Python expressions in columns if needed
-        let py_columns: Vec<Column> = columns
+        let py_columns: Vec<Column<'_>> = columns
             .into_iter()
             .map(|mut col| {
                 if let Some(bedder::column::ValueParser::PythonExpression(expr)) = &col.value_parser
@@ -140,13 +152,16 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
                 col
             })
             .collect();
-        log::info!("py_columns: {:?}", py_columns);
+        //log::info!("py_columns: {:?}", py_columns);
         bedder::py::initialize_python(py).expect("Failed to initialize Python environment");
 
         // Process intersections with columns
         for intersection in ii {
             // TODO: brent start here. need to auto call report when needed.
-            let intersection = intersection.expect("error getting intersection");
+            let mut intersection = intersection.expect("error getting intersection");
+
+            output.write(&mut intersection, report_options.clone(), &py_columns)?;
+            /*
             let values: Vec<String> = py_columns
                 .iter()
                 .map(
@@ -167,8 +182,8 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
             }
+            */
         }
-    });
-
-    Ok(())
+        Ok::<(), Box<dyn std::error::Error>>(())
+    })
 }
