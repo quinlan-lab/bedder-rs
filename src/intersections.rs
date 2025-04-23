@@ -4,25 +4,27 @@ use crate::report::{Report, ReportFragment};
 use crate::report_options::{IntersectionMode, IntersectionPart, OverlapAmount, ReportOptions};
 #[allow(unused_imports)]
 use crate::string::String;
+use parking_lot::Mutex;
 use std::sync::Arc;
 
 /// Extract pieces of base_interval that do no overlap overlaps
-fn inverse(base_interval: &Position, overlaps: &[Intersection]) -> Vec<Arc<Position>> {
+fn inverse(base_interval: &Position, overlaps: &[Intersection]) -> Vec<Arc<Mutex<Position>>> {
     let mut last_start = base_interval.start();
     let mut result = Vec::new();
     for o in overlaps {
-        if o.interval.start() > last_start {
+        let o = o.interval.try_lock().expect("failed to lock interval");
+        if o.start() > last_start {
             let mut p = base_interval.clone_box();
             p.set_start(last_start);
-            p.set_stop(o.interval.start());
-            result.push(Arc::new(p))
+            p.set_stop(o.start());
+            result.push(Arc::new(Mutex::new(p)))
         }
-        last_start = o.interval.stop();
+        last_start = o.stop();
     }
     if last_start < base_interval.stop() {
         let mut p = base_interval.clone_box();
         p.set_start(last_start);
-        result.push(Arc::new(p))
+        result.push(Arc::new(Mutex::new(p)))
     }
     result
 }
@@ -54,17 +56,27 @@ impl Intersections {
                 for b_interval in overlaps {
                     let bases_overlap = self
                         .calculate_overlap(self.base_interval.clone(), b_interval.interval.clone());
+                    let base = self
+                        .base_interval
+                        .try_lock()
+                        .expect("failed to lock interval");
+                    let b = b_interval
+                        .interval
+                        .try_lock()
+                        .expect("failed to lock interval");
                     if Intersections::satisfies_requirements(
                         bases_overlap,
-                        self.base_interval.stop() - self.base_interval.start(),
+                        base.stop() - base.start(),
                         &report_options.a_requirements,
                         &report_options.a_mode,
                     ) && Intersections::satisfies_requirements(
                         bases_overlap,
-                        b_interval.interval.stop() - b_interval.interval.start(),
+                        b.stop() - b.start(),
                         &report_options.b_requirements,
                         &report_options.b_mode,
                     ) {
+                        drop(base);
+                        drop(b);
                         self.push_overlap_fragments(
                             &mut result,
                             &[b_interval.clone()],
@@ -77,20 +89,28 @@ impl Intersections {
             } else {
                 // Calculate cumulative overlap and sum of lengths for this group
                 let total_bases_overlap = self.calculate_total_overlap(overlaps);
+                let base = self
+                    .base_interval
+                    .try_lock()
+                    .expect("failed to lock interval");
                 if Intersections::satisfies_requirements(
                     total_bases_overlap,
-                    self.base_interval.stop() - self.base_interval.start(),
+                    base.stop() - base.start(),
                     &report_options.a_requirements,
                     &report_options.a_mode,
                 ) && Intersections::satisfies_requirements(
                     total_bases_overlap,
                     overlaps
                         .iter()
-                        .map(|o| o.interval.stop() - o.interval.start())
+                        .map(|o| {
+                            let ov = o.interval.try_lock().expect("failed to lock interval");
+                            ov.stop() - ov.start()
+                        })
                         .sum(),
                     &report_options.b_requirements,
                     &report_options.b_mode,
                 ) {
+                    drop(base);
                     self.push_overlap_fragments(
                         &mut result,
                         overlaps,
@@ -140,10 +160,16 @@ impl Intersections {
     }
 
     #[inline]
-    fn calculate_overlap(&self, interval_a: Arc<Position>, interval_b: Arc<Position>) -> u64 {
+    fn calculate_overlap(
+        &self,
+        interval_a: Arc<Mutex<Position>>,
+        interval_b: Arc<Mutex<Position>>,
+    ) -> u64 {
         // NOTE!: we don't handle the case where there is no overlap. possible underflow. But we should
         // only get overlapping intervals here.
-        interval_a.stop().min(interval_b.stop()) - interval_a.start().max(interval_b.start())
+        let a = interval_a.try_lock().expect("failed to lock interval");
+        let b = interval_b.try_lock().expect("failed to lock interval");
+        a.stop().min(b.stop()) - a.start().max(b.start())
     }
 
     #[inline]
@@ -166,19 +192,30 @@ impl Intersections {
 
         let a_positions = match a_part {
             // for None, we still need the a_interval to report the b_interval
-            IntersectionPart::None => vec![Arc::new(self.base_interval.clone_box())],
+            IntersectionPart::None | IntersectionPart::Whole => vec![self.base_interval.clone()],
             IntersectionPart::Part => {
                 // Create and adjust a_position if a_part is Part
                 // Q: TODO: what to do here with multiple b files? keep intersection to smallest joint overlap?
-                let mut a_interval = self.base_interval.clone_box();
+                let mut a_interval = self
+                    .base_interval
+                    .try_lock()
+                    .expect("failed to lock interval")
+                    .clone_box();
                 self.adjust_bounds(&mut a_interval, overlaps);
-                vec![Arc::new(a_interval)]
+                vec![Arc::new(Mutex::new(a_interval))]
             }
-            IntersectionPart::Whole => vec![self.base_interval.clone()],
-            IntersectionPart::Inverse => inverse(&self.base_interval, overlaps),
+            IntersectionPart::Inverse => {
+                let locked_base = self
+                    .base_interval
+                    .try_lock()
+                    .expect("failed to lock interval");
+                let base_clone = locked_base.clone_box();
+                drop(locked_base); // Explicitly drop the lock
+                inverse(&base_clone, overlaps)
+            }
         };
 
-        a_positions.into_iter().for_each(|a_position| {
+        a_positions.iter().for_each(|a_position| {
             let a_pos = if matches!(a_part, IntersectionPart::None) {
                 None
             } else {
@@ -193,12 +230,19 @@ impl Intersections {
                 },
                 IntersectionPart::Part => {
                     let mut b_positions = Vec::new();
+                    let base = self
+                        .base_interval
+                        .try_lock()
+                        .expect("failed to lock interval");
                     for o in overlaps {
-                        let mut b_interval = o.interval.clone_box();
-                        b_interval.set_start(b_interval.start().max(self.base_interval.start()));
-                        b_interval.set_stop(b_interval.stop().min(self.base_interval.stop()));
-                        b_positions.push(Arc::new(b_interval));
+                        let o = o.interval.try_lock().expect("failed to lock interval");
+                        let mut b_interval = o.clone_box();
+                        b_interval.set_start(b_interval.start().max(base.start()));
+                        b_interval.set_stop(b_interval.stop().min(base.stop()));
+                        b_positions.push(Arc::new(Mutex::new(b_interval)));
+                        drop(o);
                     }
+                    drop(base);
                     ReportFragment {
                         a: a_pos,
                         b: b_positions,
@@ -209,16 +253,21 @@ impl Intersections {
                     // if we have a: 1-10, b: 3-6, 8-12
                     // then we want to report b: [], 10-12
                     let mut b_positions = Vec::new();
+                    let base = self
+                        .base_interval
+                        .try_lock()
+                        .expect("failed to lock interval");
                     for o in overlaps {
-                        if o.interval.start() < self.base_interval.start() {
-                            let mut b_interval = o.interval.clone_box();
+                        let o = o.interval.try_lock().expect("failed to lock interval");
+                        if o.start() < base.start() {
+                            let mut b_interval = o.clone_box();
                             b_interval.set_stop(b_interval.start());
-                            b_positions.push(Arc::new(b_interval));
+                            b_positions.push(Arc::new(Mutex::new(b_interval)));
                         }
-                        if o.interval.stop() > self.base_interval.stop() {
-                            let mut b_interval = o.interval.clone_box();
-                            b_interval.set_start(self.base_interval.stop());
-                            b_positions.push(Arc::new(b_interval));
+                        if o.stop() > base.stop() {
+                            let mut b_interval = o.clone_box();
+                            b_interval.set_start(base.stop());
+                            b_positions.push(Arc::new(Mutex::new(b_interval)));
                         }
                     }
                     ReportFragment {
@@ -251,7 +300,12 @@ impl Intersections {
         interval.set_start(
             overlaps
                 .iter()
-                .map(|o| o.interval.start())
+                .map(|o| {
+                    o.interval
+                        .try_lock()
+                        .expect("failed to lock interval")
+                        .start()
+                })
                 .min()
                 .unwrap_or(interval.start())
                 .max(interval.start()),
@@ -259,7 +313,12 @@ impl Intersections {
         interval.set_stop(
             overlaps
                 .iter()
-                .map(|o| o.interval.stop())
+                .map(|o| {
+                    o.interval
+                        .try_lock()
+                        .expect("failed to lock interval")
+                        .stop()
+                })
                 .max()
                 .unwrap_or(interval.stop())
                 .min(interval.stop()),
@@ -286,42 +345,57 @@ mod tests {
         let r = intersections.report(&ro);
         eprintln!("{:?}", r);
         assert_eq!(r.len(), 1);
-        let rf = &r[0];
-        assert_eq!(rf.a.as_ref().unwrap().start(), 1);
-        assert_eq!(rf.a.as_ref().unwrap().stop(), 10);
+        let rf = &r[0].a.as_ref().unwrap().lock();
+        assert_eq!(rf.start(), 1);
+        assert_eq!(rf.stop(), 10);
 
-        assert_eq!(rf.b.len(), 2);
-        assert_eq!(rf.b[0].start(), 3);
-        assert_eq!(rf.b[0].stop(), 6);
-        assert_eq!(rf.b[1].start(), 8);
-        assert_eq!(rf.b[1].stop(), 12);
+        let bs = &r[0].b;
+        assert_eq!(bs.len(), 2);
+        let b0 = &bs[0].lock();
+        assert_eq!(b0.start(), 3);
+        assert_eq!(b0.stop(), 6);
+        let b1 = &bs[1].lock();
+        assert_eq!(b1.start(), 8);
+        assert_eq!(b1.stop(), 12);
     }
 
     #[test]
     fn test_inverse() {
         let intersections = make_example("a: 1-10\nb: 3-6, 4-6, 8-12");
-        let inv = inverse(&intersections.base_interval, &intersections.overlapping);
+        let inv = inverse(
+            &intersections.base_interval.lock(),
+            &intersections.overlapping,
+        );
         assert_eq!(inv.len(), 2);
-        assert_eq!(inv[0].start(), 1);
-        assert_eq!(inv[0].stop(), 3);
-        assert_eq!(inv[1].start(), 6);
-        assert_eq!(inv[1].stop(), 8);
+        let inv0 = inv[0].lock();
+        assert_eq!(inv0.start(), 1);
+        assert_eq!(inv0.stop(), 3);
+        let inv1 = inv[1].lock();
+        assert_eq!(inv1.start(), 6);
+        assert_eq!(inv1.stop(), 8);
     }
 
     #[test]
     fn test_inverse_no_results() {
         let intersections = make_example("a: 1-10\nb: 1-6, 6-10");
-        let inv = inverse(&intersections.base_interval, &intersections.overlapping);
+        let inv = inverse(
+            &intersections.base_interval.lock(),
+            &intersections.overlapping,
+        );
         assert_eq!(inv.len(), 0);
     }
 
     #[test]
     fn test_inverse_right_overhang() {
         let intersections = make_example("a: 1-10\nb: 1-6, 6-8");
-        let inv = inverse(&intersections.base_interval, &intersections.overlapping);
+        let inv = inverse(
+            &intersections.base_interval.lock(),
+            &intersections.overlapping,
+        );
         assert_eq!(inv.len(), 1);
-        assert_eq!(inv[0].start(), 8);
-        assert_eq!(inv[0].stop(), 10);
+        let inv0 = inv[0].lock();
+        assert_eq!(inv0.start(), 8);
+        assert_eq!(inv0.stop(), 10);
     }
 
     #[test]
@@ -343,8 +417,8 @@ mod tests {
         let r = intersections.report(&ro);
         assert_eq!(r.len(), 1);
         let rf = &r[0];
-        assert_eq!(rf.a.as_ref().unwrap().start(), 1);
-        assert_eq!(rf.a.as_ref().unwrap().stop(), 10);
+        assert_eq!(rf.a.as_ref().unwrap().lock().start(), 1);
+        assert_eq!(rf.a.as_ref().unwrap().lock().stop(), 10);
         let b = &rf.b;
         assert_eq!(b.len(), 2);
 
@@ -363,14 +437,14 @@ mod tests {
         let r = intersections.report(&ro);
         assert_eq!(r.len(), 1);
         let rf = &r[0];
-        assert_eq!(rf.a.as_ref().unwrap().start(), 1);
-        assert_eq!(rf.a.as_ref().unwrap().stop(), 10);
+        assert_eq!(rf.a.as_ref().unwrap().lock().start(), 1);
+        assert_eq!(rf.a.as_ref().unwrap().lock().stop(), 10);
         let bs = &rf.b;
         assert_eq!(2, bs.len());
-        assert_eq!(bs[0].start(), 3);
-        assert_eq!(bs[0].stop(), 6);
-        assert_eq!(bs[1].start(), 8);
-        assert_eq!(bs[1].stop(), 10);
+        assert_eq!(bs[0].try_lock().unwrap().start(), 3);
+        assert_eq!(bs[0].try_lock().unwrap().stop(), 6);
+        assert_eq!(bs[1].try_lock().unwrap().start(), 8);
+        assert_eq!(bs[1].try_lock().unwrap().stop(), 10);
 
         eprintln!("{:?}", r);
     }
@@ -421,12 +495,12 @@ mod tests {
         assert_eq!(r.len(), 2);
 
         assert_eq!(r[0].b.len(), 1);
-        assert_eq!(r[0].b[0].start(), 10);
-        assert_eq!(r[0].b[0].stop(), 12);
+        assert_eq!(r[0].b[0].try_lock().unwrap().start(), 10);
+        assert_eq!(r[0].b[0].try_lock().unwrap().stop(), 12);
 
         assert_eq!(r[1].b.len(), 1);
-        assert_eq!(r[1].b[0].start(), 10);
-        assert_eq!(r[1].b[0].stop(), 20);
+        assert_eq!(r[1].b[0].try_lock().unwrap().start(), 10);
+        assert_eq!(r[1].b[0].try_lock().unwrap().stop(), 20);
     }
 
     #[test]
@@ -441,10 +515,10 @@ mod tests {
         assert_eq!(r.len(), 2); // one for each b.
         assert!(r[0].id == 0);
         assert!(r[1].id == 1);
-        assert_eq!(r[1].b[0].start(), 9);
-        assert_eq!(r[1].b[0].stop(), 20);
-        assert_eq!(r[1].a.as_ref().unwrap().start(), 9);
-        assert_eq!(r[1].a.as_ref().unwrap().stop(), 10);
+        assert_eq!(r[1].b[0].try_lock().unwrap().start(), 9);
+        assert_eq!(r[1].b[0].try_lock().unwrap().stop(), 20);
+        assert_eq!(r[1].a.as_ref().unwrap().lock().start(), 9);
+        assert_eq!(r[1].a.as_ref().unwrap().lock().stop(), 10);
     }
 
     #[test]
@@ -461,19 +535,19 @@ mod tests {
         assert_eq!(r.len(), 2);
         let rf = &r[0];
         // test that a is 1-10
-        assert_eq!(rf.a.as_ref().unwrap().start(), 1);
-        assert_eq!(rf.a.as_ref().unwrap().stop(), 10);
+        assert_eq!(rf.a.as_ref().unwrap().lock().start(), 1);
+        assert_eq!(rf.a.as_ref().unwrap().lock().stop(), 10);
         // test that b is 3-6
         assert_eq!(rf.b.len(), 1);
-        assert_eq!(rf.b[0].start(), 3);
-        assert_eq!(rf.b[0].stop(), 6);
+        assert_eq!(rf.b[0].lock().start(), 3);
+        assert_eq!(rf.b[0].lock().stop(), 6);
 
         let rf = &r[1];
-        assert_eq!(rf.a.as_ref().unwrap().start(), 1);
-        assert_eq!(rf.a.as_ref().unwrap().stop(), 10);
+        assert_eq!(rf.a.as_ref().unwrap().lock().start(), 1);
+        assert_eq!(rf.a.as_ref().unwrap().lock().stop(), 10);
         assert_eq!(rf.b.len(), 1);
-        assert_eq!(rf.b[0].start(), 8);
-        assert_eq!(rf.b[0].stop(), 12);
+        assert_eq!(rf.b[0].lock().start(), 8);
+        assert_eq!(rf.b[0].lock().stop(), 12);
     }
 
     #[test]
@@ -492,19 +566,19 @@ mod tests {
         assert_eq!(r.len(), 2);
         let rf = &r[0];
         // test that a is 3-6
-        assert_eq!(rf.a.as_ref().unwrap().start(), 3);
-        assert_eq!(rf.a.as_ref().unwrap().stop(), 6);
+        assert_eq!(rf.a.as_ref().unwrap().lock().start(), 3);
+        assert_eq!(rf.a.as_ref().unwrap().lock().stop(), 6);
         // test that b is 3-6
         assert_eq!(rf.b.len(), 1);
-        assert_eq!(rf.b[0].start(), 3);
-        assert_eq!(rf.b[0].stop(), 6);
+        assert_eq!(rf.b[0].lock().start(), 3);
+        assert_eq!(rf.b[0].lock().stop(), 6);
 
         let rf = &r[1];
-        assert_eq!(rf.a.as_ref().unwrap().start(), 8);
-        assert_eq!(rf.a.as_ref().unwrap().stop(), 10);
+        assert_eq!(rf.a.as_ref().unwrap().lock().start(), 8);
+        assert_eq!(rf.a.as_ref().unwrap().lock().stop(), 10);
         assert_eq!(rf.b.len(), 1);
-        assert_eq!(rf.b[0].start(), 8);
-        assert_eq!(rf.b[0].stop(), 10);
+        assert_eq!(rf.b[0].lock().start(), 8);
+        assert_eq!(rf.b[0].lock().stop(), 10);
     }
 
     #[test]
@@ -524,16 +598,16 @@ mod tests {
         let r = intersections.report(&ro);
         assert_eq!(r.len(), 1);
         let rf = &r[0];
-        assert_eq!(rf.a.as_ref().unwrap().start(), 4);
-        assert_eq!(rf.a.as_ref().unwrap().stop(), 10);
+        assert_eq!(rf.a.as_ref().unwrap().lock().start(), 4);
+        assert_eq!(rf.a.as_ref().unwrap().lock().stop(), 10);
 
         assert_eq!(rf.b.len(), 2);
         // note that b is chopped to 4
-        assert_eq!(rf.b[0].start(), 4);
-        assert_eq!(rf.b[0].stop(), 6);
-        assert_eq!(rf.b[1].start(), 8);
+        assert_eq!(rf.b[0].lock().start(), 4);
+        assert_eq!(rf.b[0].lock().stop(), 6);
+        assert_eq!(rf.b[1].lock().start(), 8);
         // and 10.
-        assert_eq!(rf.b[1].stop(), 10);
+        assert_eq!(rf.b[1].lock().stop(), 10);
     }
 
     #[test]
@@ -548,8 +622,8 @@ mod tests {
         ro.b_requirements = OverlapAmount::Bases(1);
         let r = intersections.report(&ro);
         assert_eq!(r.len(), 1);
-        assert_eq!(r[0].a.as_ref().unwrap().start(), 4);
-        assert_eq!(r[0].a.as_ref().unwrap().stop(), 10);
+        assert_eq!(r[0].a.as_ref().unwrap().lock().start(), 4);
+        assert_eq!(r[0].a.as_ref().unwrap().lock().stop(), 10);
         assert_eq!(r[0].b.len(), 0);
     }
 
@@ -565,14 +639,18 @@ mod tests {
         ro.b_requirements = OverlapAmount::Bases(1);
         let r = intersections.report(&ro);
         assert_eq!(r.len(), 1);
-        assert_eq!(r[0].a, None);
+        assert!(r[0].a.is_none());
         let rf = &r[0];
         // note that b is chopped to 4
-        assert_eq!(rf.b[0].start(), 4);
-        assert_eq!(rf.b[0].stop(), 6);
-        assert_eq!(rf.b[1].start(), 8);
+        let bs = &rf.b;
+        assert_eq!(bs.len(), 2);
+        let b0 = &bs[0].lock();
+        assert_eq!(b0.start(), 4);
+        assert_eq!(b0.stop(), 6);
+        let b1 = &bs[1].lock();
+        assert_eq!(b1.start(), 8);
         // and 10.
-        assert_eq!(rf.b[1].stop(), 10);
+        assert_eq!(b1.stop(), 10);
     }
 
     /*

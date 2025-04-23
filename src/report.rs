@@ -1,9 +1,10 @@
 use crate::position::Position;
+use parking_lot::Mutex;
 use std::sync::Arc;
 #[derive(Debug, Clone)]
 pub struct ReportFragment {
-    pub a: Option<Arc<Position>>,
-    pub b: Vec<Arc<Position>>,
+    pub a: Option<Arc<Mutex<Position>>>,
+    pub b: Vec<Arc<Mutex<Position>>>,
     pub id: usize,
 }
 
@@ -92,7 +93,10 @@ impl Report {
             result[frag.id] += frag
                 .b
                 .iter()
-                .map(|pos| pos.stop() - pos.start())
+                .map(|pos| {
+                    let p = pos.lock();
+                    p.stop() - p.start()
+                })
                 .sum::<u64>();
         });
         result

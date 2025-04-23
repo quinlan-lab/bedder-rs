@@ -1,5 +1,5 @@
 use crate::intersection::Intersections;
-use crate::py::{CompiledPython, PyReportOptions};
+use crate::py::CompiledPython;
 use crate::report_options::ReportOptions;
 use std::sync::Arc;
 #[derive(Debug, PartialEq)]
@@ -215,21 +215,29 @@ impl ColumnReporter for Column<'_> {
                 Ok(Value::Int(total_bases))
             }
             Some(ValueParser::ChromStartEnd) => {
+                let base_interval = r
+                    .base_interval
+                    .try_lock()
+                    .expect("failed to lock base_interval");
                 let s = format!(
                     "{}\t{}\t{}",
-                    r.base_interval.chrom(),
-                    r.base_interval.start(),
-                    r.base_interval.stop()
+                    base_interval.chrom(),
+                    base_interval.start(),
+                    base_interval.stop()
                 );
                 Ok(Value::String(s))
             }
             Some(ValueParser::OriginalInterval) => {
                 // Return the original interval as a string
+                let base_interval = r
+                    .base_interval
+                    .try_lock()
+                    .expect("failed to lock base_interval");
                 let s = format!(
                     "{}\t{}\t{}",
-                    r.base_interval.chrom(),
-                    r.base_interval.start(),
-                    r.base_interval.stop()
+                    base_interval.chrom(),
+                    base_interval.start(),
+                    base_interval.stop()
                 );
                 Ok(Value::String(s))
             }

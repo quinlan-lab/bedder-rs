@@ -1,5 +1,5 @@
 extern crate bedder;
-use bedder::column::{Column, ColumnReporter};
+use bedder::column::Column;
 use bedder::hts_format::Format;
 use bedder::report_options::{IntersectionMode, IntersectionPart, OverlapAmount, ReportOptions};
 use bedder::writer::{InputHeader, Writer};
@@ -7,7 +7,7 @@ use clap::Parser;
 use pyo3::prelude::*;
 use std::env;
 use std::fs::File;
-use std::io::{BufReader, BufWriter, Write};
+use std::io::BufReader;
 use std::path::PathBuf;
 use std::sync::Arc;
 

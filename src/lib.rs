@@ -37,8 +37,6 @@ pub use rust_htslib::htslib as hts;
 /// Vcf parser implementing the PositionedIterator trait.
 pub mod bedder_vcf;
 
-mod tests;
-
 pub mod hts_format;
 
 /// Python bindings for bedder
@@ -52,3 +50,6 @@ pub mod column;
 
 #[cfg(test)]
 mod py_test;
+
+#[cfg(test)]
+mod tests;

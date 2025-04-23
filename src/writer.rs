@@ -252,22 +252,21 @@ impl Writer {
                         values.push(value);
                     }
                 }
-                let Position::Bed(bed_record) = Arc::get_mut(&mut intersections.base_interval)
-                    .ok_or_else(|| {
-                        std::io::Error::new(
-                            std::io::ErrorKind::Other,
-                            "Cannot get mutable reference to base_interval",
-                        )
-                    })?
-                else {
+
+                // Clone the current Position first
+                if let Position::Bed(ref mut bed_record) = *intersections.base_interval.lock() {
+                    // Add all values to our clone
+                    for value in values {
+                        push_value_to_bed_record(bed_record, value);
+                    }
+
+                    // Replace the entire Arc with our updated version
+                    //intersections.base_interval = Arc::new(Position::Bed(new_bed_record));
+                } else {
                     return Err(std::io::Error::new(
                         std::io::ErrorKind::InvalidData,
                         "Position is not a BED interval",
                     ));
-                };
-
-                for value in values {
-                    push_value_to_bed_record(bed_record, value);
                 }
             }
             _ => {
@@ -321,22 +320,18 @@ impl Writer {
                 };
 
                 Self::update(self.format, intersections, report_options, crs)?;
-                let Position::Bed(bed_record) = Arc::get_mut(&mut intersections.base_interval)
-                    .ok_or_else(|| {
-                        std::io::Error::new(
-                            std::io::ErrorKind::Other,
-                            "Cannot get mutable reference to base_interval",
-                        )
-                    })?
-                else {
+
+                // Use the current value of the Arc without modifying it
+                if let Position::Bed(ref bed_record) = *intersections.base_interval.lock() {
+                    bed_writer.write_record(bed_record.inner()).map_err(|e| {
+                        std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string())
+                    })?;
+                } else {
                     return Err(std::io::Error::new(
                         std::io::ErrorKind::InvalidData,
                         "Position is not a BED interval",
                     ));
-                };
-                bed_writer.write_record(bed_record.inner()).map_err(|e| {
-                    std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string())
-                })?;
+                }
             }
             Format::Sam => unimplemented!("SAM writing not yet implemented"),
             _ => {

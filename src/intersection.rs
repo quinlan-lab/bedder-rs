@@ -1,6 +1,7 @@
 use crate::chrom_ordering::Chromosome;
 use crate::string::String;
 use hashbrown::HashMap;
+use parking_lot::Mutex;
 use std::cmp::Ordering;
 use std::collections::{vec_deque::VecDeque, BinaryHeap};
 use std::io;
@@ -22,7 +23,7 @@ pub struct IntersectionIterator<'a, P: PositionedIterator> {
     dequeue: VecDeque<Intersection>,
 
     // this is only kept for error checking so we can track if intervals are out of order.
-    previous_interval: Option<Arc<Position>>,
+    previous_interval: Option<Arc<Mutex<Position>>>,
 
     // this tracks which iterators have been called with Some(Positioned) for a given interval
     // so that calls after the first are called with None.
@@ -37,7 +38,7 @@ pub struct IntersectionIterator<'a, P: PositionedIterator> {
 #[derive(Debug)]
 pub struct Intersection {
     /// the Positioned that was intersected
-    pub interval: Arc<Position>,
+    pub interval: Arc<Mutex<Position>>,
     /// a unique identifier indicating the source of this interval.
     pub id: u32,
 }
@@ -54,7 +55,7 @@ impl Clone for Intersection {
 /// An Intersections wraps the base interval and a vector of overlapping intervals.
 #[derive(Debug, Clone)]
 pub struct Intersections {
-    pub base_interval: Arc<Position>,
+    pub base_interval: Arc<Mutex<Position>>,
     pub overlapping: Vec<Intersection>,
 }
 
@@ -130,24 +131,24 @@ impl<P: PositionedIterator> Iterator for IntersectionIterator<'_, P> {
         // if bi is an error return the Result here
         let base_interval = match bi {
             Err(e) => return Some(Err(e)),
-            Ok(p) => Arc::new(p),
+            Ok(p) => p,
         };
         if let Some(chrom) = self.chromosome_order.get(base_interval.chrom()) {
             if let Some(chrom_len) = chrom.length {
                 if base_interval.stop() > chrom_len as u64 {
                     let msg = format!(
                         "interval beyond end of chromosome: {}",
-                        region_str(base_interval.as_ref())
+                        region_str(&base_interval)
                     );
                     return Some(Err(Error::new(ErrorKind::Other, msg)));
                 }
             }
         } else {
-            let msg = format!("invalid chromosome: {}", region_str(base_interval.as_ref()));
+            let msg = format!("invalid chromosome: {}", region_str(&base_interval));
             return Some(Err(Error::new(ErrorKind::Other, msg)));
         }
 
-        if self.out_of_order(base_interval.clone()) {
+        if self.out_of_order(&base_interval) {
             let p = self
                 .previous_interval
                 .as_ref()
@@ -155,16 +156,16 @@ impl<P: PositionedIterator> Iterator for IntersectionIterator<'_, P> {
             let msg = format!(
                 "intervals from {} out of order {} should be before {}",
                 self.base_iterator.name(),
-                region_str(p),
-                region_str(base_interval.as_ref()),
+                region_str(&p.try_lock().expect("failed to lock previous interval")),
+                region_str(&base_interval),
             );
             return Some(Err(Error::new(ErrorKind::Other, msg)));
         }
-
-        self.previous_interval = Some(base_interval.clone());
-
         // drop intervals from Q that are strictly before the base interval.
-        self.pop_front(base_interval.clone());
+        self.pop_front(&base_interval);
+
+        let base_interval = Arc::new(Mutex::new(base_interval));
+        self.previous_interval = Some(base_interval.clone());
 
         // pull intervals through the min-heap until the base interval is strictly less than the
         // last pulled interval.
@@ -179,8 +180,10 @@ impl<P: PositionedIterator> Iterator for IntersectionIterator<'_, P> {
         // We iterate through (again) and add those to overlapping positions.
         for o in self.dequeue.iter() {
             match cmp(
-                o.interval.as_ref(),
-                base_interval.as_ref(),
+                &o.interval.try_lock().expect("failed to lock interval"),
+                &base_interval
+                    .try_lock()
+                    .expect("failed to lock base_interval"),
                 self.chromosome_order,
             ) {
                 Ordering::Less => continue,
@@ -195,7 +198,7 @@ impl<P: PositionedIterator> Iterator for IntersectionIterator<'_, P> {
         }
 
         Some(Ok(Intersections {
-            base_interval,
+            base_interval: Arc::clone(&base_interval),
             overlapping: overlapping_positions,
         }))
     }
@@ -222,10 +225,14 @@ impl<'a, P: PositionedIterator> IntersectionIterator<'a, P> {
         })
     }
 
-    fn init_heap(&mut self, base_interval: Arc<Position>) -> io::Result<()> {
+    fn init_heap(&mut self, base_interval: Arc<Mutex<Position>>) -> io::Result<()> {
         assert!(!self.heap_initialized);
         for (i, iter) in self.other_iterators.iter_mut().enumerate() {
-            if let Some(positioned) = iter.next_position(Some(base_interval.as_ref())) {
+            if let Some(positioned) = iter.next_position(Some(
+                &base_interval
+                    .try_lock()
+                    .expect("failed to lock base_interval"),
+            )) {
                 let positioned = positioned?;
                 let chromosome_index = match self.chromosome_order.get(positioned.chrom()) {
                     Some(c) => c.index,
@@ -250,12 +257,15 @@ impl<'a, P: PositionedIterator> IntersectionIterator<'a, P> {
     }
 
     /// drop intervals from Q that are strictly before the base interval.
-    fn pop_front(&mut self, base_interval: Arc<Position>) {
+    fn pop_front(&mut self, base_interval: &Position) {
         while !self.dequeue.is_empty()
             && Ordering::Less
                 == cmp(
-                    self.dequeue[0].interval.as_ref(),
-                    base_interval.as_ref(),
+                    &self.dequeue[0]
+                        .interval
+                        .try_lock()
+                        .expect("failed to lock interval"),
+                    base_interval,
                     self.chromosome_order,
                 )
         {
@@ -263,10 +273,13 @@ impl<'a, P: PositionedIterator> IntersectionIterator<'a, P> {
         }
     }
 
-    fn out_of_order(&self, interval: Arc<Position>) -> bool {
+    fn out_of_order(&self, interval: &Position) -> bool {
         match &self.previous_interval {
             None => false, // first interval in file.
             Some(previous_interval) => {
+                let previous_interval = previous_interval
+                    .try_lock()
+                    .expect("failed to lock previous interval");
                 if previous_interval.chrom() != interval.chrom() {
                     let pci = self.chromosome_order[previous_interval.chrom()].index;
                     let ici = self.chromosome_order[interval.chrom()].index;
@@ -286,12 +299,12 @@ impl<'a, P: PositionedIterator> IntersectionIterator<'a, P> {
         unsafe { ptr.write_bytes(0, self.called.len()) };
     }
 
-    fn pull_through_heap(&mut self, base_interval: Arc<Position>) -> io::Result<()> {
+    fn pull_through_heap(&mut self, base_interval: Arc<Mutex<Position>>) -> io::Result<()> {
         self.zero_called();
         if !self.heap_initialized {
             // we wait til first iteration here to call init heap
             // because we need the base interval.
-            self.init_heap(Arc::clone(&base_interval))?;
+            self.init_heap(base_interval.clone())?;
         }
         let other_iterators = self.other_iterators.as_mut_slice();
 
@@ -308,9 +321,12 @@ impl<'a, P: PositionedIterator> IntersectionIterator<'a, P> {
                 .expect("expected interval iterator at file index");
             // for a given base_interval, we make sure to call next_position with Some, only once.
             // subsequent calls will be with None.
+            let l = base_interval
+                .try_lock()
+                .expect("failed to lock base_interval");
             let arg: Option<&Position> = if !self.called[file_index] {
                 self.called[file_index] = true;
-                Some(base_interval.as_ref())
+                Some(&l)
             } else {
                 None
             };
@@ -361,9 +377,10 @@ impl<'a, P: PositionedIterator> IntersectionIterator<'a, P> {
                     id: file_index,
                 });
             }
+            drop(l);
 
             // and we must always add the position to the Q
-            let rc_pos = Arc::new(position);
+            let rc_pos = Arc::new(Mutex::new(position));
             let intersection = Intersection {
                 interval: rc_pos.clone(),
                 id: file_index as u32,
@@ -371,13 +388,17 @@ impl<'a, P: PositionedIterator> IntersectionIterator<'a, P> {
             self.dequeue.push_back(intersection);
 
             // if this position is after base_interval, we can stop pulling through heap.
-            if cmp(
-                base_interval.as_ref(),
-                rc_pos.as_ref(),
-                self.chromosome_order,
-            ) == Ordering::Less
             {
-                break;
+                if cmp(
+                    &base_interval
+                        .try_lock()
+                        .expect("failed to lock base_interval"),
+                    &rc_pos.try_lock().expect("failed to lock interval"),
+                    self.chromosome_order,
+                ) == Ordering::Less
+                {
+                    break;
+                }
             }
         }
         Ok(())
@@ -476,10 +497,16 @@ mod tests {
         assert!(iter.all(|intersection| {
             let intersection = intersection.expect("error getting intersection");
             n += 1;
-            assert!(intersection
-                .overlapping
-                .iter()
-                .all(|p| p.interval.start() == intersection.base_interval.start()));
+            assert!(intersection.overlapping.iter().all(|p| p
+                .interval
+                .try_lock()
+                .expect("failed to lock interval")
+                .start()
+                == intersection
+                    .base_interval
+                    .try_lock()
+                    .expect("failed to lock base_interval")
+                    .start()));
             intersection.overlapping.len() == times
         }));
         assert_eq!(n, n_intervals)
@@ -545,10 +572,13 @@ mod tests {
         iter.for_each(|intersection| {
             let intersection = intersection.expect("intersection");
             assert_eq!(intersection.overlapping.len(), 2);
-            assert!(intersection
-                .overlapping
-                .iter()
-                .all(|p| { p.interval.start() == 0 }));
+            assert!(intersection.overlapping.iter().all(|p| {
+                p.interval
+                    .try_lock()
+                    .expect("failed to lock interval")
+                    .start()
+                    == 0
+            }));
         })
     }
 

@@ -249,6 +249,7 @@ impl PyReportIter {
     }
 }
 
+use parking_lot::Mutex;
 use std::sync::Arc;
 // Wrapper for Position
 /// A genomic interval that can represent BED or other formats.
@@ -260,14 +261,14 @@ use std::sync::Arc;
 #[pyclass]
 #[derive(Clone, Debug)]
 pub struct PyPosition {
-    inner: Arc<Position>, // Use the trait object
+    inner: Arc<Mutex<Position>>, // Use the trait object
 }
 
 #[pymethods]
 impl PyPosition {
     /// Get the BED record if this position represents a BED interval
     fn bed(&self) -> PyResult<Option<PyBedRecord>> {
-        if let Position::Bed(b) = &self.inner.as_ref() {
+        if let Position::Bed(b) = &*self.inner.try_lock().expect("failed to lock interval") {
             // get an Arc to the underlying BedRecord
             let bed_record = Arc::new(b.clone());
             Ok(Some(PyBedRecord::from(bed_record)))
@@ -279,19 +280,32 @@ impl PyPosition {
     #[getter]
     /// Get the chromosome name
     fn chrom(&self) -> PyResult<String> {
-        Ok(self.inner.chrom().to_string())
+        Ok(self
+            .inner
+            .try_lock()
+            .expect("failed to lock interval")
+            .chrom()
+            .to_string())
     }
 
     #[getter]
     /// Get the start position (0-based)
     fn start(&self) -> PyResult<u64> {
-        Ok(self.inner.start())
+        Ok(self
+            .inner
+            .try_lock()
+            .expect("failed to lock interval")
+            .start())
     }
 
     #[getter]
     /// Get the end position (exclusive)
     fn stop(&self) -> PyResult<u64> {
-        Ok(self.inner.stop())
+        Ok(self
+            .inner
+            .try_lock()
+            .expect("failed to lock interval")
+            .stop())
     }
 
     fn __repr__(&self) -> String {

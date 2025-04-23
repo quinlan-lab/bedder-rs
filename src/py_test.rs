@@ -5,6 +5,7 @@ mod tests {
     use crate::position::Position;
     use crate::py::{CompiledPython, PyIntersections};
     use crate::report_options::ReportOptions;
+    use parking_lot::Mutex;
     use pyo3::Python;
     use std::sync::Arc;
 
@@ -19,9 +20,9 @@ mod tests {
 
         // Create intersections with proper Intersection struct
         let intersections = Intersections {
-            base_interval: Arc::new(base_pos),
+            base_interval: Arc::new(Mutex::new(base_pos)),
             overlapping: vec![Intersection {
-                interval: Arc::new(overlap_pos),
+                interval: Arc::new(Mutex::new(overlap_pos)),
                 id: 0,
             }],
         };
