@@ -210,7 +210,7 @@ impl Writer {
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()))
     }
 
-    fn update<T: ColumnReporter>(
+    fn apply_report<T: ColumnReporter>(
         format: Format,
         intersections: &mut Intersections,
         report_options: Arc<ReportOptions>,
@@ -319,7 +319,7 @@ impl Writer {
                     }
                 };
 
-                Self::update(self.format, intersections, report_options, crs)?;
+                Self::apply_report(self.format, intersections, report_options, crs)?;
 
                 // Use the current value of the Arc without modifying it
                 if let Position::Bed(ref bed_record) = *intersections.base_interval.lock() {

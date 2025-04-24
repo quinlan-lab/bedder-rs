@@ -1,4 +1,6 @@
 use crate::chrom_ordering::Chromosome;
+use crate::report::Report;
+use crate::report_options::ReportOptions;
 use crate::string::String;
 use hashbrown::HashMap;
 use parking_lot::Mutex;
@@ -57,6 +59,9 @@ impl Clone for Intersection {
 pub struct Intersections {
     pub base_interval: Arc<Mutex<Position>>,
     pub overlapping: Vec<Intersection>,
+
+    // report cache, keyed by report_options. Use Arc Mutex for interior mutability.
+    pub(crate) cached_report: Arc<Mutex<Option<(ReportOptions, Arc<Report>)>>>,
 }
 
 struct ReverseOrderPosition {
@@ -200,6 +205,7 @@ impl<P: PositionedIterator> Iterator for IntersectionIterator<'_, P> {
         Some(Ok(Intersections {
             base_interval: Arc::clone(&base_interval),
             overlapping: overlapping_positions,
+            cached_report: Arc::new(Mutex::new(None)),
         }))
     }
 }

@@ -122,6 +122,8 @@ pub enum OverlapAmount {
     Fraction(f32),
 }
 
+impl Eq for OverlapAmount {}
+
 impl FromStr for OverlapAmount {
     type Err = ParseFloatError;
 
@@ -179,7 +181,7 @@ impl Default for &OverlapAmount {
 ///     .b_requirements(OverlapAmount::Fraction(0.5))
 ///     .build();
 /// ```
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ReportOptions {
     pub a_mode: IntersectionMode,
     pub b_mode: IntersectionMode,

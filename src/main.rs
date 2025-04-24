@@ -30,8 +30,7 @@ struct Args {
     #[arg(
         help = "columns to output (format: name:type:description:number:value_parser)",
         short = 'c',
-        long = "columns",
-        required = true
+        long = "columns"
     )]
     columns: Vec<String>,
 

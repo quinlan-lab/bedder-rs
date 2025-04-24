@@ -72,6 +72,7 @@ pub(crate) fn parse_intersections(input: &str) -> Intersections {
     Intersections {
         base_interval: Arc::new(Mutex::new(Position::Interval(base_interval))),
         overlapping: intersections,
+        cached_report: Arc::new(Mutex::new(None)),
     }
 }
 

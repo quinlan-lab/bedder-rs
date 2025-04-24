@@ -25,6 +25,7 @@ mod tests {
                 interval: Arc::new(Mutex::new(overlap_pos)),
                 id: 0,
             }],
+            cached_report: Arc::new(Mutex::new(None)),
         };
 
         PyIntersections::new(intersections, Arc::new(ReportOptions::default()))

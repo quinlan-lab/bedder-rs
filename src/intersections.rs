@@ -32,7 +32,16 @@ fn inverse(base_interval: &Position, overlaps: &[Intersection]) -> Vec<Arc<Mutex
 impl Intersections {
     // TODO: brenth cache report with report options as this is expensive.
     // add a new field to Intersections to cache the report.
-    pub fn report(&self, report_options: &ReportOptions) -> Report {
+    pub fn report(&self, report_options: &ReportOptions) -> Arc<Report> {
+        let mut cached_report = self
+            .cached_report
+            .try_lock()
+            .expect("failed to lock cached report");
+        if let Some((ro, report)) = &*cached_report {
+            if ro == report_options {
+                return report.clone();
+            }
+        }
         // usually the result is [query, [[b1-part, b1-part2, ...], [b2-part, ...]]]],
         // in fact, usually, there's only a single b and a single interval from b, so it's:
         // [query, [[b1-part]]]
@@ -131,7 +140,9 @@ impl Intersections {
             );
         }
 
-        Report::new(result)
+        let report = Arc::new(Report::new(result));
+        *cached_report = Some((report_options.clone(), report.clone()));
+        report
     }
 
     fn satisfies_requirements(

@@ -56,7 +56,7 @@ impl std::fmt::Display for ColumnError {
 impl std::error::Error for ColumnError {}
 
 /// A ColumnReporter tells bedder how to report a column in the output.
-pub trait ColumnReporter {
+pub trait ColumnReporter: std::fmt::Debug {
     /// report the name, e.g. `count` for the INFO field of the VCF
     fn name(&self) -> &str;
     /// report the type, for the INFO field of the VCF

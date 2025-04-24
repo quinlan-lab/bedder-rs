@@ -172,7 +172,7 @@ impl From<crate::report::ReportFragment> for PyReportFragment {
 #[pyclass]
 #[derive(Clone, Debug)]
 pub struct PyReport {
-    inner: crate::report::Report,
+    inner: Arc<crate::report::Report>,
 }
 
 #[pymethods]
@@ -181,14 +181,14 @@ impl PyReport {
     /// Create a new empty Report
     fn new() -> Self {
         PyReport {
-            inner: crate::report::Report::new(Vec::new()),
+            inner: Arc::new(crate::report::Report::new(Vec::new())),
         }
     }
 
     /// Add a report fragment to the collection
     fn add_fragment(&mut self, frag: PyReportFragment) -> PyResult<()> {
         let inner_frags = vec![frag.inner];
-        self.inner = crate::report::Report::new(inner_frags);
+        self.inner = Arc::new(crate::report::Report::new(inner_frags));
         Ok(())
     }
 
@@ -483,7 +483,7 @@ impl PyIntersections {
     }
 
     /// Report intersections based on specified modes and requirements
-    fn report(&self) -> PyResult<PyReport> {
+    fn report(&mut self) -> PyResult<PyReport> {
         Ok(PyReport {
             inner: self.inner.report(&self.report_options),
         })

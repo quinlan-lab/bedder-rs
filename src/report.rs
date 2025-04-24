@@ -5,6 +5,7 @@ use std::sync::Arc;
 pub struct ReportFragment {
     pub a: Option<Arc<Mutex<Position>>>,
     pub b: Vec<Arc<Mutex<Position>>>,
+    // id is the file index of the source
     pub id: usize,
 }
 
