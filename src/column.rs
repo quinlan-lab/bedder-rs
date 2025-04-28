@@ -11,7 +11,7 @@ pub enum Value {
     VecString(Vec<String>),
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum Type {
     Integer,
     Float,
@@ -21,7 +21,7 @@ pub enum Type {
 }
 
 /// The number of Values to expect (similar to Number attribute in VCF INFO/FMT fields)
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum Number {
     Not,
     One,
@@ -221,7 +221,7 @@ impl ColumnReporter for Column<'_> {
                     // Convert intersection to PyIntersections and evaluate
                     let py_fragment = PyReportFragment::new(r.clone());
                     match py.eval(py_fragment) {
-                        Ok(result) => Ok(Value::String(result)),
+                        Ok(result) => Ok(result),
                         Err(e) => Err(ColumnError::PythonError(format!(
                             "Python error when evaluating expression: \"{}\": {}",
                             expr, e

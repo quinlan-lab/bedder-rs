@@ -1,5 +1,5 @@
 extern crate bedder;
-use bedder::column::Column;
+use bedder::column::{Column, ColumnReporter};
 use bedder::hts_format::Format;
 use bedder::report_options::{IntersectionMode, IntersectionPart, OverlapAmount, ReportOptions};
 use bedder::writer::{InputHeader, Writer};
@@ -144,8 +144,13 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
             .map(|mut col| {
                 if let Some(bedder::column::ValueParser::PythonExpression(expr)) = &col.value_parser
                 {
-                    let compiled = bedder::py::CompiledPython::new(py, expr, false)
-                        .expect("error compiling Python expression");
+                    let compiled = bedder::py::CompiledPython::new(
+                        py,
+                        expr,
+                        col.ftype().clone(),
+                        col.number().clone(),
+                    )
+                    .expect("error compiling Python expression");
                     col.py = Some(compiled);
                 }
                 col

@@ -1,8 +1,9 @@
 use pyo3::exceptions::{PyIndexError, PyTypeError};
 use pyo3::prelude::*;
-use pyo3::types::{PyFunction, PyString};
+use pyo3::types::{self, PyFunction};
 use std::ffi::CString;
 
+use crate::column::{Number, Type, Value};
 use crate::position::Position;
 use crate::report_options::{IntersectionMode, IntersectionPart, OverlapAmount, ReportOptions};
 
@@ -590,6 +591,8 @@ pub struct CompiledPython<'py> {
     _code: String,
     _module: Bound<'py, PyModule>,
     f: Bound<'py, PyFunction>,
+    ftype: Type,
+    number: Number,
 }
 
 use pyo3_ffi::c_str;
@@ -657,7 +660,13 @@ impl<'py> CompiledPython<'py> {
     /// If snippet is true, the code will be wrapped in a function called `bedder`
     /// and the function will be returned. Otherwise, the code will be executed directly.
     /// It must then be a function.
-    pub fn new(py: Python<'py>, f_string_code: &str, snippet: bool) -> PyResult<Self> {
+    pub fn new(
+        py: Python<'py>,
+        f_string_code: &str,
+        ftype: Type,
+        number: Number,
+    ) -> PyResult<Self> {
+        let snippet = false;
         let module = if snippet {
             let wrapped_code = wrap_python_code(f_string_code);
             log::info!("wrapped_code: {}", wrapped_code);
@@ -674,20 +683,39 @@ impl<'py> CompiledPython<'py> {
             _code: f_string_code.to_string(),
             _module: module,
             f,
+            ftype,
+            number,
         })
     }
 
-    pub fn eval(&self, fragment: PyReportFragment) -> PyResult<String> {
+    #[inline]
+    pub fn eval(&self, fragment: PyReportFragment) -> PyResult<Value> {
         let result = self.f.call1((fragment,))?;
-        if let Ok(result) = result.downcast_exact::<PyString>() {
-            Ok(result.to_string())
-        } else if let Ok(s) = result
-            .str()
-            .and_then(|py_str| py_str.to_str().map(|s| s.to_owned()))
-        {
-            Ok(s)
+        if self.number != Number::One && self.number != Number::Dot {
+            unimplemented!("Multiple values not supported yet in python eval function");
         } else {
-            Err(PyTypeError::new_err("Result is not a string"))
+            match self.ftype {
+                Type::Integer => result
+                    .downcast_exact::<types::PyInt>()
+                    .map(|py_int| Value::Int(py_int.extract::<i32>().unwrap()))
+                    .map_err(|_| PyTypeError::new_err("Result is not an integer")),
+                Type::Float => result
+                    .downcast_exact::<types::PyFloat>()
+                    .map(|py_float| Value::Float(py_float.extract::<f32>().unwrap()))
+                    .map_err(|_| PyTypeError::new_err("Result is not a float")),
+                Type::Character => result
+                    .downcast_exact::<types::PyString>()
+                    .map(|py_str| Value::String(py_str.to_str().unwrap().to_string()))
+                    .map_err(|_| PyTypeError::new_err("Result is not a string")),
+                Type::String => result
+                    .downcast_exact::<types::PyString>()
+                    .map(|py_str| Value::String(py_str.to_str().unwrap().to_string()))
+                    .map_err(|_| PyTypeError::new_err("Result is not a string")),
+                Type::Flag => result
+                    .downcast_exact::<types::PyBool>()
+                    .map(|py_bool| Value::Flag(py_bool.extract::<bool>().unwrap()))
+                    .map_err(|_| PyTypeError::new_err("Result is not a boolean")),
+            }
         }
     }
 }

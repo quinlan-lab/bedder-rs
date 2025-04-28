@@ -251,8 +251,18 @@ impl Writer {
 
                 for cr in crs.iter() {
                     for frag in report.iter() {
-                        if let Ok(value) = cr.value(frag) {
-                            values.push(value);
+                        match cr.value(frag) {
+                            Ok(value) => values.push(value),
+                            Err(e) => {
+                                return Err(std::io::Error::new(
+                                    std::io::ErrorKind::InvalidData,
+                                    format!(
+                                        "Error getting value for column: {}. Error: {}",
+                                        cr.name(),
+                                        e
+                                    ),
+                                ));
+                            }
                         }
                     }
                 }
@@ -326,6 +336,7 @@ impl Writer {
                 Self::apply_report(self.format, intersections, report_options, crs)?;
 
                 // Use the current value of the Arc without modifying it
+                // TODO: use report fragments here instead of the base interval
                 if let Position::Bed(ref bed_record) = *intersections.base_interval.lock() {
                     bed_writer.write_record(bed_record.inner()).map_err(|e| {
                         std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string())

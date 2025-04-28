@@ -1,9 +1,10 @@
 #[cfg(test)]
 mod tests {
     use crate::bedder_bed::BedRecord;
+    use crate::column::{Number, Type, Value};
     use crate::intersection::{Intersection, Intersections};
     use crate::position::Position;
-    use crate::py::{CompiledPython, PyIntersections, PyReportFragment};
+    use crate::py::{CompiledPython, PyReportFragment};
     use crate::report_options::ReportOptions;
     use parking_lot::Mutex;
     use pyo3::Python;
@@ -33,19 +34,20 @@ mod tests {
     fn test_simple_snippet() {
         Python::with_gil(|py| {
             let code = r#"
-            chrom = intersection.base_interval.chrom
-            start = intersection.base_interval.start
-            return f"{chrom}:{start}"
+            def bedder(fragment):
+                chrom = fragment.chrom
+                start = fragment.start
+                return f"{chrom}:{start}"
             "#;
 
-            let compiled = CompiledPython::new(py, code, true).unwrap();
+            let compiled = CompiledPython::new(py, code, Type::String, Number::One).unwrap();
             let intersections = create_test_intersection();
             let report_options = Arc::new(ReportOptions::default());
             let report = intersections.report(&report_options);
             for frag in report.iter() {
                 let py_fragment = PyReportFragment::new(frag.clone());
                 let result = compiled.eval(py_fragment).unwrap();
-                assert_eq!(result, "chr1:100");
+                assert_eq!(result, Value::String("chr1:100".to_string()));
             }
         });
     }
