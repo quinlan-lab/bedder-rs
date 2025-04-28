@@ -2,6 +2,7 @@ use crate::column::{ColumnReporter, Value};
 use crate::hts_format::{Compression, Format};
 use crate::intersection::Intersections;
 use crate::position::Position;
+use crate::report::Report;
 use crate::report_options::ReportOptions;
 use rust_htslib::bam;
 use rust_htslib::bcf::{self, header::HeaderView};
@@ -215,7 +216,7 @@ impl Writer {
         intersections: &mut Intersections,
         report_options: Arc<ReportOptions>,
         crs: &[T],
-    ) -> Result<(), std::io::Error> {
+    ) -> Result<Arc<Report>, std::io::Error> {
         let report = intersections.report(&report_options);
 
         match format {
@@ -247,10 +248,9 @@ impl Writer {
                 unimplemented!("VCF writing not yet implemented");
             }
             Format::Bed => {
-                let mut values = Vec::with_capacity(crs.len());
-
-                for cr in crs.iter() {
-                    for frag in report.iter() {
+                for frag in report.iter() {
+                    let mut values = Vec::with_capacity(crs.len());
+                    for cr in crs.iter() {
                         match cr.value(frag) {
                             Ok(value) => values.push(value),
                             Err(e) => {
@@ -265,22 +265,27 @@ impl Writer {
                             }
                         }
                     }
-                }
+                    // Clone the current Position first
+                    if let Position::Bed(ref mut bed_record) = *frag
+                        .a
+                        .as_ref()
+                        .expect("Position is not a BED interval")
+                        .try_lock()
+                        .expect("Failed to lock Position")
+                    {
+                        // Add all values to our clone
+                        for value in values {
+                            push_value_to_bed_record(bed_record, value);
+                        }
 
-                // Clone the current Position first
-                if let Position::Bed(ref mut bed_record) = *intersections.base_interval.lock() {
-                    // Add all values to our clone
-                    for value in values {
-                        push_value_to_bed_record(bed_record, value);
+                        // Replace the entire Arc with our updated version
+                        //intersections.base_interval = Arc::new(Position::Bed(new_bed_record));
+                    } else {
+                        return Err(std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            "Position is not a BED interval",
+                        ));
                     }
-
-                    // Replace the entire Arc with our updated version
-                    //intersections.base_interval = Arc::new(Position::Bed(new_bed_record));
-                } else {
-                    return Err(std::io::Error::new(
-                        std::io::ErrorKind::InvalidData,
-                        "Position is not a BED interval",
-                    ));
                 }
             }
             _ => {
@@ -290,7 +295,7 @@ impl Writer {
                 ))
             }
         }
-        Ok(())
+        Ok(report)
     }
 
     pub fn write<T: ColumnReporter>(
@@ -333,19 +338,25 @@ impl Writer {
                     }
                 };
 
-                Self::apply_report(self.format, intersections, report_options, crs)?;
+                let report = Self::apply_report(self.format, intersections, report_options, crs)?;
 
-                // Use the current value of the Arc without modifying it
-                // TODO: use report fragments here instead of the base interval
-                if let Position::Bed(ref bed_record) = *intersections.base_interval.lock() {
-                    bed_writer.write_record(bed_record.inner()).map_err(|e| {
-                        std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string())
-                    })?;
-                } else {
-                    return Err(std::io::Error::new(
-                        std::io::ErrorKind::InvalidData,
-                        "Position is not a BED interval",
-                    ));
+                for frag in report.iter() {
+                    if let Position::Bed(ref bed_record) = *frag
+                        .a
+                        .as_ref()
+                        .expect("Position is not a BED interval")
+                        .try_lock()
+                        .expect("Failed to lock Position")
+                    {
+                        bed_writer.write_record(bed_record.inner()).map_err(|e| {
+                            std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string())
+                        })?;
+                    } else {
+                        return Err(std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            "Position is not a BED interval",
+                        ));
+                    }
                 }
             }
             Format::Sam => unimplemented!("SAM writing not yet implemented"),

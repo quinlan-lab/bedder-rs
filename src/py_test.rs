@@ -34,10 +34,10 @@ mod tests {
     fn test_simple_snippet() {
         Python::with_gil(|py| {
             let code = r#"
-            def bedder(fragment):
-                chrom = fragment.chrom
-                start = fragment.start
-                return f"{chrom}:{start}"
+def bedder(fragment):
+    chrom = fragment.a.chrom
+    start = fragment.a.start
+    return f"{chrom}:{start}"
             "#;
 
             let compiled = CompiledPython::new(py, code, Type::String, Number::One).unwrap();

@@ -161,9 +161,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         // Process intersections with columns
         for intersection in ii {
-            // TODO: brent start here. need to auto call report when needed.
             let mut intersection = intersection.expect("error getting intersection");
-
             output.write(&mut intersection, report_options.clone(), &py_columns)?;
             /*
             let values: Vec<String> = py_columns
