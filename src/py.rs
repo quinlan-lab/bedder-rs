@@ -1,5 +1,5 @@
 use crate::bedder_bed::BedRecord;
-use pyo3::exceptions::PyTypeError;
+use pyo3::exceptions::{PyIndexError, PyTypeError};
 use pyo3::prelude::*;
 use pyo3::types::{PyFunction, PyString};
 use std::ffi::CString;
@@ -19,7 +19,7 @@ use crate::report_options::{IntersectionMode, IntersectionPart, OverlapAmount, R
 #[pyclass]
 #[derive(Clone, Debug)] // Added Debug for easier inspection
 pub struct PyBedRecord {
-    inner: Arc<BedRecord>,
+    inner: Arc<Mutex<Position>>,
 }
 
 #[pymethods]
@@ -27,31 +27,70 @@ impl PyBedRecord {
     #[getter]
     /// Get the chromosome name
     fn chrom(&self) -> PyResult<String> {
-        Ok(self.inner.0.chrom().to_string())
+        Ok(self
+            .inner
+            .try_lock()
+            .expect("failed to lock interval")
+            .chrom()
+            .to_string())
     }
 
     #[getter]
     /// Get the start position (0-based)
     fn start(&self) -> PyResult<u64> {
-        Ok(self.inner.0.start())
+        Ok(self
+            .inner
+            .try_lock()
+            .expect("failed to lock interval")
+            .start())
     }
 
     #[getter]
     /// Get the end position (exclusive)
     fn stop(&self) -> PyResult<u64> {
-        Ok(self.inner.0.end())
+        Ok(self
+            .inner
+            .try_lock()
+            .expect("failed to lock interval")
+            .stop())
     }
 
     #[getter]
     /// Get the name field if present
     fn name(&self) -> PyResult<Option<String>> {
-        Ok(self.inner.0.name().map(|s| s.to_string()))
+        if let Position::Bed(b) = &*self.inner.try_lock().expect("failed to lock interval") {
+            Ok(b.0.name().map(|s| s.to_string()))
+        } else {
+            Ok(None)
+        }
+    }
+
+    #[setter]
+    /// Set the name field
+    fn set_name(&mut self, name: &str) -> PyResult<()> {
+        if let Position::Bed(b) = &mut *self.inner.try_lock().expect("failed to lock interval") {
+            b.0.set_name(name.to_string());
+        }
+        Ok(())
     }
 
     #[getter]
     /// Get the score field if present
     fn score(&self) -> PyResult<Option<f64>> {
-        Ok(self.inner.0.score())
+        if let Position::Bed(b) = &*self.inner.try_lock().expect("failed to lock interval") {
+            Ok(b.0.score())
+        } else {
+            Ok(None)
+        }
+    }
+
+    #[setter]
+    /// Set the score field
+    fn set_score(&mut self, score: f64) -> PyResult<()> {
+        if let Position::Bed(b) = &mut *self.inner.try_lock().expect("failed to lock interval") {
+            b.0.set_score(score);
+        }
+        Ok(())
     }
 
     fn __repr__(&self) -> String {
@@ -64,19 +103,20 @@ impl PyBedRecord {
 
     /// Get any additional fields beyond the standard BED fields
     fn other_fields(&self) -> PyResult<Vec<String>> {
-        Ok(self
-            .inner
-            .0
-            .other_fields()
-            .iter()
-            .map(|f| f.to_string())
-            .collect())
+        if let Position::Bed(b) = &*self.inner.try_lock().expect("failed to lock interval") {
+            Ok(b.0.other_fields().iter().map(|f| f.to_string()).collect())
+        } else {
+            Ok(Vec::new())
+        }
     }
-}
 
-impl From<Arc<BedRecord>> for PyBedRecord {
-    fn from(inner: Arc<BedRecord>) -> Self {
-        PyBedRecord { inner }
+    /// index into the other_fields
+    fn __getitem__(&self, index: usize) -> PyResult<String> {
+        if let Position::Bed(b) = &*self.inner.try_lock().expect("failed to lock interval") {
+            Ok(b.0.other_fields()[index].to_string())
+        } else {
+            Err(PyIndexError::new_err("Index out of bounds"))
+        }
     }
 }
 
@@ -91,6 +131,30 @@ impl From<Arc<BedRecord>> for PyBedRecord {
 #[derive(Clone, Debug)]
 pub struct PyReportFragment {
     inner: crate::report::ReportFragment,
+}
+
+#[pyclass]
+struct PyReportFragmentIter {
+    report_fragment: crate::report::ReportFragment,
+    index: usize,
+}
+
+#[pymethods]
+impl PyReportFragmentIter {
+    fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
+        slf
+    }
+
+    fn __next__(mut slf: PyRefMut<'_, Self>) -> Option<PyPosition> {
+        if slf.index >= slf.report_fragment.b.len() {
+            return None;
+        }
+        let position = PyPosition {
+            inner: slf.report_fragment.b[slf.index].clone(),
+        };
+        slf.index += 1;
+        Some(position)
+    }
 }
 
 #[pyclass]
@@ -118,6 +182,14 @@ impl PyReportOptions {
     }
 }
 
+impl PyReportFragment {
+    pub(crate) fn new(report_fragment: crate::report::ReportFragment) -> Self {
+        PyReportFragment {
+            inner: report_fragment,
+        }
+    }
+}
+
 // No changes needed to ReportFragment relative to previous good answer
 #[pymethods]
 impl PyReportFragment {
@@ -139,6 +211,15 @@ impl PyReportFragment {
             .iter()
             .map(|pos| PyPosition { inner: pos.clone() })
             .collect())
+    }
+
+    fn __iter__(slf: PyRef<'_, Self>) -> PyResult<Py<PyReportFragmentIter>> {
+        let report_fragment = slf.inner.clone();
+        let iter = PyReportFragmentIter {
+            report_fragment,
+            index: 0,
+        };
+        Py::new(slf.py(), iter)
     }
 
     fn __repr__(&self) -> String {
@@ -268,10 +349,16 @@ pub struct PyPosition {
 impl PyPosition {
     /// Get the BED record if this position represents a BED interval
     fn bed(&self) -> PyResult<Option<PyBedRecord>> {
-        if let Position::Bed(b) = &*self.inner.try_lock().expect("failed to lock interval") {
-            // get an Arc to the underlying BedRecord
-            let bed_record = Arc::new(b.clone());
-            Ok(Some(PyBedRecord::from(bed_record)))
+        let is_bed =
+            if let Position::Bed(_) = *self.inner.try_lock().expect("failed to lock interval") {
+                true
+            } else {
+                false
+            };
+        if is_bed {
+            Ok(Some(PyBedRecord {
+                inner: self.inner.clone(),
+            }))
         } else {
             Ok(None)
         }
@@ -590,8 +677,8 @@ impl<'py> CompiledPython<'py> {
         })
     }
 
-    pub fn eval(&self, intersections: PyIntersections) -> PyResult<String> {
-        let result = self.f.call1((intersections,))?;
+    pub fn eval(&self, fragment: PyReportFragment) -> PyResult<String> {
+        let result = self.f.call1((fragment,))?;
         if let Ok(result) = result.downcast_exact::<PyString>() {
             Ok(result.to_string())
         } else if let Ok(s) = result
@@ -616,6 +703,8 @@ fn bedder_py(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyIntersectionMode>()?;
     m.add_class::<PyIntersectionPart>()?;
     m.add_class::<PyOverlapAmount>()?;
+    m.add_class::<PyReportFragmentIter>()?;
+    m.add_class::<PyReportIter>()?;
 
     Ok(())
 }

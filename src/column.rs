@@ -1,7 +1,5 @@
-use crate::intersection::Intersections;
-use crate::py::CompiledPython;
-use crate::report_options::ReportOptions;
-use std::sync::Arc;
+use crate::py::{CompiledPython, PyReportFragment};
+use crate::report::ReportFragment;
 #[derive(Debug, PartialEq)]
 pub enum Value {
     Int(i32),
@@ -64,18 +62,14 @@ pub trait ColumnReporter: std::fmt::Debug {
     fn description(&self) -> &str;
     fn number(&self) -> &Number;
 
-    fn value(
-        &self,
-        r: &Intersections,
-        report_options: Arc<ReportOptions>,
-    ) -> Result<Value, ColumnError>;
+    /// Each report fragment is a different line in the output. So we can't pass a report.
+    fn value(&self, r: &ReportFragment) -> Result<Value, ColumnError>;
 }
 
 pub enum ValueParser {
     PythonExpression(String),
     LuaExpression(String),
-    // bool indicates whether we should use the intersection.report() constraints or just the count of overlaps
-    Count(bool),
+    Count,
     Sum,
     Bases,
     ChromStartEnd,
@@ -127,9 +121,7 @@ impl TryFrom<&str> for ValueParser {
         } else if let Some(rest) = s.strip_prefix("lua:") {
             Ok(ValueParser::LuaExpression(rest.to_string()))
         } else if s == "count" {
-            Ok(ValueParser::Count(false))
-        } else if s == "report_count" {
-            Ok(ValueParser::Count(true))
+            Ok(ValueParser::Count)
         } else if s == "sum" {
             Ok(ValueParser::Sum)
         } else if s == "bases" {
@@ -149,8 +141,7 @@ impl std::fmt::Display for ValueParser {
         match self {
             ValueParser::PythonExpression(s) => write!(f, "py:{}", s),
             ValueParser::LuaExpression(s) => write!(f, "lua:{}", s),
-            ValueParser::Count(false) => write!(f, "count"),
-            ValueParser::Count(true) => write!(f, "report_count"),
+            ValueParser::Count => write!(f, "count"),
             ValueParser::Sum => write!(f, "sum"),
             ValueParser::Bases => write!(f, "bases"),
             ValueParser::ChromStartEnd => write!(f, "chrom_start_end"),
@@ -182,21 +173,10 @@ impl ColumnReporter for Column<'_> {
         &self.number
     }
 
-    fn value(
-        &self,
-        r: &Intersections,
-        report_options: Arc<ReportOptions>,
-    ) -> Result<Value, ColumnError> {
+    fn value(&self, r: &ReportFragment) -> Result<Value, ColumnError> {
         // TODO: accept writer and write to it directly.
         match &self.value_parser {
-            Some(ValueParser::Count(false)) => {
-                // Return the count of overlapping intervals
-                Ok(Value::Int(r.overlapping.len() as i32))
-            }
-            Some(ValueParser::Count(true)) => {
-                let report = r.report(&report_options);
-                Ok(Value::Int(report.len() as i32))
-            }
+            Some(ValueParser::Count) => Ok(Value::Int(r.b.len() as i32)),
             Some(ValueParser::Sum) => {
                 // Sum the scores of overlapping intervals if they exist
                 // This is more complex as we need to extract scores from the intervals
@@ -207,47 +187,40 @@ impl ColumnReporter for Column<'_> {
                 // Calculate total number of bases covered by overlapping intervals
                 // Use the report functionality to get the base count
 
-                let report = r.report(&report_options);
+                let bases =
+                    r.b.iter()
+                        .map(|b| {
+                            let b = b.try_lock().expect("failed to lock b interval in Bases");
+                            b.stop() - b.start()
+                        })
+                        .sum::<u64>() as i32;
 
-                let bases = report.count_bases_by_id();
-                let total_bases: i32 = bases.iter().sum::<u64>() as i32;
-
-                Ok(Value::Int(total_bases))
+                Ok(Value::Int(bases))
             }
             Some(ValueParser::ChromStartEnd) => {
-                let base_interval = r
-                    .base_interval
-                    .try_lock()
-                    .expect("failed to lock base_interval");
-                let s = format!(
-                    "{}\t{}\t{}",
-                    base_interval.chrom(),
-                    base_interval.start(),
-                    base_interval.stop()
-                );
-                Ok(Value::String(s))
+                if let Some(a) = &r.a {
+                    let a = a
+                        .try_lock()
+                        .expect("failed to lock a interval in ChromStartEnd");
+                    let s = format!("{}:{}-{}", a.chrom(), a.start(), a.stop());
+                    Ok(Value::String(s))
+                } else {
+                    Err(ColumnError::InvalidValue(format!(
+                        "No base interval for {}",
+                        r.id
+                    )))
+                }
             }
             Some(ValueParser::OriginalInterval) => {
                 // Return the original interval as a string
-                let base_interval = r
-                    .base_interval
-                    .try_lock()
-                    .expect("failed to lock base_interval");
-                let s = format!(
-                    "{}\t{}\t{}",
-                    base_interval.chrom(),
-                    base_interval.start(),
-                    base_interval.stop()
-                );
-                Ok(Value::String(s))
+                unimplemented!("original_interval");
             }
             Some(ValueParser::PythonExpression(expr)) => {
                 // For Python expressions, we should use the compiled Python object
                 if let Some(py) = &self.py {
                     // Convert intersection to PyIntersections and evaluate
-                    let py_intersection =
-                        crate::py::PyIntersections::new(r.clone(), report_options);
-                    match py.eval(py_intersection) {
+                    let py_fragment = PyReportFragment::new(r.clone());
+                    match py.eval(py_fragment) {
                         Ok(result) => Ok(Value::String(result)),
                         Err(e) => Err(ColumnError::PythonError(format!(
                             "Python error when evaluating expression: \"{}\": {}",
@@ -269,7 +242,7 @@ impl ColumnReporter for Column<'_> {
             }
             None => {
                 // Default behavior when no parser is specified - return count
-                Ok(Value::Int(r.overlapping.len() as i32))
+                Ok(Value::Int(r.b.len() as i32))
             }
         }
     }
@@ -364,7 +337,7 @@ impl TryFrom<&str> for Column<'_> {
                     Type::Integer,
                     "Count".to_string(),
                     Number::One,
-                    Some(ValueParser::Count(false)),
+                    Some(ValueParser::Count),
                 ),
                 "sum" => Column::new(
                     "sum".to_string(),

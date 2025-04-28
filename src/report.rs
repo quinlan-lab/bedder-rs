@@ -50,6 +50,11 @@ impl Report {
         Self(frags)
     }
 
+    /// Get an iterator over the fragments.
+    pub fn iter(&self) -> std::slice::Iter<'_, ReportFragment> {
+        self.0.iter()
+    }
+
     /// Get a mutable iterator over the fragments.
     pub fn iter_mut(&mut self) -> std::slice::IterMut<'_, ReportFragment> {
         self.0.iter_mut()

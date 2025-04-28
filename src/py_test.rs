@@ -3,13 +3,13 @@ mod tests {
     use crate::bedder_bed::BedRecord;
     use crate::intersection::{Intersection, Intersections};
     use crate::position::Position;
-    use crate::py::{CompiledPython, PyIntersections};
+    use crate::py::{CompiledPython, PyIntersections, PyReportFragment};
     use crate::report_options::ReportOptions;
     use parking_lot::Mutex;
     use pyo3::Python;
     use std::sync::Arc;
 
-    fn create_test_intersection() -> PyIntersections {
+    fn create_test_intersection() -> Intersections {
         // Create a base interval
         let base = BedRecord::new("chr1", 100, 200, None, None, vec![]);
         let base_pos = Position::Bed(base);
@@ -19,16 +19,14 @@ mod tests {
         let overlap_pos = Position::Bed(overlap);
 
         // Create intersections with proper Intersection struct
-        let intersections = Intersections {
+        Intersections {
             base_interval: Arc::new(Mutex::new(base_pos)),
             overlapping: vec![Intersection {
                 interval: Arc::new(Mutex::new(overlap_pos)),
                 id: 0,
             }],
             cached_report: Arc::new(Mutex::new(None)),
-        };
-
-        PyIntersections::new(intersections, Arc::new(ReportOptions::default()))
+        }
     }
 
     #[test]
@@ -41,8 +39,14 @@ mod tests {
             "#;
 
             let compiled = CompiledPython::new(py, code, true).unwrap();
-            let result = compiled.eval(create_test_intersection()).unwrap();
-            assert_eq!(result, "chr1:100");
+            let intersections = create_test_intersection();
+            let report_options = Arc::new(ReportOptions::default());
+            let report = intersections.report(&report_options);
+            for frag in report.iter() {
+                let py_fragment = PyReportFragment::new(frag.clone());
+                let result = compiled.eval(py_fragment).unwrap();
+                assert_eq!(result, "chr1:100");
+            }
         });
     }
 

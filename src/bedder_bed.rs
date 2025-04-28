@@ -3,7 +3,7 @@
 use crate::position::{Position, Positioned};
 use crate::string::String;
 pub use simplebed;
-use simplebed::{BedError, BedReader, BedRecord as SimpleBedRecord, BedValue};
+pub use simplebed::{BedError, BedReader, BedRecord as SimpleBedRecord, BedValue};
 use std::io::{self, BufRead};
 use std::path::{Path, PathBuf};
 #[derive(Debug, Clone)]
@@ -28,6 +28,10 @@ impl BedRecord {
             other_fields.into_iter().map(BedValue::String).collect(),
         );
         Self(record)
+    }
+
+    pub fn push_field(&mut self, field: BedValue) {
+        self.0.push_field(field);
     }
 }
 
