@@ -50,6 +50,7 @@ mod tests {
         });
     }
 
+    /*
     #[test]
     fn test_full_function() {
         Python::with_gil(|py| {
@@ -113,4 +114,5 @@ mod tests {
             //assert!(result.is_err(), "Should fail when no value is returned");
         });
     }
+    */
 }

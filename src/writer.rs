@@ -216,6 +216,8 @@ impl Writer {
         report_options: Arc<ReportOptions>,
         crs: &[T],
     ) -> Result<(), std::io::Error> {
+        let report = intersections.report(&report_options);
+
         match format {
             Format::Vcf => {
                 // Get mutable reference to the VCF record
@@ -248,8 +250,10 @@ impl Writer {
                 let mut values = Vec::with_capacity(crs.len());
 
                 for cr in crs.iter() {
-                    if let Ok(value) = cr.value(intersections, report_options.clone()) {
-                        values.push(value);
+                    for frag in report.iter() {
+                        if let Ok(value) = cr.value(frag) {
+                            values.push(value);
+                        }
                     }
                 }
 

@@ -1,4 +1,3 @@
-use crate::bedder_bed::BedRecord;
 use pyo3::exceptions::{PyIndexError, PyTypeError};
 use pyo3::prelude::*;
 use pyo3::types::{PyFunction, PyString};
@@ -175,6 +174,7 @@ impl PyReportOptions {
 }
 
 impl PyReportOptions {
+    #[allow(dead_code)]
     pub(crate) fn new(report_options: Arc<ReportOptions>) -> Self {
         PyReportOptions {
             inner: report_options,
