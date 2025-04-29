@@ -23,6 +23,7 @@ struct Args {
     #[arg(
         help = "genome file for chromosome ordering",
         short = 'g',
+        long = "genome",
         required = true
     )]
     genome_file: PathBuf,
@@ -45,19 +46,21 @@ struct Args {
     #[arg(
         help = "intersection mode for a-file",
         short = 'm',
-        default_value = "d"
+        long = "a-mode",
+        default_value = "default"
     )]
     intersection_mode: IntersectionMode,
 
-    #[arg(help = "a-part", short = 'p', default_value = "whole")]
+    #[arg(help = "a-part", short = 'p', long = "a-part", default_value = "whole")]
     a_part: IntersectionPart,
 
-    #[arg(help = "b-part", default_value = "whole")]
+    #[arg(help = "b-part", long = "b-part", default_value = "whole")]
     b_part: IntersectionPart,
 
     #[arg(
         help = "a-requirements for overlap. A float value < 1 or a number ending with % will be the fraction (or %) of the interval. An integer will be the number of bases.",
         short = 'r',
+        long = "a-requirements",
         default_value = "1"
     )]
     a_requirements: OverlapAmount,
@@ -136,6 +139,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
             .a_requirements(args.a_requirements)
             .build(),
     );
+    log::info!("report_options: {:?}", report_options);
     // Use Python for columns that need it
     Python::with_gil(|py| {
         // Initialize Python expressions in columns if needed

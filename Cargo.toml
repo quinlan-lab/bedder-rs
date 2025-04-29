@@ -30,10 +30,9 @@ log = "0.4.19"
 linear-map = "1.2.0"
 hashbrown = "0.15.2"
 mimalloc = "0.1.39"
-bitflags = "2.4.0"
 rust-htslib = { git = "https://github.com/brentp/rust-htslib.git", rev = "0471b48" }
 tempfile = "^3.14.0"
-simplebed = { git = "https://github.com/brentp/simplebed-rs.git", rev = "4471cdc" }
+simplebed = { git = "https://github.com/brentp/simplebed-rs.git", version = "0.1.4" }
 pyo3 = {version = "0.24.1", features=["auto-initialize"]}
 pyo3-ffi = "0.24.1"
 mlua = {version = "0.10.3", features=["luau", "send"]}

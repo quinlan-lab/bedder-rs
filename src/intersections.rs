@@ -60,7 +60,7 @@ impl Intersections {
 
         for (b_idx, overlaps) in grouped_intersections.iter().enumerate() {
             // so now all overlaps are from b[id]
-            if report_options.a_mode.contains(IntersectionMode::PerPiece) {
+            if report_options.a_mode == IntersectionMode::PerPiece {
                 // each b_interval must go with the a_piece that it overlaps.
                 for b_interval in overlaps {
                     let bases_overlap = self
@@ -130,7 +130,7 @@ impl Intersections {
                 }
             }
         }
-        if report_options.a_mode.contains(IntersectionMode::Not) && self.overlapping.is_empty() {
+        if report_options.a_mode == IntersectionMode::Not && self.overlapping.is_empty() {
             self.push_overlap_fragments(
                 &mut result,
                 &[],
@@ -153,7 +153,7 @@ impl Intersections {
     ) -> bool {
         match requirements {
             OverlapAmount::Bases(bases) => {
-                if mode.contains(IntersectionMode::Not) {
+                if *mode == IntersectionMode::Not {
                     bases_overlap < *bases
                 } else {
                     bases_overlap >= *bases
@@ -161,7 +161,7 @@ impl Intersections {
             }
             OverlapAmount::Fraction(fraction) => {
                 let required_overlap = *fraction * interval_length as f32;
-                if mode.contains(IntersectionMode::Not) {
+                if *mode == IntersectionMode::Not {
                     (bases_overlap as f32) < required_overlap
                 } else {
                     (bases_overlap as f32) >= required_overlap

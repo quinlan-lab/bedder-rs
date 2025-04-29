@@ -1,28 +1,28 @@
-use bitflags::bitflags;
 use clap::ValueEnum;
 use std::{num::ParseFloatError, str::FromStr};
 
-bitflags! {
-    /// IntersectionMode indicates requirements for the intersection.
-    /// And extra fields that might be reported.
-    #[derive(Eq, PartialEq, Debug, Clone)]
-    pub struct IntersectionMode: u8 {
-        // https://bedtools.readthedocs.io/en/latest/content/tools/intersect.html#usage-and-option-summary
+/// IntersectionMode indicates requirements for the intersection.
+/// And extra fields that might be reported.
+#[derive(Eq, PartialEq, Debug, Clone, ValueEnum)]
+pub enum IntersectionMode {
+    // https://bedtools.readthedocs.io/en/latest/content/tools/intersect.html#usage-and-option-summary
+    /// Default without extra requirements.
+    #[value(name = "default")]
+    Default,
 
-        /// Default without extra requirements.
-        const Default = 0b00000000;
+    /// Return A(B) if it does *not* overlap B(A). Bedtools -v
+    #[value(name = "not")]
+    Not,
 
-        /// Return A(B) if it does *not* overlap B(A). Bedtools -v
-        const Not = 0b00000001;
-
-        /// Constraints are per piece of interval (not the sum of overlapping intervals)
-        const PerPiece = 0b00000010;
-    }
+    /// Constraints are per piece of interval (not the sum of overlapping intervals)
+    #[value(name = "piece")]
+    PerPiece,
 }
 
 impl From<&str> for IntersectionMode {
     fn from(s: &str) -> Self {
-        Self::from_str(s).unwrap()
+        // Use clap's value enum parsing which handles case-insensitivity and potential future aliases
+        <Self as ValueEnum>::from_str(s, true).unwrap_or(Self::Default)
     }
 }
 
@@ -30,16 +30,8 @@ impl FromStr for IntersectionMode {
     type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut result = Self::Default;
-        for c in s.chars() {
-            match c {
-                'd' => result |= Self::Default,
-                'v' => result |= Self::Not,
-                'p' => result |= Self::PerPiece,
-                _ => return Err(format!("unknown intersection mode {}", c)),
-            }
-        }
-        Ok(result)
+        // Leverage clap's parsing logic
+        <Self as ValueEnum>::from_str(s, true)
     }
 }
 
