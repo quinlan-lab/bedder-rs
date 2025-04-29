@@ -174,7 +174,6 @@ impl ColumnReporter for Column<'_> {
     }
 
     fn value(&self, r: &ReportFragment) -> Result<Value, ColumnError> {
-        // TODO: accept writer and write to it directly.
         match &self.value_parser {
             Some(ValueParser::Count) => Ok(Value::Int(r.b.len() as i32)),
             Some(ValueParser::Sum) => {

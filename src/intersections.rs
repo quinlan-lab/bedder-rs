@@ -30,8 +30,6 @@ fn inverse(base_interval: &Position, overlaps: &[Intersection]) -> Vec<Arc<Mutex
 }
 
 impl Intersections {
-    // TODO: brenth cache report with report options as this is expensive.
-    // add a new field to Intersections to cache the report.
     pub fn report(&self, report_options: &ReportOptions) -> Arc<Report> {
         let mut cached_report = self
             .cached_report

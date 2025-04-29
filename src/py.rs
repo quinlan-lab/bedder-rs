@@ -163,7 +163,7 @@ pub struct PyReportOptions {
     inner: Arc<ReportOptions>,
 }
 
-#[pymethods] // TODO: start here and implement
+#[pymethods]
 impl PyReportOptions {
     fn __repr__(&self) -> String {
         format!("{:?}", self.inner)
@@ -275,8 +275,7 @@ impl PyReport {
     }
 
     fn __iter__(slf: PyRef<'_, Self>) -> PyResult<Py<PyReportIter>> {
-        // TODO: fix: don't clone
-        let inner = slf.inner.into_iter().cloned().collect::<Vec<_>>();
+        let inner = slf.inner.clone();
         let iter = PyReportIter { inner, index: 0 };
         Py::new(slf.py(), iter)
     }
@@ -311,7 +310,7 @@ impl PyReport {
 #[pyclass]
 #[derive(Clone)]
 struct PyReportIter {
-    inner: Vec<crate::report::ReportFragment>,
+    inner: Arc<crate::report::Report>,
     index: usize,
 }
 
