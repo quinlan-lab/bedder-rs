@@ -250,6 +250,12 @@ impl Writer {
             Format::Bed => {
                 for frag in report.iter() {
                     let mut values = Vec::with_capacity(crs.len());
+                    for b in frag.b.iter() {
+                        let b = b.try_lock().expect("Failed to lock b-Position");
+                        values.push(Value::String(b.chrom().to_string()));
+                        values.push(Value::Int(b.start() as i32));
+                        values.push(Value::Int(b.stop() as i32));
+                    }
                     for cr in crs.iter() {
                         match cr.value(frag) {
                             Ok(value) => values.push(value),
@@ -265,7 +271,7 @@ impl Writer {
                             }
                         }
                     }
-                    // Clone the current Position first
+                    // TODO first: add b stuff to the a interval
                     if let Position::Bed(ref mut bed_record) = *frag
                         .a
                         .as_ref()

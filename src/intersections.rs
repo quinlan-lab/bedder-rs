@@ -29,6 +29,49 @@ fn inverse(base_interval: &Position, overlaps: &[Intersection]) -> Vec<Arc<Mutex
     result
 }
 
+// with a-part, we changed the bounds of the interval so we need to then limit b intervals
+// to those that still overlap the new bounds.
+// Takes &mut result as it modifies the b vectors in place.
+fn filter_part_overlaps(result: &mut [ReportFragment]) {
+    // No need for initial assert, it doesn't prevent the deadlock scenario where 'a' and 'b'
+    // within the same fragment point to the same locked Arc.
+
+    for fr in result {
+        // Check if a exists; if a_part was None, 'a' will be None.
+        // If a doesn't exist, no filtering based on 'a' is possible/needed.
+        let a_arc_option = fr.a.as_ref();
+        if a_arc_option.is_none() {
+            continue;
+        }
+        let a_arc = a_arc_option.unwrap();
+
+        // Lock 'a' once for this fragment
+        let a = a_arc
+            .try_lock()
+            .expect("filter_part_overlaps: failed to lock a interval");
+
+        // Use retain_mut for in-place filtering without extra allocation
+        fr.b.retain_mut(|b_arc| {
+            // Check if a and b point to the same Arc instance
+            if Arc::ptr_eq(a_arc, b_arc) {
+                // If they are the same, the overlap is inherent (based on how 'a' was derived)
+                // Keep this b interval.
+                true
+            } else {
+                // If they are different Arcs, we can safely lock b
+                let b = b_arc
+                    .try_lock()
+                    .expect("filter_part_overlaps: failed to lock b interval");
+                // Check for overlap: a.start <= b.stop && a.stop >= b.start
+                let overlaps = a.start() <= b.stop() && a.stop() >= b.start();
+                // drop(b) happens here automatically when guard goes out of scope
+                // Keep b only if it overlaps with a
+                overlaps
+            }
+        });
+        // drop(a) happens here automatically when guard goes out of scope
+    }
+}
 impl Intersections {
     pub fn report(&self, report_options: &ReportOptions) -> Arc<Report> {
         let mut cached_report = self
@@ -138,6 +181,11 @@ impl Intersections {
             );
         }
 
+        if matches!(report_options.a_part, IntersectionPart::Part) {
+            // Pass as mutable reference now
+            filter_part_overlaps(&mut result);
+        }
+
         let report = Arc::new(Report::new(result));
         *cached_report = Some((report_options.clone(), report.clone()));
         report
@@ -205,6 +253,7 @@ impl Intersections {
             IntersectionPart::Part => {
                 // Create and adjust a_position if a_part is Part
                 // Q: TODO: what to do here with multiple b files? keep intersection to smallest joint overlap?
+                /*
                 let mut a_interval = self
                     .base_interval
                     .try_lock()
@@ -212,6 +261,30 @@ impl Intersections {
                     .clone_box();
                 self.adjust_bounds(&mut a_interval, overlaps);
                 vec![Arc::new(Mutex::new(a_interval))]
+                */
+                overlaps
+                    .iter()
+                    .map(|o| {
+                        //  TODO: avoid clone_box heere  if not needed.
+                        let oi = o.interval.try_lock().expect("failed to lock interval");
+                        let bi = self
+                            .base_interval
+                            .try_lock()
+                            .expect("failed to lock interval");
+                        if oi.start() < bi.start() || oi.stop() > bi.stop() {
+                            let mut oc = oi.clone_box();
+                            oc.set_start(oi.start().max(bi.start()));
+                            oc.set_stop(oi.stop().min(bi.stop()));
+                            drop(bi);
+                            drop(oi);
+                            Arc::new(Mutex::new(oc))
+                        } else {
+                            drop(bi);
+                            drop(oi);
+                            o.interval.clone()
+                        }
+                    })
+                    .collect()
             }
             IntersectionPart::Inverse => {
                 let locked_base = self
@@ -278,6 +351,7 @@ impl Intersections {
                             b_interval.set_start(base.stop());
                             b_positions.push(Arc::new(Mutex::new(b_interval)));
                         }
+                        drop(o);
                     }
                     ReportFragment {
                         a: a_pos,
@@ -297,6 +371,7 @@ impl Intersections {
         });
     }
 
+    /*
     fn adjust_bounds(&self, interval: &mut Position, overlaps: &[Intersection]) {
         // Implement logic to adjust the start and stop positions of the interval based on overlaps
         // Example:
@@ -333,6 +408,7 @@ impl Intersections {
                 .min(interval.stop()),
         );
     }
+    */
 }
 
 #[cfg(test)]
@@ -476,6 +552,24 @@ mod tests {
     }
 
     #[test]
+    fn test_a_part() {
+        let intersections = make_example("a: 2-23\nb: 8-12, 14-15");
+        let mut ro = ReportOptions::default();
+        ro.a_mode = IntersectionMode::Default;
+        ro.b_mode = IntersectionMode::Default;
+        ro.a_part = IntersectionPart::Part;
+        ro.b_part = IntersectionPart::None;
+
+        let r = intersections.report(&ro);
+        eprintln!("{:?}", r);
+        assert_eq!(r.len(), 2);
+        assert_eq!(r[0].a.as_ref().unwrap().lock().start(), 8);
+        assert_eq!(r[0].a.as_ref().unwrap().lock().stop(), 12);
+        assert_eq!(r[1].a.as_ref().unwrap().lock().start(), 14);
+        assert_eq!(r[1].a.as_ref().unwrap().lock().stop(), 15);
+    }
+
+    #[test]
     fn test_a_not_with_empty() {
         let intersections = make_example("a: 1-10");
         let mut ro = ReportOptions::default();
@@ -521,13 +615,27 @@ mod tests {
         ro.a_requirements = OverlapAmount::Bases(1);
         ro.b_requirements = OverlapAmount::Bases(1);
         let r = intersections.report(&ro);
-        assert_eq!(r.len(), 2); // one for each b.
+        eprintln!("{:?}", r[0]);
+        eprintln!("{:?}", r[1]);
+        eprintln!("{:?}", r[2]);
+        assert_eq!(r.len(), 3); // one for each b.
         assert!(r[0].id == 0);
-        assert!(r[1].id == 1);
-        assert_eq!(r[1].b[0].try_lock().unwrap().start(), 9);
-        assert_eq!(r[1].b[0].try_lock().unwrap().stop(), 20);
-        assert_eq!(r[1].a.as_ref().unwrap().lock().start(), 9);
+        assert!(r[1].id == 0);
+        assert!(r[2].id == 1);
+        assert_eq!(r[0].a.as_ref().unwrap().lock().start(), 3);
+        assert_eq!(r[0].a.as_ref().unwrap().lock().stop(), 6);
+        assert_eq!(r[0].b[0].try_lock().unwrap().start(), 3);
+        assert_eq!(r[0].b[0].try_lock().unwrap().stop(), 6);
+
+        assert_eq!(r[1].a.as_ref().unwrap().lock().start(), 8);
         assert_eq!(r[1].a.as_ref().unwrap().lock().stop(), 10);
+        assert_eq!(r[1].b[0].try_lock().unwrap().start(), 8);
+        assert_eq!(r[1].b[0].try_lock().unwrap().stop(), 12);
+
+        assert_eq!(r[2].a.as_ref().unwrap().lock().start(), 9);
+        assert_eq!(r[2].a.as_ref().unwrap().lock().stop(), 10);
+
+        assert!(r[0].b.len() == 1); // need to check that only the b that overlaps this adjusted fragment is included.
     }
 
     #[test]
@@ -572,6 +680,7 @@ mod tests {
         let r = intersections.report(&ro);
         // a: 3-6, b: 3-6
         // a: 8-10, b: 8-10
+        eprintln!("{:?}", r);
         assert_eq!(r.len(), 2);
         let rf = &r[0];
         // test that a is 3-6
