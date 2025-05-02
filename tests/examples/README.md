@@ -50,7 +50,7 @@ chr1    14      15      chr1    14      15
 chr1    20      23      chr1    20      23
 ```
 
-We can also report the `inverse` that is, parts of `a` that do not overlap `b`:
+We can also report the `inverse`, that is, parts of `a` that do not overlap `b`:
 
 ```
 $ bedder -a tests/examples/aa.bed -b tests/examples/bb.bed -g tests/examples/fake.fai --a-part inverse --b-part none
@@ -86,5 +86,21 @@ We can update that to require at least 3 bases:
 ```
 $ bedder -a tests/examples/aa.bed -b tests/examples/bb.bed -g tests/examples/fake.fai --a-part whole --b-part whole --a-requirements 3 --a-mode piece
 chr1    2       23      chr1    8       12      chr1    20      30
-chr1    2       23      chr1    8       12      chr1    20      30 # bug: TODO: printing this line twice
+```
+
+We can also report each a piece:
+
+```
+$ bedder -a tests/examples/aa.bed -b tests/examples/bb.bed -g tests/examples/fake.fai --a-part part --b-part whole --b-requirements 3 --a-mode piece`
+chr1    8       12      chr1    8       12
+chr1    20      23      chr1    20      30
+```
+
+If we don't specify `--a-mode piece` then it checks across the entire interval so each *part* of `a` is reported even though one of the pieces is not 3 bases:
+
+```
+$ bedder -a tests/examples/aa.bed -b tests/examples/bb.bed -g tests/examples/fake.fai --a-part part --b-part whole --b-requirements 3`
+chr1    8       12      chr1    8       12
+chr1    14      15      chr1    14      15
+chr1    20      23      chr1    20      30
 ```

@@ -103,6 +103,7 @@ impl Intersections {
             // so now all overlaps are from b[id]
             if report_options.a_mode == IntersectionMode::PerPiece {
                 // each b_interval must go with the a_piece that it overlaps.
+                let mut b_satisified = vec![];
                 for b_interval in overlaps {
                     let bases_overlap = self
                         .calculate_overlap(self.base_interval.clone(), b_interval.interval.clone());
@@ -125,20 +126,23 @@ impl Intersections {
                         &report_options.b_requirements,
                         &report_options.b_mode,
                     ) {
-                        drop(base);
                         drop(b);
-                        self.push_overlap_fragments(
-                            &mut result,
-                            &[b_interval.clone()],
-                            &report_options.a_part,
-                            &report_options.b_part,
-                            b_idx,
-                        );
+                        drop(base);
+                        b_satisified.push(b_interval.clone());
                     }
+                }
+                if b_satisified.len() > 0 {
+                    self.push_overlap_fragments(
+                        &mut result,
+                        &b_satisified,
+                        &report_options.a_part,
+                        &report_options.b_part,
+                        b_idx,
+                    );
                 }
             } else {
                 // Calculate cumulative overlap and sum of lengths for this group
-                let total_bases_overlap = self.calculate_total_overlap(overlaps);
+                let total_bases_overlap = self.calculate_total_overlap(overlaps, &report_options);
                 let base = self
                     .base_interval
                     .try_lock()
@@ -230,11 +234,48 @@ impl Intersections {
     }
 
     #[inline]
-    fn calculate_total_overlap(&self, overlaps: &[Intersection]) -> u64 {
+    fn calculate_total_overlap(
+        &self,
+        overlaps: &[Intersection],
+        report_options: &ReportOptions,
+    ) -> u64 {
         // Implement logic to calculate total overlap in bases for a group of intervals
         overlaps
             .iter()
-            .map(|o| self.calculate_overlap(self.base_interval.clone(), o.interval.clone()))
+            .map(|o| {
+                let ovl = self.calculate_overlap(self.base_interval.clone(), o.interval.clone());
+
+                if report_options.a_mode == IntersectionMode::PerPiece {
+                    let a_req = match report_options.a_requirements {
+                        OverlapAmount::Bases(bases) => ovl >= bases,
+                        OverlapAmount::Fraction(fraction) => {
+                            let iv = self
+                                .base_interval
+                                .try_lock()
+                                .expect("failed to lock interval");
+                            let interval_length = iv.stop() - iv.start();
+                            ovl as f32 >= fraction * interval_length as f32
+                        }
+                    };
+                    if !a_req {
+                        return 0;
+                    }
+                }
+                if report_options.b_mode == IntersectionMode::PerPiece {
+                    let b_req = match report_options.b_requirements {
+                        OverlapAmount::Bases(bases) => ovl >= bases,
+                        OverlapAmount::Fraction(fraction) => {
+                            let iv = o.interval.try_lock().expect("failed to lock interval");
+                            let interval_length = iv.stop() - iv.start();
+                            ovl as f32 >= fraction * interval_length as f32
+                        }
+                    };
+                    if !b_req {
+                        return 0;
+                    }
+                }
+                ovl
+            })
             .sum()
     }
     fn push_overlap_fragments(

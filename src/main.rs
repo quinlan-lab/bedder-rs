@@ -51,6 +51,14 @@ struct Args {
     )]
     intersection_mode: IntersectionMode,
 
+    #[arg(
+        help = "intersection mode for b-file",
+        short = 'M',
+        long = "b-mode",
+        default_value = "default"
+    )]
+    b_mode: IntersectionMode,
+
     #[arg(help = "a-part", short = 'p', long = "a-part", default_value = "whole")]
     a_part: IntersectionPart,
 
