@@ -64,6 +64,14 @@ struct Args {
         default_value = "1"
     )]
     a_requirements: OverlapAmount,
+
+    #[arg(
+        help = "b-requirements for overlap. A float value < 1 or a number ending with % will be the fraction (or %) of the interval. An integer will be the number of bases.",
+        short = 'R',
+        long = "b-requirements",
+        default_value = "1"
+    )]
+    b_requirements: OverlapAmount,
 }
 
 #[global_allocator]
@@ -137,6 +145,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
             .a_part(args.a_part)
             .b_part(args.b_part)
             .a_requirements(args.a_requirements)
+            .b_requirements(args.b_requirements)
             .build(),
     );
     log::info!("report_options: {:?}", report_options);

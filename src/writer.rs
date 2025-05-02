@@ -133,6 +133,7 @@ impl Writer {
             Some(f) => f,
             None => unimplemented!("format must be specified"),
         };
+        let path = if path == "-" { "/dev/stdout" } else { path };
 
         // Use default compression if not specified
         let compression = compression.unwrap_or(Compression::None);
