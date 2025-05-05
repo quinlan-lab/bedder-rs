@@ -361,6 +361,15 @@ impl TryFrom<&str> for Column<'_> {
                 _ => unreachable!(),
             });
         }
+        if parts[0] == "py" {
+            return Ok(Column::new(
+                parts[1].to_string(),
+                Type::String,
+                parts[1].to_string(),
+                Number::One,
+                Some(ValueParser::PythonExpression(parts[1].to_string())),
+            ));
+        }
 
         if parts.len() < 2 {
             return Err(ColumnError::InvalidValue(format!(
@@ -404,11 +413,11 @@ impl TryFrom<&str> for Type {
 
     fn try_from(s: &str) -> Result<Self, ColumnError> {
         match s.to_lowercase().as_str() {
-            "integer" => Ok(Type::Integer),
+            "int" | "integer" => Ok(Type::Integer),
             "float" => Ok(Type::Float),
-            "character" => Ok(Type::Character),
-            "string" => Ok(Type::String),
-            "flag" => Ok(Type::Flag),
+            "char" | "character" => Ok(Type::Character),
+            "str" | "string" => Ok(Type::String),
+            "bool" | "flag" => Ok(Type::Flag),
             _ => Err(ColumnError::InvalidType(s.to_string())),
         }
     }

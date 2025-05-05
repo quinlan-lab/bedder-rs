@@ -2,7 +2,6 @@ use pyo3::exceptions::{PyIndexError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{self, PyFunction};
 use std::collections::HashMap;
-use std::ffi::CString;
 
 use crate::column::{Number, Type, Value};
 use crate::position::Position;
@@ -594,8 +593,6 @@ pub struct CompiledPython<'py> {
     number: Number,
 }
 
-use pyo3_ffi::c_str;
-
 // Add this function to initialize the Python environment
 pub fn initialize_python(py: Python<'_>) -> PyResult<()> {
     // Register the bedder_py module in sys.modules
@@ -701,7 +698,7 @@ pub fn introspect_python_functions<'py>(
 impl<'py> CompiledPython<'py> {
     /// Create a new compiled Python function
     pub fn new(
-        py: Python<'py>,
+        _py: Python<'py>,
         fname: &str,
         functions: &HashMap<String, PythonFunction<'py>>,
     ) -> PyResult<Self> {

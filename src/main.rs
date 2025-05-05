@@ -1,5 +1,5 @@
 extern crate bedder;
-use bedder::column::{Column, ColumnReporter};
+use bedder::column::Column;
 use bedder::hts_format::Format;
 use bedder::report_options::{IntersectionMode, IntersectionPart, OverlapAmount, ReportOptions};
 use bedder::writer::{InputHeader, Writer};
@@ -201,7 +201,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
                 col
             })
             .collect();
-        //log::info!("py_columns: {:?}", py_columns);
+        log::info!("py_columns: {:?}", py_columns);
         bedder::py::initialize_python(py).expect("Failed to initialize Python environment");
 
         // Process intersections with columns
