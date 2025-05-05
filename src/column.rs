@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use crate::py::{CompiledPython, PyReportFragment};
 use crate::report::ReportFragment;
 #[derive(Debug, PartialEq)]
@@ -52,6 +54,14 @@ impl std::fmt::Display for ColumnError {
 }
 
 impl std::error::Error for ColumnError {}
+
+impl FromStr for Type {
+    type Err = ColumnError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Type::try_from(s)
+    }
+}
 
 /// A ColumnReporter tells bedder how to report a column in the output.
 pub trait ColumnReporter: std::fmt::Debug {

@@ -4,7 +4,6 @@ use bedder::hts_format::Format;
 use bedder::report_options::{IntersectionMode, IntersectionPart, OverlapAmount, ReportOptions};
 use bedder::writer::{InputHeader, Writer};
 use clap::Parser;
-use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use std::collections::HashMap;
 use std::env;
@@ -184,22 +183,19 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
             let main_module = py.import("__main__")?;
             let globals = main_module.dict();
 
-            functions_map = crate::py::introspect_python_functions(py, globals)?;
-            log::info!("python functions map: {:?}", functions_map);
+            functions_map = bedder::py::introspect_python_functions(py, globals)?;
+            log::info!("python functions map: {:?}", &functions_map);
         }
 
         let py_columns: Vec<Column<'_>> = columns
             .into_iter()
             .map(|mut col| {
-                if let Some(bedder::column::ValueParser::PythonExpression(expr)) = &col.value_parser
+                if let Some(bedder::column::ValueParser::PythonExpression(function_name)) =
+                    &col.value_parser
                 {
-                    let compiled = bedder::py::CompiledPython::new(
-                        py,
-                        expr,
-                        col.ftype().clone(),
-                        col.number().clone(),
-                    )
-                    .expect("error compiling Python expression");
+                    let compiled =
+                        bedder::py::CompiledPython::new(py, function_name, &functions_map)
+                            .expect("error compiling Python expression");
                     col.py = Some(compiled);
                 }
                 col

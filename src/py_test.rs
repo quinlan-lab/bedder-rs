@@ -7,7 +7,11 @@ mod tests {
     use crate::py::{CompiledPython, PyReportFragment};
     use crate::report_options::ReportOptions;
     use parking_lot::Mutex;
-    use pyo3::Python;
+    use pyo3::exceptions::PyRuntimeError;
+    use pyo3::types::PyModuleMethods;
+    use pyo3::PyResult;
+    use pyo3::{PyErr, Python};
+    use std::ffi::CString;
     use std::sync::Arc;
 
     fn create_test_intersection() -> Intersections {
@@ -32,15 +36,24 @@ mod tests {
 
     #[test]
     fn test_simple_snippet() {
-        Python::with_gil(|py| {
+        Python::with_gil(|py| -> PyResult<()> {
             let code = r#"
-def bedder(fragment):
+def bedder_test_func(fragment) -> str:
     chrom = fragment.a.chrom
     start = fragment.a.start
     return f"{chrom}:{start}"
             "#;
 
-            let compiled = CompiledPython::new(py, code, Type::String, Number::One).unwrap();
+            let c_code = CString::new(code)
+                .map_err(|_| PyRuntimeError::new_err("Failed to convert code to CString"))?;
+            py.run(&c_code, None, None)?;
+            let main_module = py.import("__main__")?;
+            let globals = main_module.dict();
+
+            let functions_map = crate::py::introspect_python_functions(py, globals)?;
+            eprintln!("functions: {:?}", functions_map);
+
+            let compiled = CompiledPython::new(py, "test_func", &functions_map)?;
             let intersections = create_test_intersection();
             let report_options = Arc::new(ReportOptions::default());
             let report = intersections.report(&report_options);
@@ -49,7 +62,9 @@ def bedder(fragment):
                 let result = compiled.eval(py_fragment).unwrap();
                 assert_eq!(result, Value::String("chr1:100".to_string()));
             }
-        });
+            Ok(())
+        })
+        .expect("Failed to run test");
     }
 
     /*

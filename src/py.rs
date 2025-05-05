@@ -588,8 +588,7 @@ impl PyIntersections {
 
 /// A compiled Python f-string that can be reused for better performance
 pub struct CompiledPython<'py> {
-    _code: String,
-    _module: Bound<'py, PyModule>,
+    function_name: String,
     f: Bound<'py, PyFunction>,
     ftype: Type,
     number: Number,
@@ -627,6 +626,7 @@ pub fn initialize_python(py: Python<'_>) -> PyResult<()> {
     Ok(())
 }
 
+#[derive(Debug)]
 pub struct PythonFunction<'py> {
     name: String,
     return_type: String,
@@ -635,8 +635,10 @@ pub struct PythonFunction<'py> {
     description: String,
 }
 
+const BEDDER_PREFIX: &str = "bedder_";
+
 /// Introspects the Python environment to find functions and their return type annotations.
-fn introspect_python_functions<'py>(
+pub fn introspect_python_functions<'py>(
     _py: Python<'py>,
     globals: pyo3::Bound<'py, pyo3::types::PyDict>,
 ) -> PyResult<HashMap<String, PythonFunction<'py>>> {
@@ -644,7 +646,7 @@ fn introspect_python_functions<'py>(
 
     for (name, obj) in globals.iter() {
         let name_str = name.to_string();
-        if !name_str.starts_with("bedder_") {
+        if !name_str.starts_with(BEDDER_PREFIX) {
             continue;
         }
         // Check if the object is a Python function
@@ -664,9 +666,13 @@ fn introspect_python_functions<'py>(
                     }
                     if let Ok(description) = obj.getattr("__doc__") {
                         description_str = description.to_string();
-                        // get first line of docstring
-                        description_str =
-                            description_str.split('\n').next().unwrap_or("").to_string();
+                        // get first non-empty line of docstring
+                        description_str = description_str
+                            .split('\n')
+                            .filter(|line| !line.is_empty())
+                            .next()
+                            .unwrap_or("")
+                            .to_string();
                     }
                 }
             }
@@ -676,6 +682,7 @@ fn introspect_python_functions<'py>(
                     return_type_str
                 )));
             }
+            let name_str = name_str[BEDDER_PREFIX.len()..].to_string();
             functions_map.insert(
                 name_str.clone(),
                 PythonFunction {
@@ -693,18 +700,22 @@ fn introspect_python_functions<'py>(
 
 impl<'py> CompiledPython<'py> {
     /// Create a new compiled Python function
-    pub fn new(py: Python<'py>, fname: &str, ftype: Type, number: Number) -> PyResult<Self> {
-        let code = CString::new(fname)?;
-        let module = PyModule::from_code(py, &code, &code, c_str!("user_code"))?;
-
-        let f = module.getattr(FN_NAME)?.extract()?;
+    pub fn new(
+        py: Python<'py>,
+        fname: &str,
+        functions: &HashMap<String, PythonFunction<'py>>,
+    ) -> PyResult<Self> {
+        let f = functions.get(fname).ok_or(PyValueError::new_err(format!(
+            "Function '{}' not found in the provided functions map.",
+            fname
+        )))?;
 
         Ok(CompiledPython {
-            _code: f_string_code.to_string(),
-            _module: module,
-            f,
-            ftype,
-            number,
+            function_name: fname.to_string(),
+            f: f.pyfn.clone(),
+            ftype: Type::try_from(f.return_type.as_str())
+                .map_err(|e| PyValueError::new_err(format!("Invalid type: {}", e)))?,
+            number: Number::One,
         })
     }
 
