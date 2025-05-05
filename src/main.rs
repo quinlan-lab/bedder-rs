@@ -4,8 +4,11 @@ use bedder::hts_format::Format;
 use bedder::report_options::{IntersectionMode, IntersectionPart, OverlapAmount, ReportOptions};
 use bedder::writer::{InputHeader, Writer};
 use clap::Parser;
+use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
+use std::collections::HashMap;
 use std::env;
+use std::ffi::CString;
 use std::fs::File;
 use std::io::BufReader;
 use std::path::PathBuf;
@@ -80,6 +83,13 @@ struct Args {
         default_value = "1"
     )]
     b_requirements: OverlapAmount,
+
+    #[arg(
+        help = "python file with functions to be used in columns",
+        short = 'P',
+        long = "python"
+    )]
+    python_file: Option<PathBuf>,
 }
 
 #[global_allocator]
@@ -160,6 +170,24 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Use Python for columns that need it
     Python::with_gil(|py| {
         // Initialize Python expressions in columns if needed
+
+        let mut functions_map = HashMap::new();
+
+        if let Some(python_file) = &args.python_file {
+            let file = File::open(python_file)?;
+            let code = std::io::read_to_string(file)?;
+            let c_code = CString::new(code.as_str())?;
+            py.run(&c_code, None, None)?;
+
+            // Introspect loaded functions
+            log::info!("Introspecting functions loaded from Python file:");
+            let main_module = py.import("__main__")?;
+            let globals = main_module.dict();
+
+            functions_map = crate::py::introspect_python_functions(py, globals)?;
+            log::info!("python functions map: {:?}", functions_map);
+        }
+
         let py_columns: Vec<Column<'_>> = columns
             .into_iter()
             .map(|mut col| {

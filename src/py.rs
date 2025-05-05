@@ -1,6 +1,7 @@
-use pyo3::exceptions::{PyIndexError, PyTypeError};
+use pyo3::exceptions::{PyIndexError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{self, PyFunction};
+use std::collections::HashMap;
 use std::ffi::CString;
 
 use crate::column::{Number, Type, Value};
@@ -596,33 +597,6 @@ pub struct CompiledPython<'py> {
 
 use pyo3_ffi::c_str;
 
-const FN_NAME: &str = "bedder";
-
-fn wrap_python_code(code: &str) -> String {
-    let mut indented_code_lines: Vec<String> = code
-        .lines()
-        .filter(|line| !line.trim().is_empty())
-        .map(|line| format!("    {}", line)) // Add indentation to each line
-        .collect::<Vec<String>>();
-
-    // Try to add a return statement to the last line if it's not already there
-    if !indented_code_lines.is_empty()
-        && !indented_code_lines[indented_code_lines.len() - 1]
-            .trim()
-            .starts_with("return")
-    {
-        let last_line = indented_code_lines.pop().unwrap();
-        indented_code_lines.push(format!(
-            "    return {}",
-            last_line.strip_prefix("    ").unwrap()
-        ));
-    }
-
-    let indented_code = indented_code_lines.join("\n");
-
-    format!("def {FN_NAME}(intersection):\n{}", indented_code)
-}
-
 // Add this function to initialize the Python environment
 pub fn initialize_python(py: Python<'_>) -> PyResult<()> {
     // Register the bedder_py module in sys.modules
@@ -653,28 +627,75 @@ pub fn initialize_python(py: Python<'_>) -> PyResult<()> {
     Ok(())
 }
 
+pub struct PythonFunction<'py> {
+    name: String,
+    return_type: String,
+    pyfn: pyo3::Bound<'py, pyo3::types::PyFunction>,
+    // description is from the docstring of the function
+    description: String,
+}
+
+/// Introspects the Python environment to find functions and their return type annotations.
+fn introspect_python_functions<'py>(
+    _py: Python<'py>,
+    globals: pyo3::Bound<'py, pyo3::types::PyDict>,
+) -> PyResult<HashMap<String, PythonFunction<'py>>> {
+    let mut functions_map = HashMap::new();
+
+    for (name, obj) in globals.iter() {
+        let name_str = name.to_string();
+        if !name_str.starts_with("bedder_") {
+            continue;
+        }
+        // Check if the object is a Python function
+        if obj.is_instance_of::<pyo3::types::PyFunction>() {
+            let pyfn = obj.downcast::<pyo3::types::PyFunction>()?;
+            let mut return_type_str = "No return annotation".to_string();
+            let mut description_str = "".to_string();
+            if let Ok(annotations) = obj.getattr("__annotations__") {
+                if let Ok(dict) = annotations.downcast::<pyo3::types::PyDict>() {
+                    if let Some(return_type) = dict.get_item("return")? {
+                        if let Ok(type_name) = return_type.getattr("__name__") {
+                            return_type_str = format!("{}", type_name.to_string());
+                        } else {
+                            // Fallback to repr if __name__ is not available
+                            return_type_str = format!("{}", return_type.repr()?);
+                        }
+                    }
+                    if let Ok(description) = obj.getattr("__doc__") {
+                        description_str = description.to_string();
+                        // get first line of docstring
+                        description_str =
+                            description_str.split('\n').next().unwrap_or("").to_string();
+                    }
+                }
+            }
+            if !["str", "int", "float", "bool"].contains(&return_type_str.as_str()) {
+                return Err(PyValueError::new_err(format!(
+                    "Invalid return type '{}'. Expected str, int, float, or bool. Make sure the function has a return annotation.",
+                    return_type_str
+                )));
+            }
+            functions_map.insert(
+                name_str.clone(),
+                PythonFunction {
+                    name: name_str,
+                    return_type: return_type_str,
+                    pyfn: pyfn.clone(),
+                    description: description_str,
+                },
+            );
+        }
+    }
+
+    Ok(functions_map)
+}
+
 impl<'py> CompiledPython<'py> {
     /// Create a new compiled Python function
-    ///
-    /// If snippet is true, the code will be wrapped in a function called `bedder`
-    /// and the function will be returned. Otherwise, the code will be executed directly.
-    /// It must then be a function.
-    pub fn new(
-        py: Python<'py>,
-        f_string_code: &str,
-        ftype: Type,
-        number: Number,
-    ) -> PyResult<Self> {
-        let snippet = false;
-        let module = if snippet {
-            let wrapped_code = wrap_python_code(f_string_code);
-            log::info!("wrapped_code: {}", wrapped_code);
-            let code = CString::new(wrapped_code)?;
-            PyModule::from_code(py, &code, c_str!("user_code"), c_str!("user_code"))?
-        } else {
-            let code = CString::new(f_string_code)?;
-            PyModule::from_code(py, &code, c_str!("user_code"), c_str!("user_code"))?
-        };
+    pub fn new(py: Python<'py>, fname: &str, ftype: Type, number: Number) -> PyResult<Self> {
+        let code = CString::new(fname)?;
+        let module = PyModule::from_code(py, &code, &code, c_str!("user_code"))?;
 
         let f = module.getattr(FN_NAME)?.extract()?;
 
