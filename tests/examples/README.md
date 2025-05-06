@@ -104,3 +104,54 @@ chr1    8       12      chr1    8       12
 chr1    14      15      chr1    14      15
 chr1    20      23      chr1    20      30
 ```
+
+# Python functions
+
+We can output custom columns with python functions. The python function must accept a fragment, part of an overlap, and have a return type of `str`, `int`, `bool` or `float`.
+The function must begin with `bedder_`. For example, we can have a function like this that will return the number of `b` intervals overlapping the `a` interval:
+
+```python
+def bedder_n_overlapping(fragment) -> int:
+    return len(fragment.b)
+```
+
+This tells `bedder` that the return type will be an integer. And the user will refer to the function as `py:n_overlapping` (without arguments).
+
+We put this in a file called `example.py` and then run with an argument of `-c py:n_overlapping` as:
+
+```
+$ bedder -a tests/examples/aa.bed -b tests/examples/bb.bed -g tests/examples/fake.fai --a-part whole --b-part part -P tests/examples/example.py -c 'py:n_overlapping'
+chr1    2       23      chr1    8       12      chr1    14      15      chr1    20      23      3
+```
+
+Where the final column shows the expected value of *3*.
+
+Another example is that total bases of `b` that overlap an `a` interval:
+
+```python
+def bedder_total_b_overlap(fragment) -> int:
+    return sum(b.stop - b.start for b in fragment.b)
+```
+
+And call as:
+
+```
+$ bedder -a tests/examples/aa.bed -b tests/examples/bb.bed -g tests/examples/fake.fai --a-part whole --b-part part -P tests/examples/example.py -c 'py:total_b_overlap' 
+chr1    2       23      chr1    8       12      chr1    14      15      chr1    20      23      8
+```
+
+Note that if we change the `--b-part` to `whole` we get a different value as expected:
+
+```
+$ bedder -a tests/examples/aa.bed -b tests/examples/bb.bed -g tests/examples/fake.fai --a-part whole --b-part whole -P tests/examples/example.py -c 'py:total_b_overlap' 
+chr1    2       23      chr1    8       12      chr1    14      15      chr1    20      30      15
+```
+
+and likewise if we change `--a-part` to part:
+
+```
+$ bedder -a tests/examples/aa.bed -b tests/examples/bb.bed -g tests/examples/fake.fai --a-part part --b-part whole -P tests/examples/example.py -c 'py:total_b_overlap'
+chr1    8       12      aaaa    chr1    8       12      4
+chr1    14      15      bbbb    chr1    14      15      1
+chr1    20      23      cccc    chr1    20      30      10
+```
