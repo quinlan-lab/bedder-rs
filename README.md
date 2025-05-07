@@ -10,8 +10,7 @@ cargo test --release --target $target \
 
 # bedder (tools)
 
-This is an early release of the library for feedback, especially from rust practitioners. If interested,
-read below and then, for example, have a look at [issue 2](https://github.com/quinlan-lab/bedder-rs/issues/2) and the associated [discussion](https://github.com/quinlan-lab/bedder-rs/discussions/3)
+This is an early release of the library for feedback, especially from rust practitioners.
 
 ## Problem statement
 
@@ -22,46 +21,50 @@ We want a library (in bedder) that is:
 2. fast enough
 3. extensible so that we don't need a custom tool for every possible use-case.
 
-## Solution
+### Solution
 
 To do this, we provide the machinery to intersect common genomics file formats (and more can be added by implementing a simple trait)
-and we allow the user to write custom python snippets that are applied to that intersection.
+and we allow the user to write python functions that then write columns to the output.
 As a silly example, the user may want to count overlaps but only if the start position of the overlapping interval is even; that could be
 done with this expression:
 
-```Python
-len(o for o in intersection.overlapping if o.start % 2 == 0])
-```
-
-It is common to require certain *constraints* on the intersections like a percent or number of bases of overlap.
-We can get those with:
-
 ```python
-a_mode = PyIntersectionMode.default() # report the full interval like -v in bedtools
-b_part = PyIntersectionPart.inverse() # report the part of the b-intervals that do not overlap the a-interval
-a_requirements = PyOverlapAmount.fraction(0.5) # require at least 50% of the a_interval to be covered
-report = intersection.report(a_mode, None, None, b_part, a_requirements, None)
-result = []
-for ov in report:
-    line = [f"{ov.a.chrom}\t{ov.a.start}\t{ov.a.stop}"]
-    for b in ov.b:
-        line.append(f"{b.start}\t{b.stop}")
-    result.append("\t".join(line))
-"\n".join(result)
+def bedder_odd(fragment) -> int:
+    """return odd if the start of the query interval is odd. otherwise even"""
+    return sum(1 for _ in fragment.b if b.start % 2 == 0)
 ```
+
+There are several things to note here:
+
++ The function name must start with `bedder_` what follows that will be used as the name in the command-line and as the output e.g. in the VCF INFO field.
++ The function must have a return type annotation (`int`, `str`, `float`, `bool` are supported)
++ The docstring will be used as the description for VCF output, if appropriate
++ The function must accept a fragment--that is, a piece of an alignment.
+
+This function, if placed in a file named `example.py` could be used as:
+
+```bash
+bedder -a some.bed -b other.bed -P example.py -c 'py:odd`
+```
+
+where `odd` matches the function name above.
+
+There is more info on the use of python and the various intersection modes in [the examples](tests/examples/README.md)
+
+## Library
 
 This library aims to provide:
 
-- [x] an abstraction so any interval types from sorted sources can be intersected together
-- [x] the rust implementation of the heap and Queue to find intersections with minimal overhead
-- [ ] bedder wrappers for:
-  - [x] bed
-  - [x] vcf/bcf
-  - [ ] sam/bam/cram
-  - [ ] gff/gtf
-  - [ ] generalized tabixed/csi files
-- [ ] downstream APIs to perform operations on the intersections
-- [ ] a python library to interact with the intersections
++ [x] an abstraction so any interval types from sorted sources can be intersected together
++ [x] the rust implementation of the heap and Queue to find intersections with minimal overhead
++ [ ] bedder wrappers for:
+  + [x] bed
+  + [x] vcf/bcf
+  + [ ] sam/bam/cram
+  + [ ] gff/gtf
+  + [ ] generalized tabixed/csi files
++ [ ] downstream APIs to perform operations on the intersections
++ [ ] a python library to interact with the intersections
 
 The API looks as follows
 
@@ -116,5 +119,5 @@ We use `Rc` because each database interval may be attached to more than one quer
 
 # Acknowledgements
 
-- We received very valuable `rust` feedback and code from @sstadick.
-- We leverage the excellent [noodles](https://github.com/zaeleus/noodles) library.
++ We received very valuable `rust` feedback and code from @sstadick.
++ We leverage the excellent [noodles](https://github.com/zaeleus/noodles) library.
