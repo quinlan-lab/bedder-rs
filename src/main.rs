@@ -107,7 +107,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let afhile = BufReader::new(File::open(&args.query_path)?);
 
-    let a_iter = bedder::sniff::open(afhile, &args.query_path)?;
+    let a_iter = bedder::sniff::open(afhile, &args.query_path)?.into_positioned_iterator();
     let b_iters: Vec<_> = args
         .other_paths
         .iter()
@@ -117,9 +117,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         })
         .collect::<Result<Vec<_>, _>>()?;
 
-    let bedder::sniff::BedderReader::BedderBed(aiter) = a_iter;
-
-    let ii = bedder::intersection::IntersectionIterator::new(aiter, b_iters, &chrom_order)?;
+    let ii = bedder::intersection::IntersectionIterator::new(a_iter, b_iters, &chrom_order)?;
 
     /*
     let mut output: Box<dyn Write> = if args.output_path.to_str().unwrap() == "-" {

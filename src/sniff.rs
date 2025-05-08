@@ -1,4 +1,5 @@
 use crate::bedder_bed::BedderBed;
+use crate::bedder_vcf::BedderVCF;
 use crate::position::PositionedIterator;
 use flate2::bufread::GzDecoder;
 use log::info;
@@ -25,6 +26,7 @@ where
     R: io::BufRead + io::Seek + 'static,
 {
     BedderBed(BedderBed<'static, R>),
+    BedderVcf(BedderVCF),
 }
 
 impl<R> BedderReader<R>
@@ -38,6 +40,7 @@ where
     pub fn into_positioned_iterator(self) -> Box<dyn PositionedIterator> {
         match self {
             BedderReader::BedderBed(rdr) => Box::new(rdr),
+            BedderReader::BedderVcf(rdr) => Box::new(rdr),
         }
     }
 }
@@ -51,7 +54,9 @@ pub fn open<P: AsRef<Path>, R: io::BufRead + io::Seek + 'static>(
     info!("sniffed file type: {:?}, compression: {:?}", ft, c);
     let rdr = match ft {
         FileType::Bed => BedderReader::BedderBed(BedderBed::new(reader, Some(p))),
-        //FileType::Vcf => BedderReader::BedderVcf(BedderVcf::new(reader, Some(p))),
+        FileType::Vcf => {
+            BedderReader::BedderVcf(BedderVCF::from_path(p.as_ref().to_str().unwrap())?)
+        }
         _ => unimplemented!("Unsupported file type {:?}", ft),
     };
     Ok(rdr)

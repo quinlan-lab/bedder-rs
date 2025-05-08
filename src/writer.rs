@@ -272,13 +272,13 @@ impl Writer {
                             }
                         }
                     }
-                    // TODO first: add b stuff to the a interval
+                    log::info!("frag.a: {:?}", frag.a);
                     if let Position::Bed(ref mut bed_record) = *frag
                         .a
                         .as_ref()
-                        .expect("Position is not a BED interval")
+                        .expect("Fragment Position is not a BED interval")
                         .try_lock()
-                        .expect("Failed to lock Position")
+                        .expect("Failed to lock BED Position")
                     {
                         // Add all values to our clone
                         for value in values {
@@ -287,10 +287,18 @@ impl Writer {
 
                         // Replace the entire Arc with our updated version
                         //intersections.base_interval = Arc::new(Position::Bed(new_bed_record));
+                    } else if let Position::Vcf(_) = *frag
+                        .a
+                        .as_ref()
+                        .expect("Fragment Position is not a VCF record")
+                        .try_lock()
+                        .expect("Failed to lock VCF Position")
+                    {
+                        unimplemented!("VCF writing not yet implemented");
                     } else {
                         return Err(std::io::Error::new(
                             std::io::ErrorKind::InvalidData,
-                            "Position is not a BED interval",
+                            "Fragment Position is not implemented interval",
                         ));
                     }
                 }

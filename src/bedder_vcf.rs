@@ -25,6 +25,18 @@ impl BedderVCF {
         };
         Ok(v)
     }
+
+    pub fn from_path(p: &str) -> io::Result<BedderVCF> {
+        if p == "-" || p == "stdin" || p == "/dev/stdin" {
+            let r =
+                bcf::Reader::from_stdin().map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+            BedderVCF::new(r)
+        } else {
+            let r =
+                bcf::Reader::from_path(p).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+            BedderVCF::new(r)
+        }
+    }
 }
 
 pub trait Skip {
@@ -173,6 +185,4 @@ impl crate::position::PositionedIterator for BedderVCF {
 
 // tests
 #[cfg(test)]
-mod tests {
-    
-}
+mod tests {}
