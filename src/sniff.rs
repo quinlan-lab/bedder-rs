@@ -51,7 +51,8 @@ pub fn open<P: AsRef<Path>, R: io::BufRead + io::Seek + 'static>(
     info!("sniffed file type: {:?}, compression: {:?}", ft, c);
     let rdr = match ft {
         FileType::Bed => BedderReader::BedderBed(BedderBed::new(reader, Some(p))),
-        _ => unimplemented!(),
+        //FileType::Vcf => BedderReader::BedderVcf(BedderVcf::new(reader, Some(p))),
+        _ => unimplemented!("Unsupported file type {:?}", ft),
     };
     Ok(rdr)
 }

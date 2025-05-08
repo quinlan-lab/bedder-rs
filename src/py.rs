@@ -586,6 +586,7 @@ impl PyIntersections {
 }
 
 /// A compiled Python f-string that can be reused for better performance
+/// TODO: also have an eval_mod function that modifies the fragment in place.
 pub struct CompiledPython<'py> {
     function_name: String,
     f: Bound<'py, PyFunction>,
