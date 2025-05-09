@@ -314,17 +314,17 @@ impl Intersections {
                             .base_interval
                             .try_lock()
                             .expect("failed to lock interval");
-                        if oi.start() < bi.start() || oi.stop() > bi.stop() {
-                            let mut oc = oi.clone_box();
+                        //if oi.start() < bi.start() || oi.stop() > bi.stop() {
+                        if oi.start() > bi.start() || oi.stop() < bi.stop() {
+                            let mut oc = bi.clone_box();
                             oc.set_start(oi.start().max(bi.start()));
                             oc.set_stop(oi.stop().min(bi.stop()));
                             drop(bi);
                             drop(oi);
                             Arc::new(Mutex::new(oc))
                         } else {
-                            drop(bi);
                             drop(oi);
-                            o.interval.clone()
+                            Arc::new(Mutex::new(bi.clone_box()))
                         }
                     })
                     .collect()
@@ -692,22 +692,18 @@ mod tests {
         ro.a_requirements = OverlapAmount::Bases(1);
         ro.b_requirements = OverlapAmount::Bases(1);
         let r = intersections.report(&ro);
-        assert_eq!(r.len(), 2);
+        assert_eq!(r.len(), 1);
         let rf = &r[0];
         // test that a is 1-10
         assert_eq!(rf.a.as_ref().unwrap().lock().start(), 1);
         assert_eq!(rf.a.as_ref().unwrap().lock().stop(), 10);
         // test that b is 3-6
-        assert_eq!(rf.b.len(), 1);
+        assert_eq!(rf.b.len(), 2);
         assert_eq!(rf.b[0].lock().start(), 3);
         assert_eq!(rf.b[0].lock().stop(), 6);
 
-        let rf = &r[1];
-        assert_eq!(rf.a.as_ref().unwrap().lock().start(), 1);
-        assert_eq!(rf.a.as_ref().unwrap().lock().stop(), 10);
-        assert_eq!(rf.b.len(), 1);
-        assert_eq!(rf.b[0].lock().start(), 8);
-        assert_eq!(rf.b[0].lock().stop(), 12);
+        assert_eq!(rf.b[1].lock().start(), 8);
+        assert_eq!(rf.b[1].lock().stop(), 12);
     }
 
     #[test]
@@ -721,6 +717,7 @@ mod tests {
         ro.a_requirements = OverlapAmount::Bases(1);
         ro.b_requirements = OverlapAmount::Bases(1);
         let r = intersections.report(&ro);
+        eprintln!("r: {:?}", r);
         // a: 3-6, b: 3-6
         // a: 8-10, b: 8-10
         eprintln!("{:?}", r);
