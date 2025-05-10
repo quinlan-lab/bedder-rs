@@ -294,21 +294,9 @@ impl Intersections {
             IntersectionPart::None | IntersectionPart::Whole => vec![self.base_interval.clone()],
             IntersectionPart::Part => {
                 // Create and adjust a_position if a_part is Part
-                // Q: TODO: what to do here with multiple b files? keep intersection to smallest joint overlap?
-                /*
-                let mut a_interval = self
-                    .base_interval
-                    .try_lock()
-                    .expect("failed to lock interval")
-                    .clone_box();
-                self.adjust_bounds(&mut a_interval, overlaps);
-                vec![Arc::new(Mutex::new(a_interval))]
-                */
                 overlaps
                     .iter()
                     .map(|o| {
-                        //  TODO: avoid clone_box heere  if not needed.
-                        // TODO: FIRST!! here we are pushing on the b-interval as the a-interval. need to clone the a interval and set start stop on it.
                         let oi = o.interval.try_lock().expect("failed to lock interval");
                         let bi = self
                             .base_interval

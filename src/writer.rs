@@ -179,16 +179,16 @@ impl Writer {
     fn add_info_field_to_vcf_record(
         record: &mut bcf::Record,
         key: String,
-        value: Value,
+        value: &Value,
     ) -> Result<(), std::io::Error> {
         let key_bytes = key.as_bytes();
         match value {
             Value::Int(i) => {
-                let vals = vec![i];
+                let vals = vec![*i];
                 record.push_info_integer(key_bytes, &vals)
             }
             Value::Float(f) => {
-                let vals = vec![f];
+                let vals = vec![*f];
                 record.push_info_float(key_bytes, &vals)
             }
             Value::String(s) => {
@@ -196,7 +196,7 @@ impl Writer {
                 record.push_info_string(key_bytes, &byte_slice)
             }
             Value::Flag(b) => {
-                if b {
+                if *b {
                     record.push_info_flag(key_bytes)
                 } else {
                     record.clear_info_flag(key_bytes)
@@ -273,33 +273,31 @@ impl Writer {
                         }
                     }
                     log::info!("frag.a: {:?}", frag.a);
-                    if let Position::Bed(ref mut bed_record) = *frag
+                    let mut a_lock = frag
                         .a
                         .as_ref()
                         .expect("Fragment Position is not a BED interval")
                         .try_lock()
-                        .expect("Failed to lock BED Position")
-                    {
-                        // Add all values to our clone
-                        for value in values {
-                            push_value_to_bed_record(bed_record, value);
+                        .expect("Failed to lock BED Position");
+                    match *a_lock {
+                        Position::Bed(ref mut bed_record) => {
+                            // Add all values to our clone
+                            for value in values {
+                                push_value_to_bed_record(bed_record, value);
+                            }
                         }
-
-                        // Replace the entire Arc with our updated version
-                        //intersections.base_interval = Arc::new(Position::Bed(new_bed_record));
-                    } else if let Position::Vcf(_) = *frag
-                        .a
-                        .as_ref()
-                        .expect("Fragment Position is not a VCF record")
-                        .try_lock()
-                        .expect("Failed to lock VCF Position")
-                    {
-                        unimplemented!("VCF writing not yet implemented");
-                    } else {
-                        return Err(std::io::Error::new(
-                            std::io::ErrorKind::InvalidData,
-                            "Fragment Position is not implemented interval",
-                        ));
+                        Position::Vcf(ref mut record) => {
+                            for (i, value) in values.iter().enumerate() {
+                                Self::add_info_field_to_vcf_record(
+                                    &mut record.record,
+                                    crs[i].name().to_string(),
+                                    value,
+                                )?;
+                            }
+                        }
+                        _ => {
+                            unimplemented!("Interval writing not yet implemented");
+                        }
                     }
                 }
             }
