@@ -107,52 +107,41 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let afhile = BufReader::new(File::open(&args.query_path)?);
 
-    let a_iter = bedder::sniff::open(afhile, &args.query_path)?.into_positioned_iterator();
+    let (a_bed_reader, query_file_type) = bedder::sniff::open(afhile, &args.query_path)?;
+    let a_iter = a_bed_reader.into_positioned_iterator();
+
     let b_iters: Vec<_> = args
         .other_paths
         .iter()
         .map(|p| -> Result<_, Box<dyn std::error::Error>> {
             let fh = BufReader::new(File::open(p)?);
-            Ok(bedder::sniff::open(fh, p)?.into_positioned_iterator())
+            let (b_reader, _) = bedder::sniff::open(fh, p)?;
+            Ok(b_reader.into_positioned_iterator())
         })
         .collect::<Result<Vec<_>, _>>()?;
 
     let ii = bedder::intersection::IntersectionIterator::new(a_iter, b_iters, &chrom_order)?;
 
-    /*
-    let mut output: Box<dyn Write> = if args.output_path.to_str().unwrap() == "-" {
-        Box::new(BufWriter::new(std::io::stdout().lock()))
-    } else {
-        Box::new(BufWriter::new(File::create(&args.output_path)?))
+    // Convert sniff::FileType to hts_format::Format
+    let output_format = match query_file_type {
+        bedder::sniff::FileType::Bed => Format::Bed,
+        bedder::sniff::FileType::Vcf => Format::Vcf,
+        bedder::sniff::FileType::Bcf => Format::Bcf,
     };
-    */
 
-    let mut output = Writer::init(
-        args.output_path.to_str().unwrap(),
-        Some(Format::Bed),
-        None,
-        InputHeader::None,
-    )?;
-
-    // Parse columns
     let columns: Vec<Column> = args
         .columns
         .iter()
         .map(|c| Column::try_from(c.as_str()))
         .collect::<Result<Vec<_>, _>>()?;
 
-    // Print header
-    /*
-    writeln!(
-        output,
-        "#{}",
-        columns
-            .iter()
-            .map(|c| c.name())
-            .collect::<Vec<_>>()
-            .join("\t")
+    let mut output = Writer::init(
+        args.output_path.to_str().unwrap(),
+        Some(output_format),
+        None,
+        InputHeader::None,
+        &columns,
     )?;
-    */
 
     let report_options = Arc::new(
         ReportOptions::builder()
@@ -206,28 +195,6 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         for intersection in ii {
             let mut intersection = intersection.expect("error getting intersection");
             output.write(&mut intersection, report_options.clone(), &py_columns)?;
-            /*
-            let values: Vec<String> = py_columns
-                .iter()
-                .map(
-                    |col| match col.value(&intersection, report_options.clone()) {
-                        Ok(val) => val.to_string(),
-                        Err(e) => panic!("Error getting column value: {:?}", e),
-                    },
-                )
-                .collect();
-            if values.iter().any(|v| !v.is_empty()) {
-                match writeln!(output, "{}", values.join("\t")) {
-                    Ok(_) => {}
-                    Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => {
-                        std::process::exit(0);
-                    }
-                    Err(e) => {
-                        panic!("Error writing to output({:?}): {}", args.output_path, e);
-                    }
-                }
-            }
-            */
         }
         Ok::<(), Box<dyn std::error::Error>>(())
     })

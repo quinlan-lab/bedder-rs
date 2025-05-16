@@ -1,4 +1,4 @@
-use crate::column::{ColumnReporter, Value};
+use crate::column::{Column, ColumnReporter, Value};
 use crate::hts_format::{Compression, Format};
 use crate::intersection::Intersections;
 use crate::position::Position;
@@ -121,12 +121,29 @@ fn push_value_to_bed_record(bed_record: &mut crate::bedder_bed::BedRecord, value
     }
 }
 
+fn update_header(header: &mut bcf::Header, columns: &[Column]) {
+    for column in columns {
+        let name = column.name();
+        // INFO=<ID=ID,Number=number,Type=type,Description="description",Source="source",Version="version">
+        // We'll use Number="." for unknown number of values, Type="String" as a general type for now.
+        let info_line = format!(
+            "##INFO=<ID={},Number={},Type={},Description=\"{}\">",
+            name,
+            column.number(),
+            column.ftype(),
+            column.description(),
+        );
+        header.push_record(info_line.as_bytes());
+    }
+}
+
 impl Writer {
     pub fn init(
         path: &str,
         format: Option<Format>,
         compression: Option<Compression>,
         input_header: InputHeader,
+        columns: &[Column],
     ) -> Result<Self, FormatConversionError> {
         // Detect format if not specified
         let format = match format {
@@ -138,17 +155,36 @@ impl Writer {
         // Use default compression if not specified
         let compression = compression.unwrap_or(Compression::None);
         // TODO: set compression in htslib.
+        eprintln!("in writer.init, format: {:?}", format);
 
         let writer = match format {
             Format::Vcf | Format::Bcf => {
-                /*
-                let write_mode = match format {
-                    Format::Vcf => "wz",
-                    Format::Bcf => "wb",
-                    _ => unreachable!(),
+                let mut header = match &input_header {
+                    InputHeader::Vcf(h) => bcf::Header::from_template(h),
+                    InputHeader::Sam(_) => {
+                        return Err(FormatConversionError::UnsupportedFormat(format.into()))
+                    }
+                    InputHeader::None => {
+                        // TODO: create a minimal header if none is provided.
+                        // For now, error out.
+                        return Err(FormatConversionError::UnsupportedFormat(format.into()));
+                    }
                 };
-                */
-                unimplemented!("VCF/BCF writing not yet implemented");
+                update_header(&mut header, columns);
+                eprintln!("header: {:?}", header);
+
+                let writer = bcf::Writer::from_path(
+                    path,
+                    &header,
+                    compression == Compression::None,
+                    if format == Format::Vcf {
+                        bcf::Format::Vcf
+                    } else {
+                        bcf::Format::Bcf
+                    },
+                )
+                .map_err(|e| FormatConversionError::HtslibError(e.to_string()))?;
+                GenomicWriter::Bcf(writer)
             }
             Format::Bam => {
                 unimplemented!("BAM writing not yet implemented");

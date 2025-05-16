@@ -33,9 +33,11 @@ impl<R> BedderReader<R>
 where
     R: io::BufRead + io::Seek + 'static,
 {
+    /*
     pub fn new<P: AsRef<Path>>(reader: R, path: P) -> io::Result<Self> {
         open(reader, path)
     }
+    */
 
     pub fn into_positioned_iterator(self) -> Box<dyn PositionedIterator> {
         match self {
@@ -48,7 +50,7 @@ where
 pub fn open<P: AsRef<Path>, R: io::BufRead + io::Seek + 'static>(
     mut reader: R,
     p: P,
-) -> io::Result<BedderReader<R>> {
+) -> io::Result<(BedderReader<R>, FileType)> {
     let (ft, c) =
         sniff(&mut reader).map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
     info!("sniffed file type: {:?}, compression: {:?}", ft, c);
@@ -59,7 +61,7 @@ pub fn open<P: AsRef<Path>, R: io::BufRead + io::Seek + 'static>(
         }
         _ => unimplemented!("Unsupported file type {:?}", ft),
     };
-    Ok(rdr)
+    Ok((rdr, ft))
 }
 
 pub fn sniff<R: io::BufRead>(
