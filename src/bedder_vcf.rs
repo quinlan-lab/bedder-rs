@@ -10,7 +10,7 @@ pub struct BedderVCF {
     reader: bcf::Reader,
     record_number: u64,
     #[allow(unused)]
-    pub(crate) header: bcf::header::HeaderView,
+    pub header: bcf::header::HeaderView,
     last_record: Option<bcf::Record>,
 }
 

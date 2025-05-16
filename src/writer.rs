@@ -49,6 +49,7 @@ impl From<std::io::Error> for FormatConversionError {
     }
 }
 
+#[derive(Clone, Debug)]
 pub enum InputHeader {
     Vcf(HeaderView),
     Sam(bam::Header),
@@ -65,12 +66,22 @@ pub enum GenomicWriter {
     //Gff(gff::Writer<HFile>),
 }
 
+impl fmt::Debug for GenomicWriter {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            GenomicWriter::Vcf(_) => write!(f, "GenomicWriter::Vcf"),
+            GenomicWriter::Bcf(_) => write!(f, "GenomicWriter::Bcf"),
+            GenomicWriter::Bed(_) => write!(f, "GenomicWriter::Bed"),
+        }
+    }
+}
+
 #[allow(dead_code)]
 pub struct Writer {
     format: Format,
     compression: Compression,
     writer: GenomicWriter,
-    header: Option<InputHeader>,
+    header: InputHeader,
 }
 
 #[allow(dead_code)]
@@ -159,6 +170,7 @@ impl Writer {
 
         let writer = match format {
             Format::Vcf | Format::Bcf => {
+                eprintln!("in writer.init, input_header: {:?}", input_header);
                 let mut header = match &input_header {
                     InputHeader::Vcf(h) => bcf::Header::from_template(h),
                     InputHeader::Sam(_) => {
@@ -170,6 +182,7 @@ impl Writer {
                         return Err(FormatConversionError::UnsupportedFormat(format.into()));
                     }
                 };
+                eprintln!("header before: {:?}", header);
                 update_header(&mut header, columns);
                 eprintln!("header: {:?}", header);
 
@@ -197,17 +210,11 @@ impl Writer {
             _ => return Err(FormatConversionError::UnsupportedFormat(format.into())),
         };
 
-        let header = match &input_header {
-            InputHeader::Vcf(h) => Some(InputHeader::Vcf(h.clone())),
-            InputHeader::Sam(_) => None,
-            InputHeader::None => None,
-        };
-
         Ok(Self {
             format,
             compression,
             writer,
-            header,
+            header: input_header.clone(),
         })
     }
 
@@ -353,28 +360,34 @@ impl Writer {
         report_options: Arc<ReportOptions>,
         crs: &[T],
     ) -> Result<(), std::io::Error> {
+        log::info!("got writer: {:?}", self.writer);
         match self.format {
             Format::Vcf => {
-                /*
                 let vcf_writer = match &mut self.writer {
-                    GenomicWriter::Vcf(writer) => writer,
+                    GenomicWriter::Vcf(writer) | GenomicWriter::Bcf(writer) => writer,
                     _ => {
                         return Err(std::io::Error::new(
                             std::io::ErrorKind::InvalidInput,
                             "Expected VCF writer, but found a different format",
-                        ))
+                        ));
                     }
                 };
 
-                for fragment in report.iter_mut() {
-                    Self::update(self.format, fragment, crs)?;
-                    if let Some(Position::Vcf(record)) = &fragment.a {
+                let report = Self::apply_report(self.format, intersections, report_options, crs)?;
+
+                for fragment in report.iter() {
+                    if let Position::Vcf(ref record) = *fragment
+                        .a
+                        .as_ref()
+                        .expect("Fragment Position is not a VCF record")
+                        .try_lock()
+                        .expect("Failed to lock VCF Position")
+                    {
                         vcf_writer.write(&record.record).map_err(|e| {
                             std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string())
                         })?;
                     }
                 }
-                */
             }
             Format::Bed => {
                 let bed_writer = match &mut self.writer {

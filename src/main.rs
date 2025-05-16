@@ -107,8 +107,36 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let afhile = BufReader::new(File::open(&args.query_path)?);
 
-    let (a_bed_reader, query_file_type) = bedder::sniff::open(afhile, &args.query_path)?;
-    let a_iter = a_bed_reader.into_positioned_iterator();
+    let (a_bed_reader_obj, query_file_type) = bedder::sniff::open(afhile, &args.query_path)?;
+
+    let input_header_for_writer: InputHeader = match query_file_type {
+        bedder::sniff::FileType::Vcf | bedder::sniff::FileType::Bcf => {
+            // a_bed_reader_obj is of type bedder::sniff::BedderReader
+            // We need to match it to get to the underlying BedderVCF if present.
+            match &a_bed_reader_obj {
+                // Take a reference for inspection
+                bedder::sniff::BedderReader::BedderVcf(vcf_reader) => {
+                    InputHeader::Vcf(vcf_reader.header.clone())
+                }
+                _ => {
+                    // This case implies that sniff::open returned a FileType (Vcf/Bcf)
+                    // but the BedderReader enum variant doesn't match BedderVcf.
+                    // This shouldn't happen if sniff::open is consistent.
+                    log::warn!(
+                        "Query file type is {:?} but reader is not BedderVcf, cannot extract header.",
+                        query_file_type
+                    );
+                    InputHeader::None
+                }
+            }
+        }
+        bedder::sniff::FileType::Bed => {
+            // BED files don't have a structured header in the way VCF/BCF do.
+            InputHeader::None
+        } // Other file types like SAM/BAM would be handled here if supported and they have headers.
+    };
+
+    let a_iter = a_bed_reader_obj.into_positioned_iterator();
 
     let b_iters: Vec<_> = args
         .other_paths
@@ -139,7 +167,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         args.output_path.to_str().unwrap(),
         Some(output_format),
         None,
-        InputHeader::None,
+        input_header_for_writer,
         &columns,
     )?;
 
