@@ -221,7 +221,7 @@ impl Writer {
     #[allow(dead_code)]
     fn add_info_field_to_vcf_record(
         record: &mut bcf::Record,
-        key: String,
+        key: &str,
         value: &Value,
     ) -> Result<(), std::io::Error> {
         let key_bytes = key.as_bytes();
@@ -265,31 +265,33 @@ impl Writer {
 
         match format {
             Format::Vcf => {
-                // Get mutable reference to the VCF record
-                /*
-                let record = match &mut fragment.a {
-                    Some(Position::Vcf(record)) => &mut record.record,
-                    Some(_) => {
-                        return Err(std::io::Error::new(
-                            std::io::ErrorKind::InvalidData,
-                            "Position is not a VCF record",
-                        ))
-                    }
-                    None => {
-                        return Err(std::io::Error::new(
-                            std::io::ErrorKind::InvalidData,
-                            "missing position",
-                        ))
-                    }
-                };
-
-                for cr in crs {
-                    if let Ok(value) = cr.value(fragment) {
-                        Self::add_info_field_to_vcf_record(record, cr.name(), value)?;
-                    }
+                for frag in report.iter() {
+                    let mut record = frag
+                        .a
+                        .as_ref()
+                        .expect("Fragment Position is not a VCF record")
+                        .try_lock()
+                        .expect("Failed to lock VCF Position");
+                    match *record {
+                        Position::Vcf(ref mut record) => {
+                            for cr in crs.iter() {
+                                if let Ok(value) = cr.value(frag) {
+                                    Self::add_info_field_to_vcf_record(
+                                        &mut record.record,
+                                        cr.name(),
+                                        &value,
+                                    )?;
+                                }
+                            }
+                        }
+                        _ => {
+                            return Err(std::io::Error::new(
+                                std::io::ErrorKind::InvalidData,
+                                "Position is not a VCF record",
+                            ))
+                        }
+                    };
                 }
-                */
-                unimplemented!("VCF writing not yet implemented");
             }
             Format::Bed => {
                 for frag in report.iter() {
@@ -333,7 +335,7 @@ impl Writer {
                             for (i, value) in values.iter().enumerate() {
                                 Self::add_info_field_to_vcf_record(
                                     &mut record.record,
-                                    crs[i].name().to_string(),
+                                    crs[i].name(),
                                     value,
                                 )?;
                             }
