@@ -149,6 +149,16 @@ fn update_header(header: &mut bcf::Header, columns: &[Column]) {
 }
 
 impl Writer {
+    fn translate(&mut self, record: &mut bcf::Record) -> Result<(), FormatConversionError> {
+        let bcf_writer = match &mut self.writer {
+            GenomicWriter::Vcf(ref mut w) => w,
+            GenomicWriter::Bcf(ref mut w) => w,
+            _ => unimplemented!("Translation not implemented for this format"),
+        };
+        bcf_writer.translate(record);
+        Ok(())
+    }
+
     pub fn init(
         path: &str,
         format: Option<Format>,
@@ -166,11 +176,9 @@ impl Writer {
         // Use default compression if not specified
         let compression = compression.unwrap_or(Compression::None);
         // TODO: set compression in htslib.
-        eprintln!("in writer.init, format: {:?}", format);
 
         let writer = match format {
             Format::Vcf | Format::Bcf => {
-                eprintln!("in writer.init, input_header: {:?}", input_header);
                 let mut header = match &input_header {
                     InputHeader::Vcf(h) => bcf::Header::from_template(h),
                     InputHeader::Sam(_) => {
@@ -182,9 +190,21 @@ impl Writer {
                         return Err(FormatConversionError::UnsupportedFormat(format.into()));
                     }
                 };
-                eprintln!("header before: {:?}", header);
+                // TODO: first update the writer header
                 update_header(&mut header, columns);
-                eprintln!("header: {:?}", header);
+                /*
+                let mut kstr = rust_htslib::htslib::kstring_t {
+                    l: 0,
+                    m: 0,
+                    s: std::ptr::null_mut(),
+                };
+                unsafe { rust_htslib::htslib::bcf_hdr_format(header.inner, 0, &mut kstr) };
+                let s = unsafe {
+                    std::str::from_utf8(std::slice::from_raw_parts(kstr.s as *const u8, kstr.l))
+                        .unwrap()
+                };
+                eprintln!("header: {:?}", s);
+                */
 
                 let writer = bcf::Writer::from_path(
                     path,
@@ -256,6 +276,7 @@ impl Writer {
     }
 
     fn apply_report<T: ColumnReporter>(
+        &mut self,
         format: Format,
         intersections: &mut Intersections,
         report_options: Arc<ReportOptions>,
@@ -264,7 +285,7 @@ impl Writer {
         let report = intersections.report(&report_options);
 
         match format {
-            Format::Vcf => {
+            Format::Vcf | Format::Bcf => {
                 for frag in report.iter() {
                     let mut record = frag
                         .a
@@ -274,6 +295,7 @@ impl Writer {
                         .expect("Failed to lock VCF Position");
                     match *record {
                         Position::Vcf(ref mut record) => {
+                            self.translate(&mut record.record)?;
                             for cr in crs.iter() {
                                 if let Ok(value) = cr.value(frag) {
                                     Self::add_info_field_to_vcf_record(
@@ -317,7 +339,6 @@ impl Writer {
                             }
                         }
                     }
-                    log::info!("frag.a: {:?}", frag.a);
                     let mut a_lock = frag
                         .a
                         .as_ref()
@@ -362,9 +383,10 @@ impl Writer {
         report_options: Arc<ReportOptions>,
         crs: &[T],
     ) -> Result<(), std::io::Error> {
-        log::info!("got writer: {:?}", self.writer);
-        match self.format {
-            Format::Vcf => {
+        let format = self.format.clone();
+        match format {
+            Format::Vcf | Format::Bcf => {
+                let report = self.apply_report(format, intersections, report_options, crs)?;
                 let vcf_writer = match &mut self.writer {
                     GenomicWriter::Vcf(writer) | GenomicWriter::Bcf(writer) => writer,
                     _ => {
@@ -374,8 +396,6 @@ impl Writer {
                         ));
                     }
                 };
-
-                let report = Self::apply_report(self.format, intersections, report_options, crs)?;
 
                 for fragment in report.iter() {
                     if let Position::Vcf(ref record) = *fragment
@@ -392,6 +412,7 @@ impl Writer {
                 }
             }
             Format::Bed => {
+                let report = self.apply_report(format, intersections, report_options, crs)?;
                 let bed_writer = match &mut self.writer {
                     GenomicWriter::Bed(writer) => writer,
                     _ => {
@@ -401,8 +422,6 @@ impl Writer {
                         ))
                     }
                 };
-
-                let report = Self::apply_report(self.format, intersections, report_options, crs)?;
 
                 for frag in report.iter() {
                     if let Position::Bed(ref bed_record) = *frag

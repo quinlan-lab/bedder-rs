@@ -151,11 +151,14 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     let ii = bedder::intersection::IntersectionIterator::new(a_iter, b_iters, &chrom_order)?;
 
     // Convert sniff::FileType to hts_format::Format
-    let output_format = match query_file_type {
+    let mut output_format = match query_file_type {
         bedder::sniff::FileType::Bed => Format::Bed,
         bedder::sniff::FileType::Vcf => Format::Vcf,
         bedder::sniff::FileType::Bcf => Format::Bcf,
     };
+    if output_format == Format::Vcf && args.output_path.to_str().unwrap().ends_with(".bcf") {
+        output_format = Format::Bcf
+    }
 
     let columns: Vec<Column> = args
         .columns

@@ -165,7 +165,6 @@ impl Intersections {
                     &report_options.b_mode,
                 ) {
                     drop(base);
-                    log::info!("pushing here");
                     self.push_overlap_fragments(
                         &mut result,
                         overlaps,
