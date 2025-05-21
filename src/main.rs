@@ -156,6 +156,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         bedder::sniff::FileType::Vcf => Format::Vcf,
         bedder::sniff::FileType::Bcf => Format::Bcf,
     };
+    // if input is vcf and output ends with .bcf, then set output to bcf
     if output_format == Format::Vcf && args.output_path.to_str().unwrap().ends_with(".bcf") {
         output_format = Format::Bcf
     }

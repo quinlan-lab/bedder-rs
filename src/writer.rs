@@ -144,6 +144,7 @@ fn update_header(header: &mut bcf::Header, columns: &[Column]) {
             column.ftype(),
             column.description(),
         );
+        log::info!("Adding INFO field: {}", info_line);
         header.push_record(info_line.as_bytes());
     }
 }

@@ -4,6 +4,8 @@ docs/
 *.bed
 *.bed.gz
 *.vcf
+*.bcf
+*.bgz
 .vscode
 *.txt
 *.gz

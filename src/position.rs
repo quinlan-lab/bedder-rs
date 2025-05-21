@@ -109,15 +109,7 @@ impl Position {
     pub fn chrom(&self) -> &str {
         match self {
             Position::Bed(b) => b.chrom(),
-            Position::Vcf(v) => {
-                let rid = match v.record.rid() {
-                    Some(rid) => rid,
-                    None => return "*",
-                };
-                let header = v.record.header();
-                let name = header.rid2name(rid).unwrap();
-                std::str::from_utf8(name).unwrap()
-            }
+            Position::Vcf(v) => v.chrom(),
             Position::Interval(i) => &i.chrom,
             // #[cfg(feature = "dyn_positioned")]
             Position::Other(o) => o.chrom(),

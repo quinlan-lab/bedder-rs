@@ -25,7 +25,10 @@ impl BedRecord {
             end,
             name.map(|s| s.to_string()),
             score,
-            other_fields.into_iter().map(BedValue::String).collect(),
+            other_fields
+                .into_iter()
+                .map(|s| BedValue::String(s.to_string()))
+                .collect(),
         );
         Self(record)
     }

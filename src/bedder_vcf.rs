@@ -90,33 +90,33 @@ pub fn match_value(
 #[derive(Debug)]
 pub struct BedderRecord {
     pub record: bcf::Record,
+    _chrom: Option<String>,
 }
 
 impl Clone for BedderRecord {
     fn clone(&self) -> Self {
         Self {
             record: self.record.clone(),
+            _chrom: self._chrom.clone(),
         }
     }
 }
 
 impl BedderRecord {
     pub fn new(record: bcf::Record) -> Self {
-        Self { record }
+        let chrom = record.header().rid2name(record.rid().unwrap()).unwrap();
+        let chrom = unsafe { String::from_utf8_unchecked(chrom.to_vec()) };
+        Self {
+            record,
+            _chrom: Some(chrom),
+        }
     }
 }
 
 impl Positioned for BedderRecord {
     #[inline]
     fn chrom(&self) -> &str {
-        let h = self.record.header();
-        let rid = self.record.rid();
-        if let Some(rid) = rid {
-            let name = h.rid2name(rid).expect("error getting chromosome name");
-            std::str::from_utf8(name).expect("invalid UTF-8 in chromosome name")
-        } else {
-            ""
-        }
+        self._chrom.as_ref().unwrap()
     }
 
     #[inline]
@@ -138,8 +138,10 @@ impl Positioned for BedderRecord {
     }
 
     fn clone_box(&self) -> Box<dyn Positioned> {
+        log::info!("vcf clone box");
         Box::new(Self {
             record: self.record.clone(),
+            _chrom: self._chrom.clone(),
         })
     }
 }
@@ -149,6 +151,7 @@ impl crate::position::PositionedIterator for BedderVCF {
         &mut self,
         q: Option<&crate::position::Position>,
     ) -> Option<std::result::Result<Position, std::io::Error>> {
+        /*
         if let Some(q) = q {
             match self.skip_to(q.chrom(), q.start() - 1_u64) {
                 Ok(_) => (),
@@ -160,6 +163,7 @@ impl crate::position::PositionedIterator for BedderVCF {
             self.record_number += 1;
             return Some(Ok(Position::Vcf(Box::new(BedderRecord::new(v)))));
         }
+        */
 
         let mut r = self.reader.empty_record();
 
@@ -170,9 +174,10 @@ impl crate::position::PositionedIterator for BedderVCF {
                 Some(Ok(Position::Vcf(Box::new(BedderRecord::new(r)))))
             }
             Some(Err(e)) => {
-                eprintln!(
+                log::error!(
                     "error reading vcf record: {} at line number: {}",
-                    e, self.record_number
+                    e,
+                    self.record_number
                 );
                 Some(Err(io::Error::new(io::ErrorKind::Other, e)))
             }
