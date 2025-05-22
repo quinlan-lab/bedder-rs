@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use crate::column::{Number, Type, Value};
 use crate::position::Position;
 use crate::report_options::{IntersectionMode, IntersectionPart, OverlapAmount, ReportOptions};
+use rust_htslib as htslib;
 
 // Wrapper for simplebed::BedRecord
 /// A Python wrapper for a BED record.
@@ -117,6 +118,340 @@ impl PyBedRecord {
         } else {
             Err(PyIndexError::new_err("Index out of bounds"))
         }
+    }
+}
+
+/// A Python wrapper for a VCF record.
+///
+/// Attributes:
+///     chrom (str): The chromosome name
+///     pos (int): The position (0-based)
+#[pyclass]
+#[derive(Clone, Debug)]
+pub struct PyVcfRecord {
+    inner: Arc<Mutex<Position>>,
+}
+
+#[pymethods]
+impl PyVcfRecord {
+    #[getter]
+    /// Get the chromosome name
+    fn chrom(&self) -> PyResult<String> {
+        Ok(self
+            .inner
+            .try_lock()
+            .expect("failed to lock interval")
+            .chrom()
+            .to_string())
+    }
+
+    #[getter]
+    /// Get the position (0-based)
+    fn pos(&self) -> PyResult<u64> {
+        Ok(self
+            .inner
+            .try_lock()
+            .expect("failed to lock interval")
+            .start())
+    }
+
+    fn info(&self, py: Python, key: &str) -> PyResult<Option<PyObject>> {
+        if let Position::Vcf(v) = &*self.inner.try_lock().expect("failed to lock interval") {
+            let header = v.record.header();
+            let info_type = header
+                .info_type(key.as_bytes())
+                .map_err(|e| PyValueError::new_err(format!("Invalid info key: {}", e)))?;
+            let (tag_type, _tag_length) = info_type;
+            let mut info = v.record.info(key.as_bytes());
+            match tag_type {
+                htslib::bcf::header::TagType::Flag => match info.flag() {
+                    Ok(b) => Ok(Some(b.into_py(py))),
+                    Err(e) => Err(PyValueError::new_err(format!("Invalid info key: {}", e))),
+                },
+                htslib::bcf::header::TagType::Integer => match info.integer() {
+                    Ok(Some(values)) => Ok(Some(values.to_vec().into_py(py))),
+                    Ok(None) => Ok(None),
+                    Err(e) => Err(PyValueError::new_err(format!("Invalid info key: {}", e))),
+                },
+                htslib::bcf::header::TagType::Float => match info.float() {
+                    Ok(Some(values)) => Ok(Some(values.to_vec().into_py(py))),
+                    Ok(None) => Ok(None),
+                    Err(e) => Err(PyValueError::new_err(format!("Invalid info key: {}", e))),
+                },
+                htslib::bcf::header::TagType::String => match info.string() {
+                    Ok(Some(values)) => Ok(Some(values.to_vec().into_py(py))),
+                    Ok(None) => Ok(None),
+                    Err(e) => Err(PyValueError::new_err(format!("Invalid info key: {}", e))),
+                },
+            }
+        } else {
+            Ok(None)
+        }
+    }
+
+    fn set_info(&mut self, key: &str, value: PyObject) -> PyResult<()> {
+        if let Position::Vcf(v) = &mut *self.inner.try_lock().expect("failed to lock interval") {
+            Python::with_gil(|py| {
+                let header = v.record.header();
+
+                let (tag_type, _tag_length) = match header.info_type(key.as_bytes()) {
+                    Ok(it) => it,
+                    Err(e) => {
+                        return Err(PyValueError::new_err(format!(
+                            "INFO tag '{}' not found in header or other error: {}",
+                            key, e
+                        )))
+                    }
+                };
+
+                match tag_type {
+                    htslib::bcf::header::TagType::Flag => {
+                        let val: bool = value.extract(py).map_err(|_| {
+                            PyTypeError::new_err(format!(
+                                "Expected bool for Flag INFO field '{}'",
+                                key
+                            ))
+                        })?;
+
+                        if val {
+                            // Set flag to true. push_info_flag (via bcf_update_info) should overwrite if present.
+                            v.record.push_info_flag(key.as_bytes()).map_err(|e| {
+                                PyValueError::new_err(format!(
+                                    "Failed to set flag INFO '{}' to true: {}",
+                                    key, e
+                                ))
+                            })?;
+                        } else {
+                            // Set flag to false: remove the tag.
+                            match v.record.clear_info_flag(key.as_bytes()) {
+                                Ok(_) => {}                                              // Successfully removed
+                                Err(htslib::errors::Error::BcfUndefinedTag { .. }) => {} // Tag was not present, which is fine for "false"
+                                Err(e) => {
+                                    return Err(PyValueError::new_err(format!(
+                                        "Failed to set flag INFO '{}' to false (remove): {}",
+                                        key, e
+                                    )))
+                                }
+                            }
+                        }
+                    }
+                    htslib::bcf::header::TagType::Integer => {
+                        if let Ok(val_i32) = value.extract::<i32>(py) {
+                            v.record
+                                .push_info_integer(key.as_bytes(), &[val_i32])
+                                .map_err(|e| {
+                                    PyValueError::new_err(format!(
+                                        "Failed to set integer INFO '{}': {}",
+                                        key, e
+                                    ))
+                                })?;
+                        } else if let Ok(vals_i32) = value.extract::<Vec<i32>>(py) {
+                            v.record
+                                .push_info_integer(key.as_bytes(), &vals_i32)
+                                .map_err(|e| {
+                                    PyValueError::new_err(format!(
+                                        "Failed to set integer array INFO '{}': {}",
+                                        key, e
+                                    ))
+                                })?;
+                        } else {
+                            return Err(PyTypeError::new_err(format!(
+                                "Expected int or list of ints for Integer INFO field '{}'",
+                                key
+                            )));
+                        }
+                    }
+                    htslib::bcf::header::TagType::Float => {
+                        if let Ok(val_f32) = value.extract::<f32>(py) {
+                            v.record
+                                .push_info_float(key.as_bytes(), &[val_f32])
+                                .map_err(|e| {
+                                    PyValueError::new_err(format!(
+                                        "Failed to set float INFO '{}': {}",
+                                        key, e
+                                    ))
+                                })?;
+                        } else if let Ok(vals_f32) = value.extract::<Vec<f32>>(py) {
+                            v.record
+                                .push_info_float(key.as_bytes(), &vals_f32)
+                                .map_err(|e| {
+                                    PyValueError::new_err(format!(
+                                        "Failed to set float array INFO '{}': {}",
+                                        key, e
+                                    ))
+                                })?;
+                        } else {
+                            return Err(PyTypeError::new_err(format!(
+                                "Expected float or list of floats for Float INFO field '{}'",
+                                key
+                            )));
+                        }
+                    }
+                    htslib::bcf::header::TagType::String => {
+                        if let Ok(val_str) = value.extract::<String>(py) {
+                            let val_bytes = val_str.as_bytes();
+                            v.record
+                                .push_info_string(key.as_bytes(), &[val_bytes])
+                                .map_err(|e| {
+                                    PyValueError::new_err(format!(
+                                        "Failed to set string INFO '{}': {}",
+                                        key, e
+                                    ))
+                                })?;
+                        } else if let Ok(vals_str) = value.extract::<Vec<String>>(py) {
+                            let vals_bytes: Vec<&[u8]> =
+                                vals_str.iter().map(|s| s.as_bytes()).collect();
+                            v.record
+                                .push_info_string(key.as_bytes(), &vals_bytes)
+                                .map_err(|e| {
+                                    PyValueError::new_err(format!(
+                                        "Failed to set string array INFO '{}': {}",
+                                        key, e
+                                    ))
+                                })?;
+                        } else {
+                            return Err(PyTypeError::new_err(format!(
+                                "Expected string or list of strings for String INFO field '{}'",
+                                key
+                            )));
+                        }
+                    } // htslib::bcf::header::TagType::Character is another possibility,
+                      // but not explicitly requested. If needed, it would be similar to String.
+                }
+                Ok(()) // Return Ok for the Python::with_gil closure
+            })?; // Propagate PyResult from the closure
+        }
+        Ok(())
+    }
+
+    #[getter]
+    fn qual(&self) -> PyResult<Option<f32>> {
+        if let Position::Vcf(v) = &*self.inner.try_lock().expect("failed to lock interval") {
+            Ok(Some(v.record.qual()))
+        } else {
+            Ok(None)
+        }
+    }
+
+    #[allow(non_snake_case)]
+    #[getter]
+    fn REF(&self) -> PyResult<Option<String>> {
+        if let Position::Vcf(v) = &*self.inner.try_lock().expect("failed to lock interval") {
+            let alleles = v.record.alleles();
+            Ok(Some(String::from_utf8_lossy(alleles[0]).to_string()))
+        } else {
+            Ok(None)
+        }
+    }
+
+    #[setter]
+    fn set_REF(&mut self, ref_allele: &str) -> PyResult<()> {
+        if let Position::Vcf(v) = &mut *self.inner.try_lock().expect("failed to lock interval") {
+            let mut alleles = vec![ref_allele.as_bytes()];
+            let c_alleles = v
+                .record
+                .alleles()
+                .iter()
+                .skip(1)
+                .map(|&a| a.to_owned())
+                .collect::<Vec<_>>();
+            alleles.extend(c_alleles.iter().map(|a| &a[..]));
+            v.record
+                .set_alleles(&alleles)
+                .map_err(|e| PyValueError::new_err(format!("Invalid ref: {}", e)))?;
+        }
+        Ok(())
+    }
+    #[allow(non_snake_case)]
+    #[getter]
+    fn ALT(&self) -> PyResult<Vec<String>> {
+        if let Position::Vcf(v) = &*self.inner.try_lock().expect("failed to lock interval") {
+            let alleles = v.record.alleles();
+            if alleles.len() > 1 {
+                let alt_alleles: Vec<String> = alleles[1..]
+                    .iter()
+                    .map(|a| String::from_utf8_lossy(a).to_string())
+                    .collect();
+                Ok(alt_alleles)
+            } else {
+                Ok(Vec::new())
+            }
+        } else {
+            Ok(Vec::new())
+        }
+    }
+
+    #[allow(non_snake_case)]
+    #[setter]
+    fn set_ALT(&mut self, alt: Vec<String>) -> PyResult<()> {
+        if let Position::Vcf(v) = &mut *self.inner.try_lock().expect("failed to lock interval") {
+            let ref_allele = v.record.alleles()[0].to_owned();
+            let mut alleles = vec![&ref_allele[..]];
+            alleles.extend(alt.iter().map(|a| a.as_bytes()));
+            v.record
+                .set_alleles(&alleles.as_slice())
+                .map_err(|e| PyValueError::new_err(format!("Invalid alt: {}", e)))?;
+        }
+        Ok(())
+    }
+
+    #[getter]
+    fn filters(&self) -> PyResult<Vec<String>> {
+        if let Position::Vcf(v) = &*self.inner.try_lock().expect("failed to lock interval") {
+            let mut filters = v.record.filters();
+            let mut filter_list = Vec::new();
+            while let Some(filter) = filters.next() {
+                filter_list.push(filter.to_string());
+            }
+            Ok(filter_list)
+        } else {
+            Ok(Vec::new())
+        }
+    }
+
+    #[setter]
+    fn set_filters(&mut self, filters: Vec<String>) -> PyResult<()> {
+        if let Position::Vcf(v) = &mut *self.inner.try_lock().expect("failed to lock interval") {
+            let filter_bytes: Vec<_> = filters.iter().map(|f| f.as_bytes()).collect();
+            v.record
+                .set_filters(&filter_bytes)
+                .map_err(|e| PyValueError::new_err(format!("Invalid filters: {}", e)))?;
+        }
+        Ok(())
+    }
+
+    #[setter]
+    fn set_filter(&mut self, filter: &str) -> PyResult<()> {
+        if let Position::Vcf(v) = &mut *self.inner.try_lock().expect("failed to lock interval") {
+            v.record
+                .set_filters(&[filter.as_bytes()])
+                .map_err(|e| PyValueError::new_err(format!("Invalid filter: {}", e)))?;
+        }
+        Ok(())
+    }
+
+    fn __repr__(&self) -> String {
+        format!("{:?}", self.inner)
+    }
+
+    #[getter]
+    fn id(&self) -> PyResult<String> {
+        if let Position::Vcf(v) = &*self.inner.try_lock().expect("failed to lock interval") {
+            let id = v.record.id();
+            Ok(String::from_utf8_lossy(&id).to_string())
+        } else {
+            Ok(String::new())
+        }
+    }
+
+    #[setter]
+    fn set_id(&mut self, id: &str) -> PyResult<()> {
+        if let Position::Vcf(v) = &mut *self.inner.try_lock().expect("failed to lock interval") {
+            v.record
+                .set_id(id.as_bytes())
+                .map_err(|e| PyValueError::new_err(format!("Invalid id: {}", e)))?;
+        }
+        Ok(())
     }
 }
 
@@ -349,14 +684,37 @@ pub struct PyPosition {
 impl PyPosition {
     /// Get the BED record if this position represents a BED interval
     fn bed(&self) -> PyResult<Option<PyBedRecord>> {
-        let is_bed =
-            if let Position::Bed(_) = *self.inner.try_lock().expect("failed to lock interval") {
-                true
-            } else {
-                false
-            };
+        let is_bed = if let Position::Bed(_) = *self
+            .inner
+            .try_lock()
+            .expect("failed to lock interval in call to .bed()")
+        {
+            true
+        } else {
+            false
+        };
         if is_bed {
             Ok(Some(PyBedRecord {
+                inner: self.inner.clone(),
+            }))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// get the vcf record if this position represents a vcf record
+    fn vcf(&self) -> PyResult<Option<PyVcfRecord>> {
+        let is_vcf = if let Position::Vcf(_) = *self
+            .inner
+            .try_lock()
+            .expect("failed to lock interval in call to .vcf()")
+        {
+            true
+        } else {
+            false
+        };
+        if is_vcf {
+            Ok(Some(PyVcfRecord {
                 inner: self.inner.clone(),
             }))
         } else {
@@ -587,6 +945,7 @@ impl PyIntersections {
 
 /// A compiled Python f-string that can be reused for better performance
 /// TODO: also have an eval_mod function that modifies the fragment in place.
+#[derive(Debug)]
 pub struct CompiledPython<'py> {
     function_name: String,
     f: Bound<'py, PyFunction>,
@@ -631,6 +990,12 @@ pub struct PythonFunction<'py> {
     pyfn: pyo3::Bound<'py, pyo3::types::PyFunction>,
     // description is from the docstring of the function
     description: String,
+}
+
+impl<'py> PythonFunction<'py> {
+    pub fn return_type(&self) -> &str {
+        &self.return_type
+    }
 }
 
 const BEDDER_PREFIX: &str = "bedder_";
@@ -715,6 +1080,14 @@ impl<'py> CompiledPython<'py> {
                 .map_err(|e| PyValueError::new_err(format!("Invalid type: {}", e)))?,
             number: Number::One,
         })
+    }
+
+    pub fn ftype(&self) -> &Type {
+        &self.ftype
+    }
+
+    pub fn number(&self) -> &Number {
+        &self.number
     }
 
     #[inline]

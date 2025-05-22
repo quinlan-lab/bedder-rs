@@ -59,7 +59,6 @@ pub fn open<P: AsRef<Path>, R: io::BufRead + io::Seek + 'static>(
         FileType::Vcf | FileType::Bcf => {
             BedderReader::BedderVcf(BedderVCF::from_path(p.as_ref().to_str().unwrap())?)
         }
-        _ => unimplemented!("Unsupported file type {:?}", ft),
     };
     Ok((rdr, ft))
 }

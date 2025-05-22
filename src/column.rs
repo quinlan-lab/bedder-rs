@@ -1,6 +1,7 @@
+use std::collections::HashMap;
 use std::str::FromStr;
 
-use crate::py::{CompiledPython, PyReportFragment};
+use crate::py::{CompiledPython, PyReportFragment, PythonFunction};
 use crate::report::ReportFragment;
 #[derive(Debug, PartialEq)]
 pub enum Value {
@@ -306,10 +307,12 @@ impl std::fmt::Debug for Column<'_> {
 /// gt:String:Genotype:1
 ///
 /// and return a Column
-impl TryFrom<&str> for Column<'_> {
+impl TryFrom<(&str, &HashMap<String, PythonFunction<'_>>)> for Column<'_> {
     type Error = ColumnError;
 
-    fn try_from(s: &str) -> Result<Self, ColumnError> {
+    fn try_from(
+        (s, functions_map): (&str, &HashMap<String, PythonFunction<'_>>),
+    ) -> Result<Self, ColumnError> {
         let parts: Vec<&str> = s.splitn(5, ':').collect();
         if parts.len() == 1
             && (parts[0] == "cse"
@@ -361,13 +364,23 @@ impl TryFrom<&str> for Column<'_> {
                 _ => unreachable!(),
             });
         }
+        // TODO: first need to get the type and number from the python function.
         if parts[0] == "py" {
+            let function_name = parts[1].to_string();
+            let compiled =
+                functions_map
+                    .get(&function_name)
+                    .ok_or(ColumnError::InvalidValueParser(format!(
+                        "Function {} not found",
+                        function_name
+                    )))?;
             return Ok(Column::new(
-                parts[1].to_string(),
-                Type::String,
-                parts[1].to_string(),
+                function_name.clone(),
+                Type::try_from(compiled.return_type())
+                    .map_err(|e| ColumnError::InvalidType(e.to_string()))?,
+                function_name.clone(),
                 Number::One,
-                Some(ValueParser::PythonExpression(parts[1].to_string())),
+                Some(ValueParser::PythonExpression(function_name)),
             ));
         }
 
@@ -445,7 +458,8 @@ mod tests {
     #[test]
     fn test_parse_minimal_column() {
         let input = "count:Integer:A count of something";
-        let col = Column::try_from(input).unwrap();
+        let hm = HashMap::new();
+        let col = Column::try_from((input, &hm)).unwrap();
         assert_eq!(col.name(), "count");
         assert_eq!(col.ftype(), &Type::Integer);
         assert_eq!(col.description(), "A count of something");
@@ -456,7 +470,8 @@ mod tests {
     #[test]
     fn test_parse_full_column() {
         let input = "total:Float:A total value:R:sum";
-        let col = Column::try_from(input).unwrap();
+        let hm = HashMap::new();
+        let col = Column::try_from((input, &hm)).unwrap();
         assert_eq!(col.name(), "total");
         assert_eq!(col.ftype(), &Type::Float);
         assert_eq!(col.description(), "A total value");
@@ -467,7 +482,8 @@ mod tests {
     #[test]
     fn test_parse_with_python_expr() {
         let input = "calc:Float:Calculated value:1:py:x + y";
-        let col = Column::try_from(input).unwrap();
+        let hm = HashMap::new();
+        let col = Column::try_from((input, &hm)).unwrap();
         assert_eq!(col.name(), "calc");
         assert_eq!(col.ftype(), &Type::Float);
         assert_eq!(col.description(), "Calculated value");
@@ -481,7 +497,7 @@ mod tests {
     fn test_invalid_type() {
         let input = "count:Invalid:A description";
         assert!(matches!(
-            Column::try_from(input),
+            Column::try_from((input, &HashMap::new())),
             Err(ColumnError::InvalidType(_))
         ));
     }
@@ -489,7 +505,7 @@ mod tests {
     #[test]
     fn test_invalid_number() {
         let input = "count:Integer:A description:Invalid";
-        let c = Column::try_from(input);
+        let c = Column::try_from((input, &HashMap::new()));
         assert!(
             matches!(c, Err(ColumnError::InvalidNumber(_))),
             "c: {:?}",
@@ -501,7 +517,7 @@ mod tests {
     fn test_invalid_value_parser() {
         let input = "count:Integer:A description:1:invalid";
         assert!(matches!(
-            Column::try_from(input),
+            Column::try_from((input, &HashMap::new())),
             Err(ColumnError::InvalidValueParser(_))
         ));
     }

@@ -156,24 +156,11 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         bedder::sniff::FileType::Vcf => Format::Vcf,
         bedder::sniff::FileType::Bcf => Format::Bcf,
     };
+
     // if input is vcf and output ends with .bcf, then set output to bcf
     if output_format == Format::Vcf && args.output_path.to_str().unwrap().ends_with(".bcf") {
         output_format = Format::Bcf
     }
-
-    let columns: Vec<Column> = args
-        .columns
-        .iter()
-        .map(|c| Column::try_from(c.as_str()))
-        .collect::<Result<Vec<_>, _>>()?;
-
-    let mut output = Writer::init(
-        args.output_path.to_str().unwrap(),
-        Some(output_format),
-        None,
-        input_header_for_writer,
-        &columns,
-    )?;
 
     let report_options = Arc::new(
         ReportOptions::builder()
@@ -206,6 +193,23 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
             log::info!("python functions map: {:?}", &functions_map);
         }
 
+        let columns: Vec<Column> = args
+            .columns
+            .iter()
+            .map(|c| {
+                let (s, functions_map) = (c.as_str(), &functions_map);
+                Column::try_from((s, functions_map))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let mut output = Writer::init(
+            args.output_path.to_str().unwrap(),
+            Some(output_format),
+            None,
+            input_header_for_writer,
+            &columns,
+        )?;
+
         let py_columns: Vec<Column<'_>> = columns
             .into_iter()
             .map(|mut col| {
@@ -215,6 +219,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let compiled =
                         bedder::py::CompiledPython::new(py, function_name, &functions_map)
                             .expect("error compiling Python expression");
+                    eprintln!("compiled: {:?}", compiled);
                     col.py = Some(compiled);
                 }
                 col

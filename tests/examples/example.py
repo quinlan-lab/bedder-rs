@@ -14,3 +14,9 @@ def bedder_n_overlapping(fragment) -> int:
 def bedder_total_b_overlap(fragment) -> int:
     """total bases of overlap in b"""
     return sum(b.stop - b.start for b in fragment.b)
+
+def bedder_vcf_dp(fragment) -> int:
+    v = fragment.a.vcf()
+    dp = v.info("DP")
+    print(dp)
+    return dp
