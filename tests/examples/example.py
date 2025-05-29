@@ -19,4 +19,4 @@ def bedder_vcf_dp(fragment) -> int:
     v = fragment.a.vcf()
     dp = v.info("DP")
     print(dp)
-    return dp
+    return dp[0]

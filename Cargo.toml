@@ -36,7 +36,7 @@ tempfile = "^3.14.0"
 simplebed = { git = "https://github.com/brentp/simplebed-rs.git", version = "0.1.4" }
 pyo3 = {version = "0.24.1", features=["auto-initialize"]}
 pyo3-ffi = "0.24.1"
-mlua = {version = "0.10.3", features=["luau", "send"]}
+#mlua = {version = "0.10.3", features=["luau", "send"]}
 parking_lot = {version="0.12.3"}
 
 
@@ -67,5 +67,6 @@ opt-level = 3
 
 [profile.dev]
 opt-level = 1
+debug = true
 [profile.dev.package."*"]
 opt-level = 3

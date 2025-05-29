@@ -288,6 +288,25 @@ impl Writer {
         match format {
             Format::Vcf | Format::Bcf => {
                 for frag in report.iter() {
+                    // First, collect all column values without holding locks
+                    let mut column_values = Vec::new();
+                    for cr in crs.iter() {
+                        match cr.value(frag) {
+                            Ok(value) => column_values.push((cr.name(), value)),
+                            Err(e) => {
+                                return Err(std::io::Error::new(
+                                    std::io::ErrorKind::InvalidData,
+                                    format!(
+                                        "Error getting value for column: {}. Error: {}",
+                                        cr.name(),
+                                        e
+                                    ),
+                                ));
+                            }
+                        }
+                    }
+
+                    // Now acquire the lock and apply all the collected values
                     let mut record = frag
                         .a
                         .as_ref()
@@ -297,14 +316,12 @@ impl Writer {
                     match *record {
                         Position::Vcf(ref mut record) => {
                             self.translate(&mut record.record)?;
-                            for cr in crs.iter() {
-                                if let Ok(value) = cr.value(frag) {
-                                    Self::add_info_field_to_vcf_record(
-                                        &mut record.record,
-                                        cr.name(),
-                                        &value,
-                                    )?;
-                                }
+                            for (name, value) in column_values {
+                                Self::add_info_field_to_vcf_record(
+                                    &mut record.record,
+                                    &name,
+                                    &value,
+                                )?;
                             }
                         }
                         _ => {
