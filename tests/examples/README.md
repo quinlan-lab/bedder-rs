@@ -252,6 +252,6 @@ def bedder_vcf_dp(fragment) -> int:
     """return depth (DP) of passing variant"""
     v = fragment.a.vcf() # get the concrete type
     if v.filter != "PASS": return 0
-    dp = v.info("DP")
-    return dp
+    dp = v.info("DP") # this is list of length 1 so we return the first element
+    return dp[0]
 ```
