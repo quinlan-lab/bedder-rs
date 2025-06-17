@@ -148,7 +148,8 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         })
         .collect::<Result<Vec<_>, _>>()?;
 
-    let ii = bedder::intersection::IntersectionIterator::new(a_iter, b_iters, &chrom_order)?;
+    // TODO: update to use max_distance and n_closest once implemented
+    let ii = bedder::intersection::IntersectionIterator::new(a_iter, b_iters, &chrom_order, 0, 0)?;
 
     // Convert sniff::FileType to hts_format::Format
     let mut output_format = match query_file_type {
