@@ -272,21 +272,34 @@ impl<'a> IntersectionIterator<'a> {
         Ok(())
     }
 
-    /// drop intervals from Q that are strictly before the base interval.
+    /// drop intervals from Q that are strictly before the base interval and more than max_distance away.
+    /// does not consider n_closest as that is handled elsewhere.
     fn pop_front(&mut self, base_interval: &Position) {
-        // TODO first: implement/respect max_distance and n_closest
-        while !self.dequeue.is_empty()
-            && Ordering::Less
-                == cmp(
-                    &self.dequeue[0]
-                        .interval
-                        .try_lock()
-                        .expect("failed to lock interval"),
-                    base_interval,
-                    self.chromosome_order,
-                )
-        {
-            _ = self.dequeue.pop_front();
+        loop {
+            let should_pop = if let Some(intersection) = self.dequeue.front() {
+                let interval = intersection
+                    .interval
+                    .try_lock()
+                    .expect("failed to lock interval");
+
+                if interval.chrom() != base_interval.chrom() {
+                    self.chromosome_order[interval.chrom()].index
+                        < self.chromosome_order[base_interval.chrom()].index
+                } else if interval.stop() < base_interval.start() {
+                    let dist = base_interval.start() - interval.stop();
+                    self.max_distance > 0 && dist > self.max_distance
+                } else {
+                    false
+                }
+            } else {
+                false
+            };
+
+            if should_pop {
+                self.dequeue.pop_front();
+            } else {
+                break;
+            }
         }
     }
 
@@ -797,5 +810,122 @@ mod tests {
             .sum::<usize>();
         // NOTE this fails as we likely need to fix the lt function.
         assert_eq!(c, 1);
+    }
+
+    #[test]
+    fn test_pop_front_with_distance() {
+        let genome_str = "chr1\nchr2\nchr3\n";
+        let chrom_order = parse_genome(genome_str.as_bytes()).unwrap();
+        let a_ivs = Intervals::new(String::from("A"), vec![]);
+
+        let max_distance = 50;
+        let n_closest = 5;
+
+        let mut iter = IntersectionIterator::new(
+            Box::new(a_ivs),
+            vec![],
+            &chrom_order,
+            max_distance,
+            n_closest,
+        )
+        .expect("error getting iterator");
+
+        // Scenario 1: same chromosome, check distance
+        let intervals_to_add = vec![
+            Interval {
+                chrom: String::from("chr1"),
+                start: 100,
+                stop: 110,
+                ..Default::default()
+            }, // dist=90 > 50, pop
+            Interval {
+                chrom: String::from("chr1"),
+                start: 149,
+                stop: 150,
+                ..Default::default()
+            }, // dist=50 <= 50, keep
+            Interval {
+                chrom: String::from("chr1"),
+                start: 160,
+                stop: 170,
+                ..Default::default()
+            }, // dist=30 <= 50, keep
+        ];
+        for iv in intervals_to_add {
+            iter.dequeue.push_back(Intersection {
+                interval: Arc::new(Mutex::new(Position::Interval(iv))),
+                id: 0,
+            });
+        }
+
+        let base_interval1 = Position::Interval(Interval {
+            chrom: String::from("chr1"),
+            start: 200,
+            stop: 201,
+            ..Default::default()
+        });
+        iter.pop_front(&base_interval1);
+        assert_eq!(iter.dequeue.len(), 2);
+        let starts: Vec<u64> = iter
+            .dequeue
+            .iter()
+            .map(|i| {
+                i.interval
+                    .try_lock()
+                    .expect("failed to lock interval")
+                    .start()
+            })
+            .collect();
+        assert_eq!(starts, vec![149, 160]);
+
+        // Scenario 2: different chromosomes
+        iter.dequeue.clear();
+        let intervals_to_add = vec![
+            Interval {
+                chrom: String::from("chr1"),
+                start: 100,
+                stop: 110,
+                ..Default::default()
+            }, // chr1 < chr2, pop
+            Interval {
+                chrom: String::from("chr2"),
+                start: 1,
+                stop: 5,
+                ..Default::default()
+            }, // same chrom, dist=5, keep
+            Interval {
+                chrom: String::from("chr3"),
+                start: 1,
+                stop: 5,
+                ..Default::default()
+            }, // chr3 > chr2, keep
+        ];
+        for iv in intervals_to_add {
+            iter.dequeue.push_back(Intersection {
+                interval: Arc::new(Mutex::new(Position::Interval(iv))),
+                id: 0,
+            });
+        }
+        let base_interval2 = Position::Interval(Interval {
+            chrom: String::from("chr2"),
+            start: 10,
+            stop: 11,
+            ..Default::default()
+        });
+        iter.pop_front(&base_interval2);
+        assert_eq!(iter.dequeue.len(), 2);
+        let chroms: Vec<String> = iter
+            .dequeue
+            .iter()
+            .map(|i| {
+                i.interval
+                    .try_lock()
+                    .expect("failed to lock interval")
+                    .chrom()
+                    .to_string()
+            })
+            .collect();
+        let chroms_str: Vec<&str> = chroms.iter().map(|s| s.as_ref()).collect();
+        assert_eq!(chroms_str, vec!["chr2", "chr3"]);
     }
 }
