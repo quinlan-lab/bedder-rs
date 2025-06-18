@@ -6,7 +6,7 @@ use linear_map::LinearMap;
 use std::fmt::Debug;
 
 /// half-open interval
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct Interval {
     pub chrom: String,
     /// 0-based start

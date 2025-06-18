@@ -1171,4 +1171,250 @@ mod tests {
 
         assert_eq!(distances, vec![0, 0, 10, 10, 40]);
     }
+
+    struct ClosestTestCase {
+        name: &'static str,
+        base_ivs: Vec<Interval>,
+        db_ivs: Vec<Interval>,
+        n_closest: i64,
+        max_distance: i64,
+        expected_overlapping_count: usize,
+        expected_distances: Vec<u64>,
+    }
+    #[test]
+    fn test_closest_logic() {
+        let genome_str = "chr1\nchr2\n";
+        let chrom_order = parse_genome(genome_str.as_bytes()).unwrap();
+
+        let base_interval_spec = Interval {
+            chrom: String::from("chr1"),
+            start: 100,
+            stop: 110,
+            ..Default::default()
+        };
+
+        // base is chr1:100-110
+        // distances from base: 40, 10, 0, 0, 10, 40, 90
+        // sorted distances: 0, 0, 10, 10, 40, 40, 90
+        let db_ivs_template = vec![
+            Interval {
+                chrom: String::from("chr1"),
+                start: 50,
+                stop: 60,
+                ..Default::default()
+            }, // dist 40
+            Interval {
+                chrom: String::from("chr1"),
+                start: 80,
+                stop: 90,
+                ..Default::default()
+            }, // dist 10
+            Interval {
+                chrom: String::from("chr1"),
+                start: 95,
+                stop: 105,
+                ..Default::default()
+            }, // overlap 0
+            Interval {
+                chrom: String::from("chr1"),
+                start: 108,
+                stop: 115,
+                ..Default::default()
+            }, // overlap 0
+            Interval {
+                chrom: String::from("chr1"),
+                start: 120,
+                stop: 130,
+                ..Default::default()
+            }, // dist 10
+            Interval {
+                chrom: String::from("chr1"),
+                start: 150,
+                stop: 160,
+                ..Default::default()
+            }, // dist 40
+            Interval {
+                chrom: String::from("chr1"),
+                start: 200,
+                stop: 210,
+                ..Default::default()
+            }, // dist 90
+        ];
+
+        let test_cases = vec![
+            ClosestTestCase {
+                name: "n_closest only, no max_distance",
+                base_ivs: vec![base_interval_spec.clone()],
+                db_ivs: db_ivs_template.clone(),
+                n_closest: 5,
+                max_distance: 0,
+                expected_overlapping_count: 5,
+                expected_distances: vec![0, 0, 10, 10, 40],
+            },
+            ClosestTestCase {
+                name: "max_distance only, no n_closest",
+                base_ivs: vec![base_interval_spec.clone()],
+                db_ivs: db_ivs_template.clone(),
+                n_closest: 0,
+                max_distance: 30,
+                expected_overlapping_count: 4,
+                expected_distances: vec![0, 0, 10, 10],
+            },
+            ClosestTestCase {
+                name: "n_closest and max_distance, n_closest is restrictive",
+                base_ivs: vec![base_interval_spec.clone()],
+                db_ivs: db_ivs_template.clone(),
+                n_closest: 3,
+                max_distance: 50,
+                expected_overlapping_count: 3,
+                expected_distances: vec![0, 0, 10],
+            },
+            ClosestTestCase {
+                name: "n_closest and max_distance, max_distance is restrictive",
+                base_ivs: vec![base_interval_spec.clone()],
+                db_ivs: db_ivs_template.clone(),
+                n_closest: 5,
+                max_distance: 30,
+                expected_overlapping_count: 4,
+                expected_distances: vec![0, 0, 10, 10],
+            },
+            ClosestTestCase {
+                name: "no overlapping intervals, n_closest",
+                base_ivs: vec![base_interval_spec.clone()],
+                db_ivs: vec![
+                    Interval {
+                        chrom: String::from("chr1"),
+                        start: 50,
+                        stop: 60,
+                        ..Default::default()
+                    }, // dist 40
+                    Interval {
+                        chrom: String::from("chr1"),
+                        start: 80,
+                        stop: 90,
+                        ..Default::default()
+                    }, // dist 10
+                ],
+                n_closest: 1,
+                max_distance: 0,
+                expected_overlapping_count: 1,
+                expected_distances: vec![10],
+            },
+            ClosestTestCase {
+                name: "n_closest with different chromosome",
+                base_ivs: vec![base_interval_spec.clone()],
+                db_ivs: vec![
+                    Interval {
+                        chrom: String::from("chr1"),
+                        start: 80,
+                        stop: 90,
+                        ..Default::default()
+                    }, // dist 10
+                    Interval {
+                        chrom: String::from("chr2"),
+                        start: 80,
+                        stop: 90,
+                        ..Default::default()
+                    }, // different chrom
+                ],
+                n_closest: 2,
+                max_distance: 0,
+                expected_overlapping_count: 1,
+                expected_distances: vec![10],
+            },
+            ClosestTestCase {
+                name: "max_distance with different chromosome",
+                base_ivs: vec![base_interval_spec.clone()],
+                db_ivs: vec![
+                    Interval {
+                        chrom: String::from("chr1"),
+                        start: 80,
+                        stop: 90,
+                        ..Default::default()
+                    }, // dist 10
+                    Interval {
+                        chrom: String::from("chr2"),
+                        start: 80,
+                        stop: 90,
+                        ..Default::default()
+                    }, // different chrom
+                ],
+                n_closest: 0,
+                max_distance: 100,
+                expected_overlapping_count: 1,
+                expected_distances: vec![10],
+            },
+            ClosestTestCase {
+                name: "no matches for n_closest",
+                base_ivs: vec![base_interval_spec.clone()],
+                db_ivs: vec![],
+                n_closest: 5,
+                max_distance: 0,
+                expected_overlapping_count: 0,
+                expected_distances: vec![],
+            },
+            ClosestTestCase {
+                name: "no matches for max_distance",
+                base_ivs: vec![base_interval_spec.clone()],
+                db_ivs: vec![Interval {
+                    chrom: String::from("chr1"),
+                    start: 0,
+                    stop: 1,
+                    ..Default::default()
+                }],
+                n_closest: 0,
+                max_distance: 10,
+                expected_overlapping_count: 0,
+                expected_distances: vec![],
+            },
+        ];
+
+        for case in test_cases {
+            let base_ivs = Intervals::new(String::from("A"), case.base_ivs);
+            let db_ivs = Intervals::new(String::from("B"), case.db_ivs);
+
+            let mut iter = IntersectionIterator::new(
+                Box::new(base_ivs),
+                vec![Box::new(db_ivs)],
+                &chrom_order,
+                case.max_distance,
+                case.n_closest,
+            )
+            .expect("error getting iterator");
+
+            let first = iter.next().unwrap().unwrap();
+            assert_eq!(
+                first.overlapping.len(),
+                case.expected_overlapping_count,
+                "failed test '{}': expected count {} but got {}",
+                case.name,
+                case.expected_overlapping_count,
+                first.overlapping.len()
+            );
+
+            let base_interval_locked = first.base_interval.try_lock().unwrap();
+            let mut distances: Vec<u64> = first
+                .overlapping
+                .iter()
+                .map(|o| {
+                    let interval = o.interval.try_lock().unwrap();
+                    if interval.stop() > base_interval_locked.start()
+                        && base_interval_locked.stop() > interval.start()
+                    {
+                        0
+                    } else if interval.stop() <= base_interval_locked.start() {
+                        base_interval_locked.start() - interval.stop()
+                    } else {
+                        interval.start() - base_interval_locked.stop()
+                    }
+                })
+                .collect();
+            distances.sort();
+            assert_eq!(
+                distances, case.expected_distances,
+                "failed test '{}': incorrect distances",
+                case.name
+            );
+        }
+    }
 }
