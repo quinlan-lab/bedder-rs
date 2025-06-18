@@ -35,10 +35,11 @@ pub struct IntersectionIterator<'a> {
     heap_initialized: bool,
 
     /// max_distance is the maximum distance from the base interval that we will consider.
-    max_distance: u64,
+    /// This takes precedence over n_closest.
+    max_distance: i64,
 
     /// n_closest is the number of closest intervals to return. they may not all be overlapping.
-    n_closest: u64,
+    n_closest: i64,
 }
 
 /// An Intersection wraps the Positioned that was intersected with a unique identifier.
@@ -189,24 +190,165 @@ impl Iterator for IntersectionIterator<'_> {
         // de-Q contains all intervals that can overlap with the base interval.
         // de-Q is sorted.
         // We iterate through (again) and add those to overlapping positions.
-        for o in self.dequeue.iter() {
-            match cmp(
-                &o.interval.try_lock().expect("failed to lock interval"),
-                &base_interval
-                    .try_lock()
-                    .expect("failed to lock base_interval"),
-                self.chromosome_order,
-            ) {
-                Ordering::Less => continue,
-                Ordering::Greater => break,
-                Ordering::Equal => overlapping_positions.push(Intersection {
-                    // NOTE: we're effectively making a copy here, but it's only incrementing the Arc and a u32...
-                    // we could avoid by by keeping entire intersection in Arc.
-                    interval: Arc::clone(&o.interval),
-                    id: o.id,
-                }),
+        let base_interval_locked = base_interval
+            .try_lock()
+            .expect("failed to lock base_interval");
+        if self.n_closest <= 0 && self.max_distance <= 0 {
+            for o in self.dequeue.iter() {
+                match cmp(
+                    &o.interval.try_lock().expect("failed to lock interval"),
+                    &*base_interval_locked,
+                    self.chromosome_order,
+                ) {
+                    Ordering::Less => continue,
+                    Ordering::Greater => break,
+                    Ordering::Equal => overlapping_positions.push(o.clone()),
+                }
+            }
+        } else {
+            // logic for closest `n` and/or `max_distance` without extra allocations.
+
+            // 1. Find the split point in `dequeue` which is the index of the first interval
+            // that is NOT before our `base_interval`.
+            let mut split_point = 0;
+            for (i, o) in self.dequeue.iter().enumerate() {
+                let interval = o.interval.try_lock().unwrap();
+                let o_chrom = interval.chrom();
+                let base_chrom = base_interval_locked.chrom();
+
+                if o_chrom != base_chrom {
+                    if self.chromosome_order[o_chrom].index
+                        < self.chromosome_order[base_chrom].index
+                    {
+                        split_point = i + 1;
+                        continue;
+                    } else {
+                        break;
+                    }
+                }
+
+                if interval.stop() <= base_interval_locked.start() {
+                    split_point = i + 1;
+                } else {
+                    break;
+                }
+            }
+
+            // 2. We now have pointers to the end of the 'before' list and the start of the 'not-before' list.
+            let mut before_ptr = split_point.checked_sub(1);
+            let mut after_ptr = split_point;
+
+            // 3. Collect all overlapping intervals first. They have distance 0.
+            while let Some(o) = self.dequeue.get(after_ptr) {
+                let interval = o.interval.try_lock().unwrap();
+                if interval.chrom() == base_interval_locked.chrom()
+                    && interval.start() < base_interval_locked.stop()
+                {
+                    overlapping_positions.push(o.clone());
+                    after_ptr += 1;
+                } else {
+                    break;
+                }
+            }
+
+            // 4. If we still need more intervals (for n_closest), get them from `before` and `after` parts of dequeue.
+            if self.n_closest > 0 {
+                while overlapping_positions.len() < self.n_closest as usize {
+                    let before_o = before_ptr.and_then(|p| self.dequeue.get(p));
+                    let after_o = self.dequeue.get(after_ptr);
+
+                    if before_o.is_none() && after_o.is_none() {
+                        break;
+                    }
+
+                    let dist_l = before_o.map_or(u64::MAX, |o| {
+                        let interval = o.interval.try_lock().unwrap();
+                        if interval.chrom() != base_interval_locked.chrom() {
+                            return u64::MAX;
+                        }
+                        let dist = base_interval_locked.start() - interval.stop();
+                        if self.max_distance > 0 && dist > self.max_distance as u64 {
+                            u64::MAX
+                        } else {
+                            dist
+                        }
+                    });
+
+                    let dist_r = after_o.map_or(u64::MAX, |o| {
+                        let interval = o.interval.try_lock().unwrap();
+                        if interval.chrom() != base_interval_locked.chrom() {
+                            return u64::MAX;
+                        }
+                        let dist = interval.start() - base_interval_locked.stop();
+                        if self.max_distance > 0 && dist > self.max_distance as u64 {
+                            u64::MAX
+                        } else {
+                            dist
+                        }
+                    });
+
+                    if dist_l == u64::MAX && dist_r == u64::MAX {
+                        break;
+                    }
+
+                    if dist_l <= dist_r {
+                        overlapping_positions.push(before_o.unwrap().clone());
+                        before_ptr = before_ptr.unwrap().checked_sub(1);
+                    } else {
+                        overlapping_positions.push(after_o.unwrap().clone());
+                        after_ptr += 1;
+                    }
+                }
+
+                // The found positions are the closest, but not necessarily sorted by distance.
+                // We sort and truncate to get the exact n-closest in order.
+                overlapping_positions.sort_by_key(|o| {
+                    let interval = o.interval.try_lock().unwrap();
+                    if interval.stop() > base_interval_locked.start()
+                        && base_interval_locked.stop() > interval.start()
+                    {
+                        0
+                    } else if interval.stop() <= base_interval_locked.start() {
+                        base_interval_locked.start() - interval.stop()
+                    } else {
+                        interval.start() - base_interval_locked.stop()
+                    }
+                });
+                overlapping_positions.truncate(self.n_closest as usize);
+            } else {
+                // n_closest is 0, but max_distance is set. Collect all within distance.
+                while let Some(p) = before_ptr {
+                    let o = &self.dequeue[p];
+                    let interval = o.interval.try_lock().unwrap();
+                    if interval.chrom() == base_interval_locked.chrom() {
+                        assert!(base_interval_locked.start() >= interval.stop());
+                        let dist = base_interval_locked.start() - interval.stop();
+                        if self.max_distance >= 0 && dist <= self.max_distance as u64 {
+                            overlapping_positions.push(o.clone());
+                        } else {
+                            break;
+                        }
+                    }
+                    before_ptr = p.checked_sub(1);
+                }
+                while let Some(o) = self.dequeue.get(after_ptr) {
+                    let interval = o.interval.try_lock().unwrap();
+                    if interval.chrom() == base_interval_locked.chrom() {
+                        assert!(interval.start() >= base_interval_locked.stop());
+                        let dist = interval.start() - base_interval_locked.stop();
+                        if self.max_distance >= 0 && dist <= self.max_distance as u64 {
+                            overlapping_positions.push(o.clone());
+                            after_ptr += 1;
+                        } else {
+                            break;
+                        }
+                    } else {
+                        break;
+                    }
+                }
             }
         }
+        drop(base_interval_locked);
 
         Some(Ok(Intersections {
             base_interval: Arc::clone(&base_interval),
@@ -222,8 +364,8 @@ impl<'a> IntersectionIterator<'a> {
         base_iterator: Box<dyn PositionedIterator>,
         other_iterators: Vec<Box<dyn PositionedIterator>>,
         chromosome_order: &'a HashMap<String, Chromosome>,
-        max_distance: u64,
-        n_closest: u64,
+        max_distance: i64,
+        n_closest: i64,
     ) -> io::Result<Self> {
         let min_heap = BinaryHeap::new();
         let called = vec![false; other_iterators.len()];
@@ -287,7 +429,7 @@ impl<'a> IntersectionIterator<'a> {
                         < self.chromosome_order[base_interval.chrom()].index
                 } else if interval.stop() < base_interval.start() {
                     let dist = base_interval.start() - interval.stop();
-                    self.max_distance > 0 && dist > self.max_distance
+                    self.max_distance > 0 && dist > self.max_distance as u64
                 } else {
                     false
                 }
@@ -927,5 +1069,106 @@ mod tests {
             .collect();
         let chroms_str: Vec<&str> = chroms.iter().map(|s| s.as_ref()).collect();
         assert_eq!(chroms_str, vec!["chr2", "chr3"]);
+    }
+
+    #[test]
+    fn test_closest_and_distance() {
+        let genome_str = "chr1\n";
+        let chrom_order = parse_genome(genome_str.as_bytes()).unwrap();
+
+        let base_ivs = Intervals::new(
+            String::from("A"),
+            vec![Interval {
+                chrom: String::from("chr1"),
+                start: 100,
+                stop: 110,
+                ..Default::default()
+            }],
+        );
+
+        let db_ivs = Intervals::new(
+            String::from("B"),
+            vec![
+                Interval {
+                    chrom: String::from("chr1"),
+                    start: 50,
+                    stop: 60,
+                    ..Default::default()
+                }, // dist 40
+                Interval {
+                    chrom: String::from("chr1"),
+                    start: 80,
+                    stop: 90,
+                    ..Default::default()
+                }, // dist 10
+                Interval {
+                    chrom: String::from("chr1"),
+                    start: 95,
+                    stop: 105,
+                    ..Default::default()
+                }, // overlap 0
+                Interval {
+                    chrom: String::from("chr1"),
+                    start: 108,
+                    stop: 115,
+                    ..Default::default()
+                }, // overlap 0
+                Interval {
+                    chrom: String::from("chr1"),
+                    start: 120,
+                    stop: 130,
+                    ..Default::default()
+                }, // dist 10
+                Interval {
+                    chrom: String::from("chr1"),
+                    start: 150,
+                    stop: 160,
+                    ..Default::default()
+                }, // dist 40
+                Interval {
+                    chrom: String::from("chr1"),
+                    start: 200,
+                    stop: 210,
+                    ..Default::default()
+                }, // dist 90
+            ],
+        );
+
+        let n_closest = 5;
+        let max_distance = 50;
+
+        let mut iter = IntersectionIterator::new(
+            Box::new(base_ivs),
+            vec![Box::new(db_ivs)],
+            &chrom_order,
+            max_distance,
+            n_closest,
+        )
+        .expect("error getting iterator");
+
+        let first = iter.next().unwrap().unwrap();
+        assert_eq!(first.overlapping.len(), 5);
+
+        // check that the distances are as expected.
+        let base_interval_locked = first.base_interval.try_lock().unwrap();
+        let mut distances: Vec<u64> = first
+            .overlapping
+            .iter()
+            .map(|o| {
+                let interval = o.interval.try_lock().unwrap();
+                if interval.stop() > base_interval_locked.start()
+                    && base_interval_locked.stop() > interval.start()
+                {
+                    0
+                } else if interval.stop() <= base_interval_locked.start() {
+                    base_interval_locked.start() - interval.stop()
+                } else {
+                    interval.start() - base_interval_locked.stop()
+                }
+            })
+            .collect();
+        distances.sort();
+
+        assert_eq!(distances, vec![0, 0, 10, 10, 40]);
     }
 }
