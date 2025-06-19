@@ -95,10 +95,25 @@ struct Args {
 
     #[arg(
         help = "python file with functions to be used in columns",
-        short = 'P',
         long = "python"
     )]
     python_file: Option<PathBuf>,
+
+    #[arg(
+        long = "n-closest",
+        short = 'n',
+        help = "report the n-closest intervals. a value of -1 means report all overlaps",
+        default_value = "-1"
+    )]
+    n_closest: i64,
+
+    #[arg(
+        long = "max-distance",
+        short = 'd',
+        help = "maximum distance to search for closest intervals. a value of -1 means no limit",
+        default_value = "-1"
+    )]
+    max_distance: i64,
 }
 
 #[global_allocator]
@@ -158,8 +173,13 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         })
         .collect::<Result<Vec<_>, _>>()?;
 
-    // TODO: update to use max_distance and n_closest once implemented
-    let ii = bedder::intersection::IntersectionIterator::new(a_iter, b_iters, &chrom_order, 0, 0)?;
+    let ii = bedder::intersection::IntersectionIterator::new(
+        a_iter,
+        b_iters,
+        &chrom_order,
+        args.n_closest,
+        args.max_distance,
+    )?;
 
     // Convert sniff::FileType to hts_format::Format
     let mut output_format = match query_file_type {
