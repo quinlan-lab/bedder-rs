@@ -344,6 +344,7 @@ impl PyVcfRecord {
         }
     }
 
+    #[allow(non_snake_case)]
     #[setter]
     fn set_REF(&mut self, ref_allele: &str) -> PyResult<()> {
         if let Position::Vcf(v) = &mut *self.inner.try_lock().expect("failed to lock interval") {
@@ -813,7 +814,7 @@ impl PyIntersectionPart {
     #[staticmethod]
     fn part() -> Self {
         PyIntersectionPart {
-            inner: IntersectionPart::Part,
+            inner: IntersectionPart::Piece,
         }
     }
 

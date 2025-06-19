@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use crate::bedder_bed::BedRecord;
-    use crate::column::{Number, Type, Value};
+    use crate::column::Value;
     use crate::intersection::{Intersection, Intersections};
     use crate::position::Position;
     use crate::py::{CompiledPython, PyReportFragment};
@@ -10,7 +10,7 @@ mod tests {
     use pyo3::exceptions::PyRuntimeError;
     use pyo3::types::PyModuleMethods;
     use pyo3::PyResult;
-    use pyo3::{PyErr, Python};
+    use pyo3::Python;
     use std::ffi::CString;
     use std::sync::Arc;
 

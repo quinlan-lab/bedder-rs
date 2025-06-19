@@ -61,11 +61,21 @@ struct Args {
     )]
     b_mode: IntersectionMode,
 
-    #[arg(help = "a-part", short = 'p', long = "a-part", default_value = "whole")]
-    a_part: IntersectionPart,
+    #[arg(
+        help = "the piece of the a intervals to report",
+        short = 'p',
+        long = "a-piece",
+        default_value = "whole"
+    )]
+    a_piece: IntersectionPart,
 
-    #[arg(help = "b-part", long = "b-part", default_value = "whole")]
-    b_part: IntersectionPart,
+    #[arg(
+        help = "the piece of the b intervals to report",
+        long = "b-piece",
+        short = 'P',
+        default_value = "whole"
+    )]
+    b_piece: IntersectionPart,
 
     #[arg(
         help = "a-requirements for overlap. A float value < 1 or a number ending with % will be the fraction (or %) of the interval. An integer will be the number of bases.",
@@ -166,8 +176,8 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     let report_options = Arc::new(
         ReportOptions::builder()
             .a_mode(args.intersection_mode)
-            .a_part(args.a_part)
-            .b_part(args.b_part)
+            .a_piece(args.a_piece)
+            .b_piece(args.b_piece)
             .a_requirements(args.a_requirements)
             .b_requirements(args.b_requirements)
             .build(),

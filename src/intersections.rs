@@ -29,7 +29,7 @@ fn inverse(base_interval: &Position, overlaps: &[Intersection]) -> Vec<Arc<Mutex
     result
 }
 
-// with a-part, we changed the bounds of the interval so we need to then limit b intervals
+// with a-piece, we changed the bounds of the interval so we need to then limit b intervals
 // to those that still overlap the new bounds.
 // Takes &mut result as it modifies the b vectors in place.
 fn filter_part_overlaps(result: &mut [ReportFragment]) {
@@ -37,7 +37,7 @@ fn filter_part_overlaps(result: &mut [ReportFragment]) {
     // within the same fragment point to the same locked Arc.
 
     for fr in result {
-        // Check if a exists; if a_part was None, 'a' will be None.
+        // Check if a exists; if a_piece was None, 'a' will be None.
         // If a doesn't exist, no filtering based on 'a' is possible/needed.
         let a_arc_option = fr.a.as_ref();
         if a_arc_option.is_none() {
@@ -83,10 +83,10 @@ impl Intersections {
                 return report.clone();
             }
         }
-        // usually the result is [query, [[b1-part, b1-part2, ...], [b2-part, ...]]]],
+        // usually the result is [query, [[b1-piece, b1-piece2, ...], [b2-piece, ...]]]],
         // in fact, usually, there's only a single b and a single interval from b, so it's:
-        // [query, [[b1-part]]]
-        // but if a_part is Part, then there can be multiple query intervals.
+        // [query, [[b1-piece]]]
+        // but if a_piece is Part, then there can be multiple query intervals.
         let mut result = Vec::new();
 
         let max_id = self.overlapping.iter().map(|o| o.id).max().unwrap_or(0);
@@ -135,8 +135,8 @@ impl Intersections {
                     self.push_overlap_fragments(
                         &mut result,
                         &b_satisified,
-                        &report_options.a_part,
-                        &report_options.b_part,
+                        &report_options.a_piece,
+                        &report_options.b_piece,
                         b_idx,
                     );
                 }
@@ -168,8 +168,8 @@ impl Intersections {
                     self.push_overlap_fragments(
                         &mut result,
                         overlaps,
-                        &report_options.a_part,
-                        &report_options.b_part,
+                        &report_options.a_piece,
+                        &report_options.b_piece,
                         b_idx,
                     );
                 }
@@ -179,13 +179,13 @@ impl Intersections {
             self.push_overlap_fragments(
                 &mut result,
                 &[],
-                &report_options.a_part,
-                &report_options.b_part,
+                &report_options.a_piece,
+                &report_options.b_piece,
                 usize::MAX,
             );
         }
 
-        if matches!(report_options.a_part, IntersectionPart::Part) {
+        if matches!(report_options.a_piece, IntersectionPart::Piece) {
             // Pass as mutable reference now
             filter_part_overlaps(&mut result);
         }
@@ -282,17 +282,17 @@ impl Intersections {
         &self,
         result: &mut Vec<ReportFragment>,
         overlaps: &[Intersection], // already grouped and only from b_idx.
-        a_part: &IntersectionPart,
-        b_part: &IntersectionPart,
+        a_piece: &IntersectionPart,
+        b_piece: &IntersectionPart,
         b_idx: usize, // index bs of result.
     ) {
         assert!(overlaps.iter().all(|o| o.id as usize == b_idx));
 
-        let a_positions = match a_part {
+        let a_positions = match a_piece {
             // for None, we still need the a_interval to report the b_interval
             IntersectionPart::None | IntersectionPart::Whole => vec![self.base_interval.clone()],
-            IntersectionPart::Part => {
-                // Create and adjust a_position if a_part is Part
+            IntersectionPart::Piece => {
+                // Create and adjust a_position if a_piece is Part
                 overlaps
                     .iter()
                     .map(|o| {
@@ -328,19 +328,19 @@ impl Intersections {
         };
 
         a_positions.iter().for_each(|a_position| {
-            let a_pos = if matches!(a_part, IntersectionPart::None) {
+            let a_pos = if matches!(a_piece, IntersectionPart::None) {
                 None
             } else {
                 Some(a_position.clone())
             };
-            result.push(match b_part {
+            result.push(match b_piece {
                 // None, Part, Whole
                 IntersectionPart::None => ReportFragment {
                     a: a_pos,
                     b: vec![],
                     id: b_idx,
                 },
-                IntersectionPart::Part => {
+                IntersectionPart::Piece => {
                     let mut b_positions = Vec::new();
                     let base = self
                         .base_interval
@@ -520,8 +520,8 @@ mod tests {
         let mut ro = ReportOptions::default();
         ro.a_mode = IntersectionMode::Not;
         ro.b_mode = IntersectionMode::Default;
-        ro.a_part = IntersectionPart::Whole;
-        ro.b_part = IntersectionPart::Whole;
+        ro.a_piece = IntersectionPart::Whole;
+        ro.b_piece = IntersectionPart::Whole;
         ro.a_requirements = OverlapAmount::Bases(5);
         ro.b_requirements = OverlapAmount::Bases(1);
         let r = intersections.report(&ro);
@@ -545,8 +545,8 @@ mod tests {
         // now we also use b not
         ro.a_mode = IntersectionMode::Not;
         ro.b_mode = IntersectionMode::Not;
-        ro.a_part = IntersectionPart::Whole;
-        ro.b_part = IntersectionPart::Part;
+        ro.a_piece = IntersectionPart::Whole;
+        ro.b_piece = IntersectionPart::Piece;
         ro.b_requirements = OverlapAmount::Bases(10);
         ro.a_requirements = OverlapAmount::Bases(10);
         let r = intersections.report(&ro);
@@ -570,8 +570,8 @@ mod tests {
         let mut ro = ReportOptions::default();
         ro.a_mode = IntersectionMode::Not;
         ro.b_mode = IntersectionMode::Default;
-        ro.a_part = IntersectionPart::Whole;
-        ro.b_part = IntersectionPart::Whole;
+        ro.a_piece = IntersectionPart::Whole;
+        ro.b_piece = IntersectionPart::Whole;
         ro.a_requirements = OverlapAmount::Bases(1);
         ro.b_requirements = OverlapAmount::Bases(1);
         let r = intersections.report(&ro);
@@ -582,13 +582,13 @@ mod tests {
     }
 
     #[test]
-    fn test_a_part() {
+    fn test_a_piece() {
         let intersections = make_example("a: 2-23\nb: 8-12, 14-15");
         let mut ro = ReportOptions::default();
         ro.a_mode = IntersectionMode::Default;
         ro.b_mode = IntersectionMode::Default;
-        ro.a_part = IntersectionPart::Part;
-        ro.b_part = IntersectionPart::None;
+        ro.a_piece = IntersectionPart::Piece;
+        ro.b_piece = IntersectionPart::None;
 
         let r = intersections.report(&ro);
         eprintln!("{:?}", r);
@@ -605,8 +605,8 @@ mod tests {
         let mut ro = ReportOptions::default();
         ro.a_mode = IntersectionMode::Not;
         ro.b_mode = IntersectionMode::Default;
-        ro.a_part = IntersectionPart::Whole;
-        ro.b_part = IntersectionPart::Whole;
+        ro.a_piece = IntersectionPart::Whole;
+        ro.b_piece = IntersectionPart::Whole;
         ro.a_requirements = OverlapAmount::Bases(1);
         ro.b_requirements = OverlapAmount::Bases(1);
         let r = intersections.report(&ro);
@@ -620,8 +620,8 @@ mod tests {
         let mut ro = ReportOptions::default();
         ro.a_mode = IntersectionMode::Default;
         ro.b_mode = IntersectionMode::Default;
-        ro.a_part = IntersectionPart::Whole;
-        ro.b_part = IntersectionPart::Inverse;
+        ro.a_piece = IntersectionPart::Whole;
+        ro.b_piece = IntersectionPart::Inverse;
         ro.a_requirements = OverlapAmount::Bases(1);
         ro.b_requirements = OverlapAmount::Bases(1);
         let r = intersections.report(&ro);
@@ -640,8 +640,8 @@ mod tests {
     fn test_multiple_bs() {
         let intersections = make_example("a: 1-10\nb: 3-6, 8-12\nb:9-20");
         let mut ro = ReportOptions::default();
-        ro.a_part = IntersectionPart::Part;
-        ro.b_part = IntersectionPart::Whole;
+        ro.a_piece = IntersectionPart::Piece;
+        ro.b_piece = IntersectionPart::Whole;
         ro.a_requirements = OverlapAmount::Bases(1);
         ro.b_requirements = OverlapAmount::Bases(1);
         let r = intersections.report(&ro);
@@ -674,8 +674,8 @@ mod tests {
         let mut ro = ReportOptions::default();
         ro.a_mode = IntersectionMode::PerPiece;
         ro.b_mode = IntersectionMode::Default;
-        ro.a_part = IntersectionPart::Whole;
-        ro.b_part = IntersectionPart::Whole;
+        ro.a_piece = IntersectionPart::Whole;
+        ro.b_piece = IntersectionPart::Whole;
         ro.a_requirements = OverlapAmount::Bases(1);
         ro.b_requirements = OverlapAmount::Bases(1);
         let r = intersections.report(&ro);
@@ -699,8 +699,8 @@ mod tests {
         let mut ro = ReportOptions::default();
         ro.a_mode = IntersectionMode::PerPiece;
         ro.b_mode = IntersectionMode::Default;
-        ro.a_part = IntersectionPart::Part;
-        ro.b_part = IntersectionPart::Part;
+        ro.a_piece = IntersectionPart::Piece;
+        ro.b_piece = IntersectionPart::Piece;
         ro.a_requirements = OverlapAmount::Bases(1);
         ro.b_requirements = OverlapAmount::Bases(1);
         let r = intersections.report(&ro);
@@ -732,8 +732,8 @@ mod tests {
         let mut ro = ReportOptions::default();
         ro.a_mode = IntersectionMode::Default;
         ro.b_mode = IntersectionMode::Default;
-        ro.a_part = IntersectionPart::Whole;
-        ro.b_part = IntersectionPart::Part;
+        ro.a_piece = IntersectionPart::Whole;
+        ro.b_piece = IntersectionPart::Piece;
         ro.a_requirements = OverlapAmount::Bases(5);
         ro.b_requirements = OverlapAmount::Bases(1);
         let r = intersections.report(&ro);
@@ -761,8 +761,8 @@ mod tests {
         let mut ro = ReportOptions::default();
         ro.a_mode = IntersectionMode::Default;
         ro.b_mode = IntersectionMode::Default;
-        ro.a_part = IntersectionPart::Whole;
-        ro.b_part = IntersectionPart::None;
+        ro.a_piece = IntersectionPart::Whole;
+        ro.b_piece = IntersectionPart::None;
         ro.a_requirements = OverlapAmount::Bases(1);
         ro.b_requirements = OverlapAmount::Bases(1);
         let r = intersections.report(&ro);
@@ -778,8 +778,8 @@ mod tests {
         let mut ro = ReportOptions::default();
         ro.a_mode = IntersectionMode::Default;
         ro.b_mode = IntersectionMode::Default;
-        ro.a_part = IntersectionPart::None;
-        ro.b_part = IntersectionPart::Part;
+        ro.a_piece = IntersectionPart::None;
+        ro.b_piece = IntersectionPart::Piece;
         ro.a_requirements = OverlapAmount::Bases(1);
         ro.b_requirements = OverlapAmount::Bases(1);
         let r = intersections.report(&ro);

@@ -42,7 +42,7 @@ pub enum IntersectionPart {
     /// This is commonly used for -b to not report b intervals.
     None,
     /// Report each portion of A that overlaps B
-    Part,
+    Piece,
     /// Report the whole interval of A that overlaps B
     Whole,
     /// Report each portion of A that does *NOT* overlap B
@@ -53,7 +53,7 @@ impl std::fmt::Display for IntersectionPart {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             IntersectionPart::None => write!(f, "none"),
-            IntersectionPart::Part => write!(f, "part"),
+            IntersectionPart::Piece => write!(f, "piece"),
             IntersectionPart::Whole => write!(f, "whole"),
             IntersectionPart::Inverse => write!(f, "inverse"),
         }
@@ -72,7 +72,7 @@ impl FromStr for IntersectionPart {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
             "none" => Ok(Self::None),
-            "part" => Ok(Self::Part),
+            "piece" => Ok(Self::Piece),
             "whole" => Ok(Self::Whole),
             "inverse" => Ok(Self::Inverse),
             _ => Err(format!("unknown intersection part {}", s)),
@@ -167,8 +167,8 @@ impl Default for &OverlapAmount {
 /// let options = ReportOptions::builder()
 ///     .a_mode(IntersectionMode::Not)
 ///     .b_mode(IntersectionMode::Default)
-///     .a_part(IntersectionPart::Whole)
-///     .b_part(IntersectionPart::Part)
+///     .a_piece(IntersectionPart::Whole)
+///     .b_piece(IntersectionPart::Piece)
 ///     .a_requirements(OverlapAmount::Bases(5))
 ///     .b_requirements(OverlapAmount::Fraction(0.5))
 ///     .build();
@@ -177,8 +177,8 @@ impl Default for &OverlapAmount {
 pub struct ReportOptions {
     pub a_mode: IntersectionMode,
     pub b_mode: IntersectionMode,
-    pub a_part: IntersectionPart,
-    pub b_part: IntersectionPart,
+    pub a_piece: IntersectionPart,
+    pub b_piece: IntersectionPart,
     pub a_requirements: OverlapAmount,
     pub b_requirements: OverlapAmount,
 }
@@ -204,8 +204,8 @@ impl ReportOptions {
 pub struct ReportOptionsBuilder {
     a_mode: IntersectionMode,
     b_mode: IntersectionMode,
-    a_part: IntersectionPart,
-    b_part: IntersectionPart,
+    a_piece: IntersectionPart,
+    b_piece: IntersectionPart,
     a_requirements: OverlapAmount,
     b_requirements: OverlapAmount,
 }
@@ -216,8 +216,8 @@ impl ReportOptionsBuilder {
         Self {
             a_mode: IntersectionMode::Default,
             b_mode: IntersectionMode::Default,
-            a_part: IntersectionPart::Whole,
-            b_part: IntersectionPart::Whole,
+            a_piece: IntersectionPart::Whole,
+            b_piece: IntersectionPart::Whole,
             a_requirements: OverlapAmount::Bases(1),
             b_requirements: OverlapAmount::Bases(1),
         }
@@ -236,14 +236,14 @@ impl ReportOptionsBuilder {
     }
 
     /// Set the A part
-    pub fn a_part(mut self, part: IntersectionPart) -> Self {
-        self.a_part = part;
+    pub fn a_piece(mut self, part: IntersectionPart) -> Self {
+        self.a_piece = part;
         self
     }
 
     /// Set the B part
-    pub fn b_part(mut self, part: IntersectionPart) -> Self {
-        self.b_part = part;
+    pub fn b_piece(mut self, part: IntersectionPart) -> Self {
+        self.b_piece = part;
         self
     }
 
@@ -264,8 +264,8 @@ impl ReportOptionsBuilder {
         ReportOptions {
             a_mode: self.a_mode,
             b_mode: self.b_mode,
-            a_part: self.a_part,
-            b_part: self.b_part,
+            a_piece: self.a_piece,
+            b_piece: self.b_piece,
             a_requirements: self.a_requirements,
             b_requirements: self.b_requirements,
         }
