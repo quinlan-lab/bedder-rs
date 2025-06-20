@@ -46,7 +46,7 @@ struct Args {
     output_path: PathBuf,
 
     #[arg(
-        help = "intersection mode for a-file",
+        help = "intersection mode for a-file. this determines how the overlap requirements are accumulated.",
         short = 'm',
         long = "a-mode",
         default_value = "default"
@@ -54,7 +54,7 @@ struct Args {
     intersection_mode: IntersectionMode,
 
     #[arg(
-        help = "intersection mode for b-file",
+        help = "intersection mode for b-file. this determines how the overlap requirements are accumulated.",
         short = 'M',
         long = "b-mode",
         default_value = "default"
