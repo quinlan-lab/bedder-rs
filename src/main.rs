@@ -177,8 +177,8 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         a_iter,
         b_iters,
         &chrom_order,
-        args.n_closest,
         args.max_distance,
+        args.n_closest,
     )?;
 
     // Convert sniff::FileType to hts_format::Format

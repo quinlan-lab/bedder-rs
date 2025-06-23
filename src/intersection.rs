@@ -250,6 +250,7 @@ impl Iterator for IntersectionIterator<'_> {
                     break;
                 }
             }
+            log::info!("overlapping_positions before: {:?}", overlapping_positions);
 
             // 4. If we still need more intervals (for n_closest), get them from `before` and `after` parts of dequeue.
             if self.n_closest > 0 {
@@ -260,6 +261,14 @@ impl Iterator for IntersectionIterator<'_> {
                     if before_o.is_none() && after_o.is_none() {
                         break;
                     }
+                    log::info!(
+                        "before_o: {:?}",
+                        before_o.map(|o| o.interval.try_lock().unwrap())
+                    );
+                    log::info!(
+                        "after_o: {:?}",
+                        after_o.map(|o| o.interval.try_lock().unwrap())
+                    );
 
                     let dist_l = before_o.map_or(u64::MAX, |o| {
                         let interval = o.interval.try_lock().unwrap();
@@ -273,6 +282,7 @@ impl Iterator for IntersectionIterator<'_> {
                             dist
                         }
                     });
+                    log::info!("dist_l: {:?}", dist_l);
 
                     let dist_r = after_o.map_or(u64::MAX, |o| {
                         let interval = o.interval.try_lock().unwrap();
@@ -280,12 +290,14 @@ impl Iterator for IntersectionIterator<'_> {
                             return u64::MAX;
                         }
                         let dist = interval.start() - base_interval_locked.stop();
+                        log::info!("dist: {:?} max_distance: {:?}", dist, self.max_distance);
                         if self.max_distance > 0 && dist > self.max_distance as u64 {
                             u64::MAX
                         } else {
                             dist
                         }
                     });
+                    log::info!("dist_r: {:?}", dist_r);
 
                     if dist_l == u64::MAX && dist_r == u64::MAX {
                         break;
@@ -349,6 +361,7 @@ impl Iterator for IntersectionIterator<'_> {
             }
         }
         drop(base_interval_locked);
+        log::info!("overlapping_positions: {:?}", overlapping_positions);
 
         Some(Ok(Intersections {
             base_interval: Arc::clone(&base_interval),

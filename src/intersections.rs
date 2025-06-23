@@ -98,6 +98,7 @@ impl Intersections {
         for intersection in &self.overlapping {
             grouped_intersections[intersection.id as usize].push(intersection.clone());
         }
+        log::info!("grouped_intersections: {:?}", grouped_intersections);
 
         for (b_idx, overlaps) in grouped_intersections.iter().enumerate() {
             // so now all overlaps are from b[id]
@@ -201,6 +202,13 @@ impl Intersections {
         requirements: &OverlapAmount,
         mode: &IntersectionMode,
     ) -> bool {
+        eprintln!(
+            "satisfies_requirements: bases_overlap: {}, interval_length: {}, requirements: {:?}, mode: {:?}",
+            bases_overlap,
+            interval_length,
+            requirements,
+            mode
+        );
         match requirements {
             OverlapAmount::Bases(bases) => {
                 if *mode == IntersectionMode::Not {
@@ -226,11 +234,9 @@ impl Intersections {
         interval_a: Arc<Mutex<Position>>,
         interval_b: Arc<Mutex<Position>>,
     ) -> u64 {
-        // NOTE!: we don't handle the case where there is no overlap. possible underflow. But we should
-        // only get overlapping intervals here.
         let a = interval_a.try_lock().expect("failed to lock interval");
         let b = interval_b.try_lock().expect("failed to lock interval");
-        a.stop().min(b.stop()) - a.start().max(b.start())
+        (a.stop().min(b.stop())).saturating_sub(a.start().max(b.start()))
     }
 
     #[inline]
@@ -243,6 +249,7 @@ impl Intersections {
         overlaps
             .iter()
             .map(|o| {
+                // TODO: what to do here if distance and/or n_closest are > 0?
                 let ovl = self.calculate_overlap(self.base_interval.clone(), o.interval.clone());
 
                 if report_options.a_mode == IntersectionMode::PerPiece {
@@ -954,6 +961,66 @@ mod tests {
             &OverlapAmount::Fraction(0.5),
             &IntersectionMode::Default
         ));
+    }
+
+    #[test]
+    fn test_calculate_overlap() {
+        let intersections = make_example("a: 10-20");
+        let interval_a = intersections.base_interval.clone();
+
+        // overlapping
+        let interval_b = make_example("a: 15-25").base_interval;
+        assert_eq!(
+            intersections.calculate_overlap(interval_a.clone(), interval_b),
+            5
+        );
+
+        // overlapping
+        let interval_b = make_example("a: 5-15").base_interval;
+        assert_eq!(
+            intersections.calculate_overlap(interval_a.clone(), interval_b),
+            5
+        );
+
+        // contained
+        let interval_b = make_example("a: 12-18").base_interval;
+        assert_eq!(
+            intersections.calculate_overlap(interval_a.clone(), interval_b),
+            6
+        );
+
+        // contains
+        let interval_b = make_example("a: 5-25").base_interval;
+        assert_eq!(
+            intersections.calculate_overlap(interval_a.clone(), interval_b),
+            10
+        );
+
+        // non-overlapping
+        let interval_b = make_example("a: 21-30").base_interval;
+        assert_eq!(
+            intersections.calculate_overlap(interval_a.clone(), interval_b),
+            0
+        );
+
+        let interval_b = make_example("a: 1-9").base_interval;
+        assert_eq!(
+            intersections.calculate_overlap(interval_a.clone(), interval_b),
+            0
+        );
+
+        // touching
+        let interval_b = make_example("a: 20-30").base_interval;
+        assert_eq!(
+            intersections.calculate_overlap(interval_a.clone(), interval_b),
+            0
+        );
+
+        let interval_b = make_example("a: 1-10").base_interval;
+        assert_eq!(
+            intersections.calculate_overlap(interval_a.clone(), interval_b),
+            0
+        );
     }
 
     /*
