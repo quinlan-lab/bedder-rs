@@ -78,20 +78,18 @@ struct Args {
     b_piece: IntersectionPart,
 
     #[arg(
-        help = "a-requirements for overlap. A float value < 1 or a number ending with % will be the fraction (or %) of the interval. An integer will be the number of bases.",
+        help = "a-requirements for overlap. A float value < 1 or a number ending with % will be the fraction (or %) of the interval. An integer will be the number of bases. Default is 1 unless n-closest is set.",
         short = 'r',
-        long = "a-requirements",
-        default_value = "1"
+        long = "a-requirements"
     )]
-    a_requirements: OverlapAmount,
+    a_requirements: Option<OverlapAmount>,
 
     #[arg(
-        help = "b-requirements for overlap. A float value < 1 or a number ending with % will be the fraction (or %) of the interval. An integer will be the number of bases.",
+        help = "b-requirements for overlap. A float value < 1 or a number ending with % will be the fraction (or %) of the interval. An integer will be the number of bases. Default is 1 unless n-closest is set.",
         short = 'R',
-        long = "b-requirements",
-        default_value = "1"
+        long = "b-requirements"
     )]
-    b_requirements: OverlapAmount,
+    b_requirements: Option<OverlapAmount>,
 
     #[arg(
         help = "python file with functions to be used in columns",
@@ -193,13 +191,28 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         output_format = Format::Bcf
     }
 
+    let a_reqs = args.a_requirements.clone();
+    let b_reqs = args.b_requirements.clone();
+
+    let (a_requirements, b_requirements) = if args.n_closest > 0 || args.max_distance > -1 {
+        (
+            a_reqs.unwrap_or(OverlapAmount::Bases(0)),
+            b_reqs.unwrap_or(OverlapAmount::Bases(0)),
+        )
+    } else {
+        (
+            a_reqs.unwrap_or(OverlapAmount::Bases(1)),
+            b_reqs.unwrap_or(OverlapAmount::Bases(1)),
+        )
+    };
+
     let report_options = Arc::new(
         ReportOptions::builder()
             .a_mode(args.intersection_mode)
             .a_piece(args.a_piece)
             .b_piece(args.b_piece)
-            .a_requirements(args.a_requirements)
-            .b_requirements(args.b_requirements)
+            .a_requirements(a_requirements)
+            .b_requirements(b_requirements)
             .build(),
     );
     log::info!("report_options: {:?}", report_options);
