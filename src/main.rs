@@ -102,7 +102,7 @@ struct Args {
     #[arg(
         long = "n-closest",
         short = 'n',
-        help = "report the n-closest intervals. a value of -1 means report all overlaps",
+        help = "report the n-closest intervals. a value of -1 or 0 means report only overlaps",
         default_value = "-1"
     )]
     n_closest: i64,
