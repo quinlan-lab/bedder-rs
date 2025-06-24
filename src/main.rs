@@ -100,18 +100,23 @@ struct Args {
     #[arg(
         long = "n-closest",
         short = 'n',
-        help = "report the n-closest intervals. a value of -1 or 0 means report only overlaps",
-        default_value = "-1"
+        help = "report the n-closest intervals.
+By default, all overlapping intervals are reported.
+If n-closest is set, then the n closest intervals are reported, regardless of overlap.
+When used, the default overlap requirement is set to 0, so that non-overlapping intervals can be reported.
+This is mutually exclusive with --a-requirements and --b-requirements."
     )]
-    n_closest: i64,
+    n_closest: Option<i64>,
 
     #[arg(
         long = "max-distance",
         short = 'd',
-        help = "maximum distance to search for closest intervals. a value of -1 means no limit",
-        default_value = "-1"
+        help = "maximum distance to search for closest intervals.
+By default, there is no distance limit.
+When used, the default overlap requirement is set to 0, so that non-overlapping intervals can be reported.
+This can be overridden by setting a-requirements and b-requirements."
     )]
-    max_distance: i64,
+    max_distance: Option<i64>,
 }
 
 #[global_allocator]
@@ -124,6 +129,12 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
     log::info!("starting up");
     let args = Args::parse();
+
+    if args.n_closest.is_some() && (args.a_requirements.is_some() || args.b_requirements.is_some())
+    {
+        log::error!("Cannot specify --n-closest with --a-requirements or --b-requirements. The 'closest' command is for finding nearest intervals, which may not overlap so overlap requirements are not applicable.");
+        std::process::exit(1);
+    }
 
     let chrom_order =
         bedder::chrom_ordering::parse_genome(std::fs::File::open(&args.genome_file)?)?;
@@ -175,8 +186,8 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         a_iter,
         b_iters,
         &chrom_order,
-        args.max_distance,
-        args.n_closest,
+        args.max_distance.unwrap_or(-1),
+        args.n_closest.unwrap_or(-1),
     )?;
 
     // Convert sniff::FileType to hts_format::Format
@@ -194,17 +205,18 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     let a_reqs = args.a_requirements.clone();
     let b_reqs = args.b_requirements.clone();
 
-    let (a_requirements, b_requirements) = if args.n_closest > 0 || args.max_distance > -1 {
-        (
-            a_reqs.unwrap_or(OverlapAmount::Bases(0)),
-            b_reqs.unwrap_or(OverlapAmount::Bases(0)),
-        )
-    } else {
-        (
-            a_reqs.unwrap_or(OverlapAmount::Bases(1)),
-            b_reqs.unwrap_or(OverlapAmount::Bases(1)),
-        )
-    };
+    let (a_requirements, b_requirements) =
+        if args.n_closest.is_some() || args.max_distance.is_some() {
+            (
+                a_reqs.unwrap_or(OverlapAmount::Bases(0)),
+                b_reqs.unwrap_or(OverlapAmount::Bases(0)),
+            )
+        } else {
+            (
+                a_reqs.unwrap_or(OverlapAmount::Bases(1)),
+                b_reqs.unwrap_or(OverlapAmount::Bases(1)),
+            )
+        };
 
     let report_options = Arc::new(
         ReportOptions::builder()
