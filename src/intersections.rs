@@ -72,6 +72,12 @@ fn filter_part_overlaps(result: &mut [ReportFragment]) {
         // drop(a) happens here automatically when guard goes out of scope
     }
 }
+
+#[inline]
+fn has_overlap(a: &Position, b: &Position) -> bool {
+    a.start() <= b.stop() && a.stop() >= b.start()
+}
+
 impl Intersections {
     pub fn report(&self, report_options: &ReportOptions) -> Arc<Report> {
         let mut cached_report = self
@@ -202,13 +208,6 @@ impl Intersections {
         requirements: &OverlapAmount,
         mode: &IntersectionMode,
     ) -> bool {
-        eprintln!(
-            "satisfies_requirements: bases_overlap: {}, interval_length: {}, requirements: {:?}, mode: {:?}",
-            bases_overlap,
-            interval_length,
-            requirements,
-            mode
-        );
         match requirements {
             OverlapAmount::Bases(bases) => {
                 if *mode == IntersectionMode::Not {
@@ -309,7 +308,9 @@ impl Intersections {
                             .try_lock()
                             .expect("failed to lock interval");
                         //if oi.start() < bi.start() || oi.stop() > bi.stop() {
-                        if oi.start() > bi.start() || oi.stop() < bi.stop() {
+                        if !has_overlap(&oi, &bi) {
+                            Arc::new(Mutex::new(bi.clone_box()))
+                        } else if oi.start() > bi.start() || oi.stop() < bi.stop() {
                             let mut oc = bi.clone_box();
                             oc.set_start(oi.start().max(bi.start()));
                             oc.set_stop(oi.stop().min(bi.stop()));

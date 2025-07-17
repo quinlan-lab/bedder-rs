@@ -81,6 +81,7 @@ pub enum ValueParser {
     PythonExpression(String),
     LuaExpression(String),
     Count,
+    Distance,
     Sum,
     Bases,
     ChromStartEnd,
@@ -121,24 +122,23 @@ impl TryFrom<&str> for ValueParser {
     type Error = ColumnError;
 
     fn try_from(s: &str) -> Result<Self, ColumnError> {
-        // if it start with py: use python :lua, use lua, then others are count, sum, bases
-        if let Some(rest) = s.strip_prefix("py:") {
-            // check if rest is an existing path ane read it into a string
-            Ok(ValueParser::PythonExpression(rest.to_string()))
-        } else if let Some(rest) = s.strip_prefix("lua:") {
-            Ok(ValueParser::LuaExpression(rest.to_string()))
-        } else if s == "count" {
-            Ok(ValueParser::Count)
-        } else if s == "sum" {
-            Ok(ValueParser::Sum)
-        } else if s == "bases" {
-            Ok(ValueParser::Bases)
-        } else if s == "chrom_start_end" || s == "cse" {
-            Ok(ValueParser::ChromStartEnd)
-        } else if s == "original_interval" || s == "oi" {
-            Ok(ValueParser::OriginalInterval)
-        } else {
-            Err(ColumnError::InvalidValueParser(s.to_string()))
+        match s {
+            s if s.starts_with("py:") => {
+                let rest = s.strip_prefix("py:").unwrap();
+                // check if rest is an existing path ane read it into a string
+                Ok(ValueParser::PythonExpression(rest.to_string()))
+            }
+            s if s.starts_with("lua:") => {
+                let rest = s.strip_prefix("lua:").unwrap();
+                Ok(ValueParser::LuaExpression(rest.to_string()))
+            }
+            "count" => Ok(ValueParser::Count),
+            "dist" | "distance" => Ok(ValueParser::Distance),
+            "sum" => Ok(ValueParser::Sum),
+            "bases" => Ok(ValueParser::Bases),
+            "chrom_start_end" | "cse" => Ok(ValueParser::ChromStartEnd),
+            "original_interval" | "oi" => Ok(ValueParser::OriginalInterval),
+            _ => Err(ColumnError::InvalidValueParser(s.to_string())),
         }
     }
 }
@@ -149,6 +149,7 @@ impl std::fmt::Display for ValueParser {
             ValueParser::PythonExpression(s) => write!(f, "py:{}", s),
             ValueParser::LuaExpression(s) => write!(f, "lua:{}", s),
             ValueParser::Count => write!(f, "count"),
+            ValueParser::Distance => write!(f, "distance"),
             ValueParser::Sum => write!(f, "sum"),
             ValueParser::Bases => write!(f, "bases"),
             ValueParser::ChromStartEnd => write!(f, "chrom_start_end"),
@@ -183,6 +184,12 @@ impl ColumnReporter for Column<'_> {
     fn value(&self, r: &ReportFragment) -> Result<Value, ColumnError> {
         match &self.value_parser {
             Some(ValueParser::Count) => Ok(Value::Int(r.b.len() as i32)),
+            Some(ValueParser::Distance) => {
+                // Calculate the distance between the intervals
+                // This is more complex as we need to extract distances from the intervals
+                // For now, return 0.0 as a placeholder
+                Ok(Value::Int(r.distance() as i32))
+            }
             Some(ValueParser::Sum) => {
                 // Sum the scores of overlapping intervals if they exist
                 // This is more complex as we need to extract scores from the intervals
@@ -241,14 +248,13 @@ impl ColumnReporter for Column<'_> {
             }
             Some(ValueParser::LuaExpression(_expr)) => {
                 // Similar placeholder for Lua expressions
-                // Would need to implement Lua evaluation similar to Python
-                Err(ColumnError::InvalidValue(
-                    "Lua expressions not yet implemented".to_string(),
-                ))
+                unimplemented!("lua expressions");
             }
             None => {
-                // Default behavior when no parser is specified - return count
-                Ok(Value::Int(r.b.len() as i32))
+                // No value parser specified, which is an error in this context
+                Err(ColumnError::InvalidValueParser(
+                    "No value parser specified".to_string(),
+                ))
             }
         }
     }
@@ -338,7 +344,13 @@ impl TryFrom<(&str, &HashMap<String, PythonFunction<'_>>)> for Column<'_> {
                 _ => unreachable!(),
             });
         }
-        if parts.len() == 1 && (parts[0] == "count" || parts[0] == "sum" || parts[0] == "bases") {
+        if parts.len() == 1
+            && (parts[0] == "count"
+                || parts[0] == "sum"
+                || parts[0] == "bases"
+                || parts[0] == "dist"
+                || parts[0] == "distance")
+        {
             return Ok(match parts[0] {
                 "count" => Column::new(
                     "count".to_string(),
@@ -360,6 +372,13 @@ impl TryFrom<(&str, &HashMap<String, PythonFunction<'_>>)> for Column<'_> {
                     "Bases".to_string(),
                     Number::One,
                     Some(ValueParser::Bases),
+                ),
+                "dist" | "distance" => Column::new(
+                    "dist".to_string(),
+                    Type::Integer,
+                    "Distance".to_string(),
+                    Number::One,
+                    Some(ValueParser::Distance),
                 ),
                 _ => unreachable!(),
             });

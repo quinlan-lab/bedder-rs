@@ -128,12 +128,14 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     env_logger::init();
     log::info!("starting up");
-    let args = Args::parse();
+    let mut args = Args::parse();
 
-    if args.n_closest.is_some() && (args.a_requirements.is_some() || args.b_requirements.is_some())
-    {
-        log::error!("Cannot specify --n-closest with --a-requirements or --b-requirements. The 'closest' command is for finding nearest intervals, which may not overlap so overlap requirements are not applicable.");
-        std::process::exit(1);
+    if args.n_closest.is_some() {
+        if args.a_requirements.is_some() || args.b_requirements.is_some() {
+            log::error!("Cannot specify --n-closest with --a-requirements or --b-requirements. The 'closest' command is for finding nearest intervals, which may not overlap so overlap requirements are not applicable.");
+            std::process::exit(1);
+        }
+        args.b_piece = IntersectionPart::Whole;
     }
 
     let chrom_order =

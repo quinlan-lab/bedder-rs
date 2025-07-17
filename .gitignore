@@ -7,6 +7,7 @@ docs/
 *.bcf
 *.bgz
 .vscode
+venv/
 *.txt
 *.gz
 *.bcf
