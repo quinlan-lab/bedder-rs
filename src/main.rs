@@ -124,7 +124,7 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     if env::var("RUST_LOG").is_err() {
-        env::set_var("RUST_LOG", "bedder=info");
+        env::set_var("RUST_LOG", "bedder=warn");
     }
     env_logger::init();
     log::info!("starting up");
