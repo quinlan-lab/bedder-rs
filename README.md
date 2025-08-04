@@ -6,11 +6,15 @@ cargo test --release --target $target \
 && cargo build --release --target $target
 --->
 
-[![status](https://github.com/quinlan-lab/bedder-rs/actions/workflows/rust.yml/badge.svg)](https://github.com/quinlan-lab/bedder-rs/actions/)
+[![status](https://github.com/quinlan-lab/bedder-rs/actions/workflows/rust.yml/badge.svg)](https://github.com/quinlan-lab/bedder-rs/actions/) [![documentation](https://img.shields.io/badge/documentation-blue?style=plastic&logoSize=auto)](https://brentp.github.io/bedder-docs/)
 
 # bedder (tools)
 
 This is an early release of the library for feedback, especially from rust practitioners.
+
+## Documentation
+
+Please find documentation [here](https://brentp.github.io/bedder-docs/).
 
 ## Problem statement
 
@@ -47,77 +51,4 @@ This function, if placed in a file named `example.py` could be used as:
 bedder -a some.bed -b other.bed -P example.py -c 'py:odd`
 ```
 
-where `odd` matches the function name above.
-
-There is more info on the use of python and the various intersection modes in [the examples](tests/examples/README.md)
-
-## Library
-
-This library aims to provide:
-
-+ [x] an abstraction so any interval types from sorted sources can be intersected together
-+ [x] the rust implementation of the heap and Queue to find intersections with minimal overhead
-+ [ ] bedder wrappers for:
-  + [x] bed
-  + [x] vcf/bcf
-  + [ ] sam/bam/cram
-  + [ ] gff/gtf
-  + [ ] generalized tabixed/csi files
-+ [ ] downstream APIs to perform operations on the intersections
-+ [ ] a python library to interact with the intersections
-
-The API looks as follows
-
-Any genomic position from any data source can be intersected by this library as long as it implements this trait:
-
-```rust
-
-pub trait Positioned {
-    fn chrom(&self) -> &str;
-
-    fn start(&self) -> u64;
-    fn set_start(&self, u64);
-
-    fn stop(&self) -> u64;
-    fn set_stop(&self, u64);
-}
-```
-
-Then each file-type (VCF/BAM/etc) would implement this trait
-
-```rust
-// something that generates Positioned things (BED/VCF/BAM/GFF/etc.)
-pub trait PositionedIterator {
-    /// A name for the iterator. This is most often the file path, perhaps with the line number appended.
-    /// Used to provide informative messages to the user.
-    fn name(&self) -> String;
-
-    /// return the next Positioned from the iterator.
-    fn next_position(&mut self, q: Option<&Position>) -> Option<std::io::Result<Position>>;
-}
-```
-
-Anything that can create a `PositionedIterator` can be used by the library.
-
-Note the `q` argument to `next_position`. This can be ignored by implementers but can be used to skip.
-For each query interval, we may make many calls to `next_position`. On the first of those calls, `q`
-is `Some(query_position)`. The implementer can choose to use this information to skip (rather than stream)
-for example with an index (or search) to the first interval that overlaps the `q`. Subsequent calls for the
-same interval will be called with `q` of `None`. The implementer must:
-
-1. Always return an interval (unless EOF is reached)
-1. Always return intervals in order.
-1. Never return an interval that was returned previously (even if the same query interval appears multiple times).
-
-# Implementation Brief
-
-All Positioned structs are pulled through a min-heap. Each time an interval (with the smallest genomic position) is pulled from the min heap,
-a new struct is pulled from the file where that interval originated. Then the pulled interval is pushed onto a `queue` (actually a deque becase that's what is in the rust standard library).
-We then know the queue is in order. For each query interval, we drop from the queue any interval that is strictly *before* the interval,
-then pull into the Intersection result any interval that is not *after* the interval. Then return the result from the `next` call.
-We use `Rc` because each database interval may be attached to more than one query interval.
-
-# Acknowledgements
-
-+ We received very valuable `rust` feedback and code from @sstadick.
-+ We leverage the excellent [noodles](https://github.com/zaeleus/noodles) library.
+where `odd` matches the function name above after dropping the `bedder_` prefix.
