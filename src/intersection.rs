@@ -511,7 +511,13 @@ impl<'a> IntersectionIterator<'a> {
                 .expect("failed to lock base_interval");
             let arg: Option<&Position> = if !self.called[file_index] {
                 self.called[file_index] = true;
-                Some(&l)
+                if self.max_distance <= 0 && position.start() > l.stop() {
+                    // if the position interval is after the base interval, then we can use it for the query.
+                    // NOTE: we can do other things here instead like require some distance to minimize expensive queries.
+                    Some(&l)
+                } else {
+                    None
+                }
             } else {
                 None
             };
