@@ -184,12 +184,20 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         })
         .collect::<Result<Vec<_>, _>>()?;
 
+    // We can skip ahead when we don't need to report all query intervals.
+    // This is true when:
+    // - a_piece is None (don't report query intervals at all - PERFECT for skipping)
+    // - a_piece is Piece (only report non-overlapping parts - can skip when no overlaps exist far ahead)
+    // We cannot skip when a_piece is Whole (always report entire query intervals).
+    let can_skip_ahead = !matches!(args.a_piece, IntersectionPart::Whole);
+
     let ii = bedder::intersection::IntersectionIterator::new(
         a_iter,
         b_iters,
         &chrom_order,
         args.max_distance.unwrap_or(-1),
         args.n_closest.unwrap_or(-1),
+        can_skip_ahead,
     )?;
 
     // Convert sniff::FileType to hts_format::Format

@@ -52,7 +52,7 @@ impl Skip for BedderVCF {
         match self.reader.fetch(rid, pos0, None) {
             Ok(()) => Ok(()),
             Err(Error::FileNotFound { .. }) => {
-                // iterate over the bam until we get to the chrom, pos0
+                // iterate over the vcf until we get to the chrom, pos0
                 // and then fetch the record
                 for r in self.reader.records() {
                     let r = r.unwrap();
@@ -151,7 +151,6 @@ impl crate::position::PositionedIterator for BedderVCF {
         &mut self,
         q: Option<&crate::position::Position>,
     ) -> Option<std::result::Result<Position, std::io::Error>> {
-        /*
         if let Some(q) = q {
             match self.skip_to(q.chrom(), q.start() - 1_u64) {
                 Ok(_) => (),
@@ -163,7 +162,6 @@ impl crate::position::PositionedIterator for BedderVCF {
             self.record_number += 1;
             return Some(Ok(Position::Vcf(Box::new(BedderRecord::new(v)))));
         }
-        */
 
         let mut r = self.reader.empty_record();
 

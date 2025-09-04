@@ -40,6 +40,13 @@ pub struct IntersectionIterator<'a> {
 
     /// n_closest is the number of closest intervals to return. they may not all be overlapping.
     n_closest: i64,
+
+    /// Whether we can skip ahead when no overlaps are expected.
+    /// This is true when we don't need to report every query interval (e.g. when a_piece is None or Piece).
+    can_skip_ahead: bool,
+
+    /// Cache of the next position from the heap to help determine skip opportunities
+    next_heap_position: Option<Position>,
 }
 
 /// An Intersection wraps the Positioned that was intersected with a unique identifier.
@@ -138,7 +145,10 @@ impl Iterator for IntersectionIterator<'_> {
     type Item = io::Result<Intersections>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let bi = self.base_iterator.next_position(None)?;
+        // Determine if we should skip ahead in the base iterator
+        let skip_position = self.should_skip_ahead();
+
+        let bi = self.base_iterator.next_position(skip_position.as_ref())?;
 
         // if bi is an error return the Result here
         let base_interval = match bi {
@@ -363,6 +373,13 @@ impl Iterator for IntersectionIterator<'_> {
         drop(base_interval_locked);
         log::info!("overlapping_positions: {:?}", overlapping_positions);
 
+        // If we can skip ahead and there are no overlapping intervals,
+        // and we used skipping, continue to the next iteration
+        if self.can_skip_ahead && overlapping_positions.is_empty() && skip_position.is_some() {
+            log::debug!("Skipping query interval with no overlaps");
+            return self.next();
+        }
+
         Some(Ok(Intersections {
             base_interval: Arc::clone(&base_interval),
             overlapping: overlapping_positions,
@@ -379,6 +396,7 @@ impl<'a> IntersectionIterator<'a> {
         chromosome_order: &'a HashMap<String, Chromosome>,
         max_distance: i64,
         n_closest: i64,
+        can_skip_ahead: bool,
     ) -> io::Result<Self> {
         let min_heap = BinaryHeap::new();
         let called = vec![false; other_iterators.len()];
@@ -393,7 +411,138 @@ impl<'a> IntersectionIterator<'a> {
             heap_initialized: false,
             max_distance,
             n_closest,
+            can_skip_ahead,
+            next_heap_position: None,
         })
+    }
+
+    /// Peek at the next position from the min heap without consuming it
+    fn peek_next_heap_position(&self) -> Option<&Position> {
+        self.min_heap.peek().map(|rop| &rop.position)
+    }
+
+    /// Determine if we should skip ahead in the base iterator based on the next heap position
+    fn should_skip_ahead(&self) -> Option<Position> {
+        if !self.can_skip_ahead {
+            return None;
+        }
+
+        // We need a current position to calculate skip position
+        let current_pos = if let Some(ref prev) = self.previous_interval {
+            match prev.try_lock() {
+                Some(guard) => guard.clone(), // Clone the position instead of borrowing
+                None => return None,          // Failed to acquire lock
+            }
+        } else {
+            return None;
+        };
+
+        // If we have cached next heap position, use it
+        if let Some(next_pos) = &self.next_heap_position {
+            return self.calculate_skip_position(&current_pos, next_pos);
+        }
+
+        // Otherwise check the heap
+        if let Some(next_pos) = self.peek_next_heap_position() {
+            return self.calculate_skip_position(&current_pos, next_pos);
+        }
+
+        None
+    }
+
+    /// Calculate where to skip to based on current and next positions.
+    ///
+    /// # Parameters
+    /// * `current_pos` - Previous base/query interval from the base iterator (query file)  
+    /// * `next_pos` - Next interval from other iterators (database files) via min_heap
+    ///
+    /// Note: These positions are from DIFFERENT files - current_pos is from query file,
+    /// next_pos is from database files.
+    fn calculate_skip_position(
+        &self,
+        current_pos: &Position,
+        next_pos: &Position,
+    ) -> Option<Position> {
+        // Different chromosome - skip to the next chromosome
+        if current_pos.chrom() != next_pos.chrom() {
+            let current_chrom_idx = self.chromosome_order.get(current_pos.chrom())?.index;
+            let next_chrom_idx = self.chromosome_order.get(next_pos.chrom())?.index;
+
+            if next_chrom_idx > current_chrom_idx {
+                // Skip to the start of the next chromosome where database intervals exist
+                // Create a generic interval to avoid mixing file-specific Position metadata
+                let skip_pos = Position::Interval(crate::interval::Interval {
+                    chrom: next_pos.chrom().to_string(),
+                    start: 0,
+                    stop: 1,
+                    ..Default::default()
+                });
+                return Some(skip_pos);
+            }
+        }
+
+        // Same chromosome - check distance between query and database intervals
+        if current_pos.chrom() == next_pos.chrom() {
+            let distance = next_pos.start().saturating_sub(current_pos.stop());
+
+            // Determine when it's safe to skip ahead
+            let (can_skip, skip_target) = if self.max_distance > 0 {
+                let max_dist = self.max_distance as u64;
+                // We can skip if the distance is greater than max_distance
+                // Any query interval ending before (next_pos.start - max_distance)
+                // cannot be within max_distance of the database interval
+                if distance > max_dist {
+                    let skip_to = next_pos.start().saturating_sub(max_dist + 100); // +100 for safety margin
+                    (true, skip_to)
+                } else {
+                    (false, 0)
+                }
+            } else {
+                // No max_distance constraint set by user (max_distance <= 0)
+                if self.n_closest > 0 {
+                    // Looking for closest intervals - cannot skip safely because we need to
+                    // consider all query intervals to find the truly closest ones
+                    (false, 0)
+                } else {
+                    // Only looking for overlaps (distance = 0)
+                    //
+                    // We can skip ahead because next_position(Some(query)) should find any
+                    // query intervals that overlap the skip position, even if they start
+                    // before it. This handles the case where long query intervals might
+                    // extend from before the skip position to overlap the database interval.
+                    //
+                    // Note: Current BED implementation doesn't use indexed querying yet
+                    // (the query code is commented out), but this optimization will become
+                    // more effective once indexed querying is properly implemented.
+
+                    // Skip when there's a large gap since we only care about overlaps
+                    // And we don't want to hit the index too much because it will be expensive.
+                    if distance > 100_000 {
+                        // Skip to just before the database interval
+                        // The query mechanism will find any overlapping query intervals
+                        let skip_to = next_pos.start().saturating_sub(1);
+                        (true, skip_to)
+                    } else {
+                        (false, 0)
+                    }
+                }
+            };
+
+            if can_skip {
+                // Create a generic interval for skipping rather than cloning from current_pos
+                // to avoid mixing file-specific Position metadata
+                let skip_pos = Position::Interval(crate::interval::Interval {
+                    chrom: current_pos.chrom().to_string(),
+                    start: skip_target,
+                    //stop: skip_target + 1,
+                    stop: u64::MAX,
+                    ..Default::default()
+                });
+                return Some(skip_pos);
+            }
+        }
+
+        None
     }
 
     fn init_heap(&mut self, base_interval: Arc<Mutex<Position>>) -> io::Result<()> {
@@ -491,6 +640,10 @@ impl<'a> IntersectionIterator<'a> {
             // because we need the base interval.
             self.init_heap(base_interval.clone())?;
         }
+
+        // Cache the next heap position for potential skipping
+        self.next_heap_position = self.min_heap.peek().map(|rop| rop.position.clone());
+
         let other_iterators = self.other_iterators.as_mut_slice();
 
         while let Some(ReverseOrderPosition {
@@ -682,9 +835,15 @@ mod tests {
 
         //let a_ivs: Box<dyn PositionedIterator> = Box::new(a_ivs);
 
-        let mut iter =
-            IntersectionIterator::new(Box::new(a_ivs), vec![Box::new(b_ivs)], &chrom_order, 0, 0)
-                .expect("error getting iterator");
+        let mut iter = IntersectionIterator::new(
+            Box::new(a_ivs),
+            vec![Box::new(b_ivs)],
+            &chrom_order,
+            0,
+            0,
+            false,
+        )
+        .expect("error getting iterator");
         let mut n = 0;
         assert!(iter.all(|intersection| {
             let intersection = intersection.expect("error getting intersection");
@@ -759,9 +918,15 @@ mod tests {
             ],
         );
 
-        let iter =
-            IntersectionIterator::new(Box::new(a_ivs), vec![Box::new(b_ivs)], &chrom_order, 0, 0)
-                .expect("error getting iterator");
+        let iter = IntersectionIterator::new(
+            Box::new(a_ivs),
+            vec![Box::new(b_ivs)],
+            &chrom_order,
+            0,
+            0,
+            false,
+        )
+        .expect("error getting iterator");
         iter.for_each(|intersection| {
             let intersection = intersection.expect("intersection");
             assert_eq!(intersection.overlapping.len(), 2);
@@ -796,8 +961,9 @@ mod tests {
                 },
             ],
         );
-        let mut iter = IntersectionIterator::new(Box::new(a_ivs), vec![], &chrom_order, 0, 0)
-            .expect("error getting iterator");
+        let mut iter =
+            IntersectionIterator::new(Box::new(a_ivs), vec![], &chrom_order, 0, 0, false)
+                .expect("error getting iterator");
 
         let e = iter.nth(1).expect("error getting next");
         assert!(e.is_err());
@@ -826,8 +992,9 @@ mod tests {
                 },
             ],
         );
-        let mut iter = IntersectionIterator::new(Box::new(a_ivs), vec![], &chrom_order, 0, 0)
-            .expect("error getting iterator");
+        let mut iter =
+            IntersectionIterator::new(Box::new(a_ivs), vec![], &chrom_order, 0, 0, false)
+                .expect("error getting iterator");
 
         let e = iter.nth(1).expect("error getting next");
         assert!(e.is_err());
@@ -871,9 +1038,15 @@ mod tests {
             ],
         );
 
-        let mut iter =
-            IntersectionIterator::new(Box::new(a_ivs), vec![Box::new(b_ivs)], &chrom_order, 0, 0)
-                .expect("error getting iterator");
+        let mut iter = IntersectionIterator::new(
+            Box::new(a_ivs),
+            vec![Box::new(b_ivs)],
+            &chrom_order,
+            0,
+            0,
+            false,
+        )
+        .expect("error getting iterator");
         let e = iter.next().expect("error getting next");
         assert!(e.is_err());
         let e = e.err().unwrap();
@@ -917,6 +1090,7 @@ mod tests {
             &chrom_order,
             0,
             0,
+            false,
         )
         .expect("error getting iterator");
         let c = iter
@@ -958,9 +1132,15 @@ mod tests {
                 ..Default::default()
             }],
         );
-        let iter =
-            IntersectionIterator::new(Box::new(a_ivs), vec![Box::new(b_ivs)], &chrom_order, 0, 0)
-                .expect("error getting iterator");
+        let iter = IntersectionIterator::new(
+            Box::new(a_ivs),
+            vec![Box::new(b_ivs)],
+            &chrom_order,
+            0,
+            0,
+            false,
+        )
+        .expect("error getting iterator");
         // check that it overlapped by asserting that the loop ran and also that there was an overlap within the loop.
         let c = iter
             .map(|intersection| {
@@ -988,6 +1168,7 @@ mod tests {
             &chrom_order,
             max_distance,
             n_closest,
+            false,
         )
         .expect("error getting iterator");
 
@@ -1162,6 +1343,7 @@ mod tests {
             &chrom_order,
             max_distance,
             n_closest,
+            false,
         )
         .expect("error getting iterator");
 
@@ -1398,6 +1580,7 @@ mod tests {
                 &chrom_order,
                 case.max_distance,
                 case.n_closest,
+                false,
             )
             .expect("error getting iterator");
 
@@ -1434,6 +1617,254 @@ mod tests {
                 "failed test '{}': incorrect distances",
                 case.name
             );
+        }
+    }
+
+    #[cfg(test)]
+    mod calculate_skip_position_tests {
+        use super::*;
+        use crate::chrom_ordering::Chromosome;
+        use crate::interval::Interval;
+        use crate::position::Position;
+        use hashbrown::HashMap;
+        use linear_map::LinearMap;
+        use std::collections::BinaryHeap;
+        use std::collections::VecDeque;
+
+        /// Create a mock IntersectionIterator for testing calculate_skip_position
+        fn create_mock_intersector(
+            max_distance: i64,
+            n_closest: i64,
+        ) -> IntersectionIterator<'static> {
+            let mut chromosome_order = HashMap::new();
+            chromosome_order.insert(
+                "chr1".to_string(),
+                Chromosome {
+                    index: 0,
+                    length: Some(250_000_000),
+                },
+            );
+            chromosome_order.insert(
+                "chr2".to_string(),
+                Chromosome {
+                    index: 1,
+                    length: Some(200_000_000),
+                },
+            );
+            chromosome_order.insert(
+                "chr3".to_string(),
+                Chromosome {
+                    index: 2,
+                    length: Some(180_000_000),
+                },
+            );
+
+            // We need to leak this HashMap to get a 'static reference for testing
+            let static_chromosome_order: &'static HashMap<String, Chromosome> =
+                Box::leak(Box::new(chromosome_order));
+
+            IntersectionIterator {
+                base_iterator: Box::new(DummyIterator),
+                other_iterators: vec![],
+                min_heap: BinaryHeap::new(),
+                chromosome_order: static_chromosome_order,
+                dequeue: VecDeque::new(),
+                previous_interval: None,
+                called: vec![],
+                heap_initialized: false,
+                max_distance,
+                n_closest,
+                can_skip_ahead: true,
+                next_heap_position: None,
+            }
+        }
+
+        /// Create a test Position from simple parameters
+        fn create_position(chrom: &str, start: u64, stop: u64) -> Position {
+            Position::Interval(Interval {
+                chrom: chrom.to_string(),
+                start,
+                stop,
+                fields: LinearMap::new(),
+            })
+        }
+
+        // Dummy iterator for testing
+        struct DummyIterator;
+        impl PositionedIterator for DummyIterator {
+            fn next_position(&mut self, _query: Option<&Position>) -> Option<io::Result<Position>> {
+                None
+            }
+            fn name(&self) -> String {
+                "dummy".to_string()
+            }
+        }
+
+        #[test]
+        fn test_calculate_skip_position_different_chromosomes() {
+            let intersector = create_mock_intersector(0, 0);
+
+            // Current position on chr1, next position on chr2
+            let current_pos = create_position("chr1", 1000, 2000);
+            let next_pos = create_position("chr2", 5000, 6000);
+
+            let skip_pos = intersector.calculate_skip_position(&current_pos, &next_pos);
+
+            assert!(skip_pos.is_some());
+            let skip_pos = skip_pos.unwrap();
+            assert_eq!(skip_pos.chrom(), "chr2");
+            assert_eq!(skip_pos.start(), 0);
+            assert_eq!(skip_pos.stop(), 1);
+        }
+
+        #[test]
+        fn test_calculate_skip_position_different_chromosomes_reverse_order() {
+            let intersector = create_mock_intersector(0, 0);
+
+            // Current position on chr2, next position on chr1 (reverse order - should not skip)
+            let current_pos = create_position("chr2", 1000, 2000);
+            let next_pos = create_position("chr1", 5000, 6000);
+
+            let skip_pos = intersector.calculate_skip_position(&current_pos, &next_pos);
+
+            assert!(skip_pos.is_none());
+        }
+
+        #[test]
+        fn test_calculate_skip_position_same_chromosome_with_max_distance_skip() {
+            let intersector = create_mock_intersector(1000, 0); // max_distance = 1000
+
+            // Current position ends at 2000, next position starts at 5000
+            // Distance = 5000 - 2000 = 3000, which is > max_distance (1000)
+            let current_pos = create_position("chr1", 1000, 2000);
+            let next_pos = create_position("chr1", 5000, 6000);
+
+            let skip_pos = intersector.calculate_skip_position(&current_pos, &next_pos);
+
+            assert!(skip_pos.is_some());
+            let skip_pos = skip_pos.unwrap();
+            assert_eq!(skip_pos.chrom(), "chr1");
+            // Should skip to next_pos.start - max_distance - 100 = 5000 - 1000 - 100 = 3900
+            assert_eq!(skip_pos.start(), 3900);
+            assert_eq!(skip_pos.stop(), u64::MAX);
+        }
+
+        #[test]
+        fn test_calculate_skip_position_same_chromosome_with_max_distance_no_skip() {
+            let intersector = create_mock_intersector(5000, 0); // max_distance = 5000
+
+            // Current position ends at 2000, next position starts at 5000
+            // Distance = 5000 - 2000 = 3000, which is <= max_distance (5000)
+            let current_pos = create_position("chr1", 1000, 2000);
+            let next_pos = create_position("chr1", 5000, 6000);
+
+            let skip_pos = intersector.calculate_skip_position(&current_pos, &next_pos);
+
+            assert!(skip_pos.is_none());
+        }
+
+        #[test]
+        fn test_calculate_skip_position_overlap_only_large_gap() {
+            let intersector = create_mock_intersector(0, 0); // max_distance = 0, n_closest = 0
+
+            // Current position ends at 2000, next position starts at 200000
+            // Distance = 200000 - 2000 = 198000, which is > 100,000 threshold
+            let current_pos = create_position("chr1", 1000, 2000);
+            let next_pos = create_position("chr1", 200000, 210000);
+
+            let skip_pos = intersector.calculate_skip_position(&current_pos, &next_pos);
+
+            assert!(skip_pos.is_some());
+            let skip_pos = skip_pos.unwrap();
+            assert_eq!(skip_pos.chrom(), "chr1");
+            // Should skip to next_pos.start - 1 = 200000 - 1 = 199999
+            assert_eq!(skip_pos.start(), 199999);
+            assert_eq!(skip_pos.stop(), u64::MAX);
+        }
+
+        #[test]
+        fn test_calculate_skip_position_overlap_only_small_gap() {
+            let intersector = create_mock_intersector(0, 0); // max_distance = 0, n_closest = 0
+
+            // Current position ends at 2000, next position starts at 50000
+            // Distance = 50000 - 2000 = 48000, which is <= 100,000 threshold
+            let current_pos = create_position("chr1", 1000, 2000);
+            let next_pos = create_position("chr1", 50000, 60000);
+
+            let skip_pos = intersector.calculate_skip_position(&current_pos, &next_pos);
+
+            assert!(skip_pos.is_none());
+        }
+
+        #[test]
+        fn test_calculate_skip_position_n_closest_no_skip() {
+            let intersector = create_mock_intersector(0, 5); // max_distance = 0, n_closest = 5
+
+            // With n_closest > 0, should never skip regardless of distance
+            let current_pos = create_position("chr1", 1000, 2000);
+            let next_pos = create_position("chr1", 500000, 600000);
+
+            let skip_pos = intersector.calculate_skip_position(&current_pos, &next_pos);
+
+            assert!(skip_pos.is_none());
+        }
+
+        #[test]
+        fn test_calculate_skip_position_edge_case_adjacent_intervals() {
+            let intersector = create_mock_intersector(0, 0);
+
+            // Adjacent intervals - current ends at 2000, next starts at 2000
+            // Distance = 2000 - 2000 = 0, should not skip
+            let current_pos = create_position("chr1", 1000, 2000);
+            let next_pos = create_position("chr1", 2000, 3000);
+
+            let skip_pos = intersector.calculate_skip_position(&current_pos, &next_pos);
+
+            assert!(skip_pos.is_none());
+        }
+
+        #[test]
+        fn test_calculate_skip_position_overlapping_intervals() {
+            let intersector = create_mock_intersector(0, 0);
+
+            // Overlapping intervals - next starts before current ends
+            // This should result in distance = 0 (due to saturating_sub), so no skip
+            let current_pos = create_position("chr1", 1000, 3000);
+            let next_pos = create_position("chr1", 2000, 4000);
+
+            let skip_pos = intersector.calculate_skip_position(&current_pos, &next_pos);
+
+            assert!(skip_pos.is_none());
+        }
+
+        #[test]
+        fn test_calculate_skip_position_max_distance_with_safety_margin() {
+            let intersector = create_mock_intersector(1000, 0);
+
+            // Test the safety margin calculation
+            let current_pos = create_position("chr1", 1000, 2000);
+            let next_pos = create_position("chr1", 10000, 11000);
+
+            let skip_pos = intersector.calculate_skip_position(&current_pos, &next_pos);
+
+            assert!(skip_pos.is_some());
+            let skip_pos = skip_pos.unwrap();
+            // Skip position should be: 10000 - 1000 - 100 = 8900
+            assert_eq!(skip_pos.start(), 8900);
+        }
+
+        #[test]
+        fn test_calculate_skip_position_invalid_chromosome() {
+            let intersector = create_mock_intersector(0, 0);
+
+            // Test with a chromosome not in the ordering
+            let current_pos = create_position("chrX", 1000, 2000);
+            let next_pos = create_position("chr1", 5000, 6000);
+
+            let skip_pos = intersector.calculate_skip_position(&current_pos, &next_pos);
+
+            // Should return None when chromosome is not found
+            assert!(skip_pos.is_none());
         }
     }
 }

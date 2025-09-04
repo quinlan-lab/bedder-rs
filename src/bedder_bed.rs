@@ -118,7 +118,7 @@ where
 {
     fn next_position(
         &mut self,
-        _query: Option<&crate::position::Position>,
+        query: Option<&crate::position::Position>,
     ) -> Option<std::result::Result<Position, std::io::Error>> {
         // If we have a query, set up the query iterator
         if self.query_iter.is_some() {
@@ -150,8 +150,7 @@ where
                 }
             }
         }
-        */
-
+         */
         // If we have an active query iterator, use it
         if let Some(iter) = &mut self.query_iter {
             match iter.next() {
@@ -236,8 +235,9 @@ mod tests {
             ),
         ]);
 
-        let it = IntersectionIterator::new(Box::new(ar), vec![Box::new(br)], &chrom_order, 0, 0)
-            .expect("error creating iterator");
+        let it =
+            IntersectionIterator::new(Box::new(ar), vec![Box::new(br)], &chrom_order, 0, 0, false)
+                .expect("error creating iterator");
 
         let mut n = 0;
         it.for_each(|int| {
