@@ -371,7 +371,9 @@ impl Iterator for IntersectionIterator<'_> {
             }
         }
         drop(base_interval_locked);
-        log::info!("overlapping_positions: {:?}", overlapping_positions);
+        if overlapping_positions.len() > 0 {
+            log::trace!("overlapping_positions: {:?}", overlapping_positions);
+        }
 
         // If we can skip ahead and there are no overlapping intervals,
         // and we used skipping, continue to the next iteration

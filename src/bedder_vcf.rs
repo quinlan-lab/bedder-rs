@@ -1,5 +1,6 @@
 #![allow(clippy::useless_conversion)] // these are needed to support e.g. smartstring
 use crate::position::{Field, FieldError, Position, Positioned, Value};
+use crate::skip::Skip;
 use crate::string::String;
 
 use rust_htslib::{self, bcf, bcf::Read};
@@ -37,10 +38,6 @@ impl BedderVCF {
             BedderVCF::new(r)
         }
     }
-}
-
-pub trait Skip {
-    fn skip_to(&mut self, chrom: &str, pos0: u64) -> io::Result<()>;
 }
 
 use rust_htslib::errors::Error;

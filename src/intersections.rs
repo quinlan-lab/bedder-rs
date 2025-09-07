@@ -104,7 +104,9 @@ impl Intersections {
         for intersection in &self.overlapping {
             grouped_intersections[intersection.id as usize].push(intersection.clone());
         }
-        log::info!("grouped_intersections: {:?}", grouped_intersections);
+        if grouped_intersections.iter().any(|v| !v.is_empty()) {
+            log::trace!("grouped_intersections: {:?}", grouped_intersections);
+        }
 
         for (b_idx, overlaps) in grouped_intersections.iter().enumerate() {
             // so now all overlaps are from b[id]

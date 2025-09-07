@@ -1,5 +1,8 @@
 //! Bedder is a library for intersecting genomic data.
 
+/// Skip trait.
+pub mod skip;
+
 /// Intersection iterators and data structures.
 pub mod intersection;
 

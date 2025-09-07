@@ -1,6 +1,7 @@
 #![allow(clippy::useless_conversion)] // these are needed to support e.g. smartstring
 
 use crate::position::{Position, Positioned};
+use crate::skip::Skip;
 use crate::string::String;
 pub use simplebed;
 pub use simplebed::{BedError, BedReader, BedRecord as SimpleBedRecord, BedValue};
@@ -93,6 +94,7 @@ where
     last_record: Option<Last>,
     line_number: u64,
     query_iter: Option<Box<dyn Iterator<Item = Result<SimpleBedRecord, BedError>> + 'a>>,
+    path: Option<String>,
 }
 
 impl<'a, R> BedderBed<'a, R>
@@ -103,12 +105,42 @@ where
         let path: PathBuf = path
             .map(|p| p.as_ref().to_path_buf()) // Ensure it's a PathBuf
             .unwrap_or_else(|| PathBuf::from("memory"));
+        let path_string = path.to_string_lossy().to_string();
         BedderBed {
             reader: BedReader::new(r, path).expect("Failed to create BedReader"),
             last_record: None,
             line_number: 0,
             query_iter: None,
+            path: Some(path_string),
         }
+    }
+}
+
+impl<'a, R> Skip for BedderBed<'a, R>
+where
+    R: BufRead + std::io::Seek + 'a,
+{
+    fn skip_to(&mut self, chrom: &str, pos0: u64) -> io::Result<()> {
+        log::trace!("querying: {:?}:{:?}", chrom, pos0);
+        let query = self.reader.query(chrom, pos0 as usize, usize::MAX);
+        match query {
+            Ok(iter) => {
+                let iter: Box<dyn Iterator<Item = Result<SimpleBedRecord, BedError>> + 'a> = unsafe {
+                    std::mem::transmute(Box::new(iter)
+                        as Box<dyn Iterator<Item = Result<SimpleBedRecord, BedError>> + '_>)
+                };
+                self.query_iter = Some(iter);
+            }
+            Err(BedError::NoChromosomeOrder) => {
+                log::trace!("no chromosome order");
+                self.query_iter = None;
+            }
+            Err(e) => {
+                log::info!("error querying: {}. it's possible that there was no index or the chromosome was not found", e);
+                self.query_iter = None;
+            }
+        }
+        Ok(())
     }
 }
 
@@ -121,38 +153,22 @@ where
         query: Option<&crate::position::Position>,
     ) -> Option<std::result::Result<Position, std::io::Error>> {
         // If we have a query, set up the query iterator
-        if self.query_iter.is_some() {
-            self.query_iter = None;
-        }
-        /*
         if let Some(query) = query {
-            log::trace!("querying: {:?}", query);
-            let q = self.reader.query(
+            self.query_iter = None;
+            log::info!(
+                "skipping to query: {}:{} for {}",
                 query.chrom(),
-                (query.start() as usize) + 1,
-                query.stop() as usize,
+                query.start() + 1,
+                self.name()
             );
-            match q {
-                Ok(iter) => {
-                    let iter: Box<dyn Iterator<Item = Result<SimpleBedRecord, BedError>> + 'a> = unsafe {
-                        std::mem::transmute(Box::new(iter)
-                            as Box<dyn Iterator<Item = Result<SimpleBedRecord, BedError>> + '_>)
-                    };
-                    self.query_iter = Some(iter);
-                }
-                Err(BedError::NoChromosomeOrder) => {
-                    log::trace!("no chromosome order");
-                    self.query_iter = None;
-                }
-                Err(e) => {
-                    log::info!("error querying: {}. it's possible that there was no index or the chromosome was not found", e);
-                    self.query_iter = None;
-                }
+            match self.skip_to(query.chrom(), query.start().saturating_sub(1_u64)) {
+                Ok(_) => log::info!("skipped to query: {}:{}", query.chrom(), query.start() + 1),
+                Err(_) => (),
             }
         }
-         */
         // If we have an active query iterator, use it
         if let Some(iter) = &mut self.query_iter {
+            eprintln!("query iter");
             match iter.next() {
                 Some(Ok(record)) => return Some(Ok(Position::Bed(BedRecord(record)))),
                 Some(Err(e)) => {
@@ -199,7 +215,11 @@ where
     }
 
     fn name(&self) -> String {
-        String::from(format!("bed:{}", self.line_number))
+        String::from(format!(
+            "BED|{}:{}",
+            self.path.as_ref().unwrap_or(&String::from("memory")),
+            self.line_number
+        ))
     }
 }
 
