@@ -44,9 +44,6 @@ pub struct IntersectionIterator<'a> {
     /// Whether we can skip ahead when no overlaps are expected.
     /// This is true when we don't need to report every query interval (e.g. when a_piece is None or Piece).
     can_skip_ahead: bool,
-
-    /// Cache of the next position from the heap to help determine skip opportunities
-    next_heap_position: Option<Position>,
 }
 
 /// An Intersection wraps the Positioned that was intersected with a unique identifier.
@@ -414,11 +411,11 @@ impl<'a> IntersectionIterator<'a> {
             max_distance,
             n_closest,
             can_skip_ahead,
-            next_heap_position: None,
         })
     }
 
     /// Peek at the next position from the min heap without consuming it
+    #[inline]
     fn peek_next_heap_position(&self) -> Option<&Position> {
         self.min_heap.peek().map(|rop| &rop.position)
     }
@@ -433,16 +430,14 @@ impl<'a> IntersectionIterator<'a> {
         let current_pos = if let Some(ref prev) = self.previous_interval {
             match prev.try_lock() {
                 Some(guard) => guard.clone(), // Clone the position instead of borrowing
-                None => return None,          // Failed to acquire lock
+                None => {
+                    log::info!("failed to acquire lock for previous interval in should_skip_ahead");
+                    return None; // Failed to acquire lock
+                }
             }
         } else {
             return None;
         };
-
-        // If we have cached next heap position, use it
-        if let Some(next_pos) = &self.next_heap_position {
-            return self.calculate_skip_position(&current_pos, next_pos);
-        }
 
         // Otherwise check the heap
         if let Some(next_pos) = self.peek_next_heap_position() {
@@ -475,8 +470,8 @@ impl<'a> IntersectionIterator<'a> {
                 // Create a generic interval to avoid mixing file-specific Position metadata
                 let skip_pos = Position::Interval(crate::interval::Interval {
                     chrom: next_pos.chrom().to_string(),
-                    start: 0,
-                    stop: 1,
+                    start: next_pos.start(),
+                    stop: usize::MAX as u64,
                     ..Default::default()
                 });
                 return Some(skip_pos);
@@ -642,9 +637,6 @@ impl<'a> IntersectionIterator<'a> {
             // because we need the base interval.
             self.init_heap(base_interval.clone())?;
         }
-
-        // Cache the next heap position for potential skipping
-        self.next_heap_position = self.min_heap.peek().map(|rop| rop.position.clone());
 
         let other_iterators = self.other_iterators.as_mut_slice();
 
@@ -1677,7 +1669,6 @@ mod tests {
                 max_distance,
                 n_closest,
                 can_skip_ahead: true,
-                next_heap_position: None,
             }
         }
 
