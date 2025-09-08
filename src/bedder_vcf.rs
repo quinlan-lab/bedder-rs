@@ -13,16 +13,18 @@ pub struct BedderVCF {
     #[allow(unused)]
     pub header: bcf::header::HeaderView,
     last_record: Option<bcf::Record>,
+    path: String,
 }
 
 impl BedderVCF {
-    pub fn new(r: bcf::Reader) -> io::Result<BedderVCF> {
+    pub fn new(r: bcf::Reader, path: String) -> io::Result<BedderVCF> {
         let h = r.header().clone();
         let v = BedderVCF {
             reader: r,
             record_number: 0,
             header: h,
             last_record: None,
+            path: path,
         };
         Ok(v)
     }
@@ -31,11 +33,11 @@ impl BedderVCF {
         if p == "-" || p == "stdin" || p == "/dev/stdin" {
             let r =
                 bcf::Reader::from_stdin().map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
-            BedderVCF::new(r)
+            BedderVCF::new(r, String::from("stdin"))
         } else {
             let r =
                 bcf::Reader::from_path(p).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
-            BedderVCF::new(r)
+            BedderVCF::new(r, String::from(p))
         }
     }
 }
@@ -179,7 +181,7 @@ impl crate::position::PositionedIterator for BedderVCF {
         }
     }
     fn name(&self) -> String {
-        String::from("vcf line number:".to_owned() + self.record_number.to_string().as_str())
+        String::from(format!("VCF|{}:record #:{}", self.path, self.record_number))
     }
 }
 
