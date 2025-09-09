@@ -145,6 +145,28 @@ impl Positioned for BedderRecord {
     }
 }
 
+fn debug_record(r: &bcf::Record) -> String {
+    let chrom = String::from_utf8_lossy(r.header().rid2name(r.rid().unwrap()).unwrap());
+    let ref_allele = String::from_utf8_lossy(r.alleles()[0]);
+    let alt_alleles = if r.alleles().len() > 1 {
+        r.alleles()[1..]
+            .iter()
+            .map(|a| String::from_utf8_lossy(a).to_string())
+            .collect::<Vec<_>>()
+            .join(",")
+    } else {
+        "".to_string()
+    };
+    format!(
+        "{}:{:?}-{:?}({}/{})",
+        chrom,
+        r.pos(),
+        r.end(),
+        ref_allele,
+        alt_alleles
+    )
+}
+
 impl crate::position::PositionedIterator for BedderVCF {
     fn next_position(
         &mut self,
@@ -168,6 +190,11 @@ impl crate::position::PositionedIterator for BedderVCF {
             None => None, // EOF
             Some(Ok(())) => {
                 self.record_number += 1;
+                log::trace!(
+                    "read vcf record: {:?} from file: {}",
+                    debug_record(&r),
+                    self.path
+                );
                 Some(Ok(Position::Vcf(Box::new(BedderRecord::new(r)))))
             }
             Some(Err(e)) => {
