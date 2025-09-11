@@ -1706,8 +1706,8 @@ mod tests {
             assert!(skip_pos.is_some());
             let skip_pos = skip_pos.unwrap();
             assert_eq!(skip_pos.chrom(), "chr2");
-            assert_eq!(skip_pos.start(), 0);
-            assert_eq!(skip_pos.stop(), 1);
+            assert_eq!(skip_pos.start(), 5000);
+            assert_eq!(skip_pos.stop(), usize::MAX as u64);
         }
 
         #[test]

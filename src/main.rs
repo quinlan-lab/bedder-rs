@@ -117,6 +117,13 @@ When used, the default overlap requirement is set to 0, so that non-overlapping 
 This can be overridden by setting a-requirements and b-requirements."
     )]
     max_distance: Option<i64>,
+
+    #[arg(
+        long = "dont-use-indexes",
+        short = 'i',
+        help = "don't use indexed query"
+    )]
+    dont_use_indexes: bool,
 }
 
 #[global_allocator]
@@ -189,7 +196,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     // - a_piece is None (don't report query intervals at all - PERFECT for skipping)
     // - a_piece is Piece (only report non-overlapping parts - can skip when no overlaps exist far ahead)
     // We cannot skip when a_piece is Whole (always report entire query intervals).
-    let can_skip_ahead = !matches!(args.a_piece, IntersectionPart::Whole);
+    let can_skip_ahead = !matches!(args.a_piece, IntersectionPart::Whole) && !args.dont_use_indexes;
 
     let ii = bedder::intersection::IntersectionIterator::new(
         a_iter,
