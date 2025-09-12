@@ -390,7 +390,7 @@ impl PyVcfRecord {
             let mut alleles = vec![&ref_allele[..]];
             alleles.extend(alt.iter().map(|a| a.as_bytes()));
             v.record
-                .set_alleles(&alleles.as_slice())
+                .set_alleles(alleles.as_slice())
                 .map_err(|e| PyValueError::new_err(format!("Invalid alt: {}", e)))?;
         }
         Ok(())
@@ -399,9 +399,9 @@ impl PyVcfRecord {
     #[getter]
     fn filters(&self) -> PyResult<Vec<String>> {
         if let Position::Vcf(v) = &*self.inner.try_lock().expect("failed to lock interval") {
-            let mut filters = v.record.filters();
+            let filters = v.record.filters();
             let mut filter_list = Vec::new();
-            while let Some(filter) = filters.next() {
+            for filter in filters {
                 filter_list.push(filter.to_string());
             }
             Ok(filter_list)
@@ -685,15 +685,13 @@ pub struct PyPosition {
 impl PyPosition {
     /// Get the BED record if this position represents a BED interval
     fn bed(&self) -> PyResult<Option<PyBedRecord>> {
-        let is_bed = if let Position::Bed(_) = *self
-            .inner
-            .try_lock()
-            .expect("failed to lock interval in call to .bed()")
-        {
-            true
-        } else {
-            false
-        };
+        let is_bed = matches!(
+            *self
+                .inner
+                .try_lock()
+                .expect("failed to lock interval in call to .bed()"),
+            Position::Bed(_)
+        );
         if is_bed {
             Ok(Some(PyBedRecord {
                 inner: self.inner.clone(),
@@ -705,15 +703,13 @@ impl PyPosition {
 
     /// get the vcf record if this position represents a vcf record
     fn vcf(&self) -> PyResult<Option<PyVcfRecord>> {
-        let is_vcf = if let Position::Vcf(_) = *self
-            .inner
-            .try_lock()
-            .expect("failed to lock interval in call to .vcf()")
-        {
-            true
-        } else {
-            false
-        };
+        let is_vcf = matches!(
+            *self
+                .inner
+                .try_lock()
+                .expect("failed to lock interval in call to .vcf()"),
+            Position::Vcf(_)
+        );
         if is_vcf {
             Ok(Some(PyVcfRecord {
                 inner: self.inner.clone(),
@@ -1033,8 +1029,7 @@ pub fn introspect_python_functions<'py>(
                         // get first non-empty line of docstring
                         description_str = description_str
                             .split('\n')
-                            .filter(|line| !line.is_empty())
-                            .next()
+                            .find(|line| !line.is_empty())
                             .unwrap_or("")
                             .to_string();
                     }
