@@ -1,6 +1,7 @@
-use pyo3::exceptions::{PyIndexError, PyTypeError, PyValueError};
-use pyo3::prelude::*;
-use pyo3::types::{self, PyFunction};
+use pyo3::exceptions::{PyIndexError, PyKeyError, PyTypeError, PyValueError};
+use pyo3::types::{self, PyBool, PyFunction};
+use pyo3::IntoPyObject;
+use pyo3::{prelude::*, IntoPyObjectExt};
 use std::collections::HashMap;
 
 use crate::column::{Number, Type, Value};
@@ -155,31 +156,34 @@ impl PyVcfRecord {
             .start())
     }
 
-    fn info(&self, py: Python, key: &str) -> PyResult<Option<PyObject>> {
+    fn info(&self, py: Python, key: &str) -> PyResult<Option<Py<PyAny>>> {
         if let Position::Vcf(v) = &*self.inner.try_lock().expect("failed to lock interval") {
             let header = v.record.header();
             let info_type = header
                 .info_type(key.as_bytes())
-                .map_err(|e| PyValueError::new_err(format!("Invalid info key: {}", e)))?;
+                .map_err(|e| PyKeyError::new_err(format!("Invalid info key: {}", e)))?;
             let (tag_type, _tag_length) = info_type;
             let mut info = v.record.info(key.as_bytes());
             match tag_type {
                 htslib::bcf::header::TagType::Flag => match info.flag() {
-                    Ok(b) => Ok(Some(b.into_py(py))),
+                    Ok(b) => {
+                        let bound_bool = b.into_py_any(py)?;
+                        Ok(Some(bound_bool))
+                    }
                     Err(e) => Err(PyValueError::new_err(format!("Invalid info key: {}", e))),
                 },
                 htslib::bcf::header::TagType::Integer => match info.integer() {
-                    Ok(Some(values)) => Ok(Some(values.to_vec().into_py(py))),
+                    Ok(Some(values)) => Ok(Some(values.to_vec().into_pyobject(py)?.unbind())),
                     Ok(None) => Ok(None),
                     Err(e) => Err(PyValueError::new_err(format!("Invalid info key: {}", e))),
                 },
                 htslib::bcf::header::TagType::Float => match info.float() {
-                    Ok(Some(values)) => Ok(Some(values.to_vec().into_py(py))),
+                    Ok(Some(values)) => Ok(Some(values.to_vec().into_pyobject(py)?.unbind())),
                     Ok(None) => Ok(None),
                     Err(e) => Err(PyValueError::new_err(format!("Invalid info key: {}", e))),
                 },
                 htslib::bcf::header::TagType::String => match info.string() {
-                    Ok(Some(values)) => Ok(Some(values.to_vec().into_py(py))),
+                    Ok(Some(values)) => Ok(Some(values.to_vec().into_pyobject(py)?.unbind())),
                     Ok(None) => Ok(None),
                     Err(e) => Err(PyValueError::new_err(format!("Invalid info key: {}", e))),
                 },
@@ -189,7 +193,32 @@ impl PyVcfRecord {
         }
     }
 
-    fn set_info(&mut self, key: &str, value: PyObject) -> PyResult<()> {
+    fn format(&self, py: Python, key: &str) -> PyResult<Option<Py<PyAny>>> {
+        if let Position::Vcf(v) = &*self.inner.try_lock().expect("failed to lock interval") {
+            let header = v.record.header();
+
+            let info_type = header
+                .format_type(key.as_bytes())
+                .map_err(|e| PyKeyError::new_err(format!("Invalid format key: {}", e)))?;
+            let (tag_type, _tag_length) = info_type;
+            let fmt = v.record.format(key.as_bytes());
+            match tag_type {
+                htslib::bcf::header::TagType::Float => match fmt.float() {
+                    Ok(b) => Ok(Some(b.concat().into_pyobject(py)?.unbind())),
+                    Err(e) => Err(PyValueError::new_err(format!("Invalid format key: {}", e))),
+                },
+                htslib::bcf::header::TagType::Integer => match fmt.integer() {
+                    Ok(b) => Ok(Some(b.concat().into_pyobject(py)?.unbind())),
+                    Err(e) => Err(PyValueError::new_err(format!("Invalid format key: {}", e))),
+                },
+                _ => unimplemented!("Format flag not implemented for {:?}", tag_type),
+            }
+        } else {
+            Ok(None)
+        }
+    }
+
+    fn set_info(&mut self, key: &str, value: Py<PyAny>) -> PyResult<()> {
         if let Position::Vcf(v) = &mut *self.inner.try_lock().expect("failed to lock interval") {
             Python::with_gil(|py| {
                 let header = v.record.header();
