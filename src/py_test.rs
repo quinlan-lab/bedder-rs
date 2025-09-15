@@ -1,6 +1,7 @@
 #[cfg(test)]
 mod tests {
     use crate::bedder_bed::BedRecord;
+    use crate::bedder_vcf::BedderRecord;
     use crate::column::Value;
     use crate::intersection::{Intersection, Intersections};
     use crate::position::Position;
@@ -8,11 +9,18 @@ mod tests {
     use crate::report_options::ReportOptions;
     use parking_lot::Mutex;
     use pyo3::exceptions::PyRuntimeError;
+    use pyo3::exceptions::PyValueError;
     use pyo3::types::PyModuleMethods;
+    use pyo3::types::{PyDict, PyDictMethods};
+    use pyo3::Py;
     use pyo3::PyResult;
     use pyo3::Python;
+    use rust_htslib::bcf::header::Header;
+    use rust_htslib::bcf::Read;
+    use rust_htslib::bcf::{Format, Reader, Writer};
     use std::ffi::CString;
     use std::sync::Arc;
+    use tempfile::NamedTempFile;
 
     fn create_test_intersection() -> Intersections {
         // Create a base interval
@@ -36,7 +44,7 @@ mod tests {
 
     #[test]
     fn test_simple_snippet() {
-        Python::with_gil(|py| -> PyResult<()> {
+        Python::attach(|py| -> PyResult<()> {
             let code = r#"
 def bedder_test_func(fragment) -> str:
     chrom = fragment.a.chrom
@@ -65,6 +73,83 @@ def bedder_test_func(fragment) -> str:
             Ok(())
         })
         .expect("Failed to run test");
+    }
+
+    #[test]
+    fn test_vcf_info() {
+        Python::attach(|py| -> PyResult<()> {
+            crate::py::initialize_python(py)?;
+
+            let mut raw_header = Header::new();
+            raw_header.push_record(b"##fileformat=VCFv4.2");
+            raw_header.push_record(b"##contig=<ID=chr1,length=10000>");
+            raw_header.push_record(b"##INFO=<ID=FLAG,Number=0,Type=Flag,Description=\"A flag\">");
+            raw_header.push_record(b"##INFO=<ID=INT,Number=1,Type=Integer,Description=\"An int\">");
+            raw_header.push_record(b"##INFO=<ID=INTS,Number=.,Type=Integer,Description=\"Ints\">");
+            raw_header
+                .push_record(b"##INFO=<ID=FLOAT,Number=1,Type=Float,Description=\"A float\">");
+            raw_header
+                .push_record(b"##INFO=<ID=STR,Number=1,Type=String,Description=\"A string\">");
+
+            //let header_view = Arc::new(HeaderView::new(inner_ptr));
+
+            let temp_file = NamedTempFile::new().expect("failed to create temp file");
+            let writer = Writer::from_path(temp_file.path(), &raw_header, true, Format::Vcf)
+                .expect("failed to create writer");
+            drop(writer);
+            let vcf = Reader::from_path(temp_file.path()).expect("failed to open reader");
+
+            let mut record = vcf.empty_record();
+            let rid = vcf
+                .header()
+                .name2rid(b"chr1")
+                .map_err(|e| PyValueError::new_err(e.to_string()))?;
+            record.set_rid(Some(rid));
+            record.set_pos(100);
+            record
+                .set_alleles(&[b"A", b"T"])
+                .map_err(|e| PyValueError::new_err(e.to_string()))?;
+
+            let bedder_record = BedderRecord::new(record);
+            let position = Position::Vcf(Box::new(bedder_record));
+            let py_vcf = crate::py::PyVcfRecord::new(Arc::new(Mutex::new(position)));
+
+            let py_vcf_bound = Py::new(py, py_vcf).unwrap();
+            let globals = PyDict::new(py);
+            globals.set_item("vcf_record", py_vcf_bound)?;
+
+            let code = r#"
+assert vcf_record.chrom == "chr1"
+assert vcf_record.pos == 100
+
+assert vcf_record.info("INT") is None
+
+# entries with Number=1 are returned as a single value
+vcf_record.set_info("INT", 42)
+assert vcf_record.info("INT") == 42
+
+vcf_record.set_info("FLOAT", 3.14)
+f = round(vcf_record.info("FLOAT"), 2)
+assert f == round(3.14, 2), f
+
+vcf_record.set_info("STR", "hello")
+assert vcf_record.info("STR") == [b'hello']
+
+vcf_record.set_info("FLAG", True)
+assert vcf_record.info("FLAG") == True
+
+#vcf_record.set_info("FLAG", False)
+#assert vcf_record.info("FLAG") == False, vcf_record.info("FLAG")
+
+vcf_record.set_info("INTS", [1,2,3])
+assert vcf_record.info("INTS") == [1,2,3]
+"#;
+            let c_code = CString::new(code)?;
+            py.run(&c_code, Some(&globals), None)?;
+
+            Ok(())
+        })
+        .expect("test failed");
     }
 
     /*

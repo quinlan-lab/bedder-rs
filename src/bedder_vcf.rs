@@ -89,25 +89,25 @@ pub fn match_value(
 #[derive(Debug)]
 pub struct BedderRecord {
     pub record: bcf::Record,
-    _chrom: Option<String>,
+    pub chrom: Option<String>,
 }
 
 impl Clone for BedderRecord {
     fn clone(&self) -> Self {
         Self {
             record: self.record.clone(),
-            _chrom: self._chrom.clone(),
+            chrom: self.chrom.clone(),
         }
     }
 }
 
 impl BedderRecord {
     pub fn new(record: bcf::Record) -> Self {
-        let chrom = record.header().rid2name(record.rid().unwrap()).unwrap();
-        let chrom = unsafe { String::from_utf8_unchecked(chrom.to_vec()) };
+        let chrom_name = record.header().rid2name(record.rid().unwrap()).unwrap();
+        let chrom = unsafe { String::from_utf8_unchecked(chrom_name.to_vec()) };
         Self {
             record,
-            _chrom: Some(chrom),
+            chrom: Some(chrom),
         }
     }
 }
@@ -115,7 +115,7 @@ impl BedderRecord {
 impl Positioned for BedderRecord {
     #[inline]
     fn chrom(&self) -> &str {
-        self._chrom.as_ref().unwrap()
+        self.chrom.as_ref().unwrap()
     }
 
     #[inline]
@@ -140,7 +140,7 @@ impl Positioned for BedderRecord {
         log::info!("vcf clone box");
         Box::new(Self {
             record: self.record.clone(),
-            _chrom: self._chrom.clone(),
+            chrom: self.chrom.clone(),
         })
     }
 }

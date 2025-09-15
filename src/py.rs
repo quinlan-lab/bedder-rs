@@ -1,5 +1,5 @@
 use pyo3::exceptions::{PyIndexError, PyKeyError, PyTypeError, PyValueError};
-use pyo3::types::{self, PyBool, PyFunction};
+use pyo3::types::{self, PyFunction};
 use pyo3::IntoPyObject;
 use pyo3::{prelude::*, IntoPyObjectExt};
 use std::collections::HashMap;
@@ -133,6 +133,12 @@ pub struct PyVcfRecord {
     inner: Arc<Mutex<Position>>,
 }
 
+impl PyVcfRecord {
+    pub fn new(inner: Arc<Mutex<Position>>) -> Self {
+        Self { inner }
+    }
+}
+
 #[pymethods]
 impl PyVcfRecord {
     #[getter]
@@ -162,7 +168,7 @@ impl PyVcfRecord {
             let info_type = header
                 .info_type(key.as_bytes())
                 .map_err(|e| PyKeyError::new_err(format!("Invalid info key: {}", e)))?;
-            let (tag_type, _tag_length) = info_type;
+            let (tag_type, tag_length) = info_type;
             let mut info = v.record.info(key.as_bytes());
             match tag_type {
                 htslib::bcf::header::TagType::Flag => match info.flag() {
@@ -173,12 +179,22 @@ impl PyVcfRecord {
                     Err(e) => Err(PyValueError::new_err(format!("Invalid info key: {}", e))),
                 },
                 htslib::bcf::header::TagType::Integer => match info.integer() {
-                    Ok(Some(values)) => Ok(Some(values.to_vec().into_pyobject(py)?.unbind())),
+                    Ok(Some(values)) => match tag_length {
+                        htslib::bcf::header::TagLength::Fixed(1) => {
+                            Ok(Some(values[0].into_py_any(py)?))
+                        }
+                        _ => Ok(Some(values.to_vec().into_pyobject(py)?.unbind())),
+                    },
                     Ok(None) => Ok(None),
                     Err(e) => Err(PyValueError::new_err(format!("Invalid info key: {}", e))),
                 },
                 htslib::bcf::header::TagType::Float => match info.float() {
-                    Ok(Some(values)) => Ok(Some(values.to_vec().into_pyobject(py)?.unbind())),
+                    Ok(Some(values)) => match tag_length {
+                        htslib::bcf::header::TagLength::Fixed(1) => {
+                            Ok(Some(values[0].into_py_any(py)?))
+                        }
+                        _ => Ok(Some(values.to_vec().into_pyobject(py)?.unbind())),
+                    },
                     Ok(None) => Ok(None),
                     Err(e) => Err(PyValueError::new_err(format!("Invalid info key: {}", e))),
                 },
@@ -220,7 +236,7 @@ impl PyVcfRecord {
 
     fn set_info(&mut self, key: &str, value: Py<PyAny>) -> PyResult<()> {
         if let Position::Vcf(v) = &mut *self.inner.try_lock().expect("failed to lock interval") {
-            Python::with_gil(|py| {
+            Python::attach(|py| {
                 let header = v.record.header();
 
                 let (tag_type, _tag_length) = match header.info_type(key.as_bytes()) {

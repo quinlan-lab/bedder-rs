@@ -246,7 +246,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     log::info!("report_options: {:?}", report_options);
     // Use Python for columns that need it
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         // Initialize Python expressions in columns if needed
 
         let mut functions_map = HashMap::new();
