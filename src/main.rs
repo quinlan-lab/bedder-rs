@@ -266,7 +266,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
             log::info!("python functions map: {:?}", &functions_map);
         }
 
-        let columns: Vec<Column> = args
+        let columns: Vec<Column<'_>> = args
             .columns
             .iter()
             .map(|c| {
@@ -274,14 +274,6 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Column::try_from((s, functions_map))
             })
             .collect::<Result<Vec<_>, _>>()?;
-
-        let mut output = Writer::init(
-            args.output_path.to_str().unwrap(),
-            Some(output_format),
-            None,
-            input_header_for_writer,
-            &columns,
-        )?;
 
         let py_columns: Vec<Column<'_>> = columns
             .into_iter()
@@ -299,6 +291,15 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
             })
             .collect();
         log::info!("py_columns: {:?}", py_columns);
+
+        let mut output = Writer::init(
+            args.output_path.to_str().unwrap(),
+            Some(output_format),
+            None,
+            input_header_for_writer,
+            // TODO: use py_columns here instead so we can use description for VCF
+            &py_columns,
+        )?;
         bedder::py::initialize_python(py).expect("Failed to initialize Python environment");
 
         // Process intersections with columns

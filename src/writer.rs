@@ -165,7 +165,7 @@ impl Writer {
         format: Option<Format>,
         compression: Option<Compression>,
         input_header: InputHeader,
-        columns: &[Column],
+        columns: &[Column<'_>],
     ) -> Result<Self, FormatConversionError> {
         // Detect format if not specified
         let format = match format {

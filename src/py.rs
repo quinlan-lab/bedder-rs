@@ -2,7 +2,9 @@ use pyo3::exceptions::{PyIndexError, PyKeyError, PyTypeError, PyValueError};
 use pyo3::types::{self, PyFunction};
 use pyo3::IntoPyObject;
 use pyo3::{prelude::*, IntoPyObjectExt};
+
 use std::collections::HashMap;
+use std::fmt;
 
 use crate::column::{Number, Type, Value};
 use crate::position::Position;
@@ -1100,6 +1102,16 @@ pub fn introspect_python_functions<'py>(
     }
 
     Ok(functions_map)
+}
+
+impl fmt::Display for CompiledPython<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "CompiledPython(function_name: {}, ftype: {}, number: {})",
+            self.function_name, self.ftype, self.number
+        )
+    }
 }
 
 impl<'py> CompiledPython<'py> {
