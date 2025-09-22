@@ -1,4 +1,5 @@
 target/
+env
 /Cargo.lock
 docs/
 *.bed
@@ -6,6 +7,10 @@ docs/
 *.vcf
 *.bcf
 *.bgz
+*.csi
+*.tbi
+*.html
+*.fai
 .vscode
 venv/
 *.txt
