@@ -1175,6 +1175,37 @@ impl<'py> CompiledPython<'py> {
     }
 }
 
+/// A compiled Python boolean expression (no wrapper function required)
+#[derive(Debug)]
+pub struct CompiledExpr<'py> {
+    code: Bound<'py, types::PyAny>,
+    globals: Bound<'py, types::PyDict>,
+}
+
+impl<'py> CompiledExpr<'py> {
+    /// Compile a Python expression (mode='eval') once for reuse
+    pub fn new(py: Python<'py>, expr: &str) -> PyResult<Self> {
+        let builtins = py.import("builtins")?;
+        let compile = builtins.getattr("compile")?;
+        let code = compile.call1((expr, "<bedder-filter>", "eval"))?;
+        let main_module = py.import("__main__")?;
+        let globals = main_module.dict();
+        Ok(Self { code, globals })
+    }
+
+    /// Evaluate the expression for a given fragment; returns boolean
+    pub fn eval_bool(&self, fragment: PyReportFragment) -> PyResult<bool> {
+        let py = self.code.py();
+        let builtins = py.import("builtins")?;
+        let eval_fn = builtins.getattr("eval")?;
+        let locals = pyo3::types::PyDict::new(py);
+        locals.set_item("r", fragment.clone())?;
+        locals.set_item("fragment", fragment)?;
+        let val = eval_fn.call1((self.code.clone(), self.globals.clone(), locals))?;
+        val.extract::<bool>()
+    }
+}
+
 /// A Python module implemented in Rust.
 #[pymodule]
 fn bedder_py(m: &Bound<'_, PyModule>) -> PyResult<()> {

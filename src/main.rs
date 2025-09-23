@@ -5,7 +5,6 @@ use bedder::report_options::{IntersectionMode, IntersectionPart, OverlapAmount, 
 use bedder::writer::{InputHeader, Writer};
 use clap::Parser;
 use pyo3::prelude::*;
-use std::collections::HashMap;
 use std::env;
 use std::ffi::CString;
 use std::fs::File;
@@ -96,6 +95,13 @@ struct Args {
         long = "python"
     )]
     python_file: Option<PathBuf>,
+
+    #[arg(
+        help = "optional filter expression (Python boolean expression; 'r' and 'fragment' are the current report fragment) indicates if the fragment should be included in the output",
+        long = "filter",
+        short = 'f'
+    )]
+    filter: Option<String>,
 
     #[arg(
         long = "n-closest",
@@ -246,25 +252,24 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     log::info!("report_options: {:?}", report_options);
     // Use Python for columns that need it
-    Python::attach(|py| {
+    Python::attach(|py| -> Result<(), Box<dyn std::error::Error>> {
         // Initialize Python expressions in columns if needed
-
-        let mut functions_map = HashMap::new();
 
         if let Some(python_file) = &args.python_file {
             let file = File::open(python_file)?;
             let code = std::io::read_to_string(file)?;
             let c_code = CString::new(code.as_str())?;
             py.run(&c_code, None, None)?;
-
-            // Introspect loaded functions
-            log::info!("Introspecting functions loaded from Python file:");
-            let main_module = py.import("__main__")?;
-            let globals = main_module.dict();
-
-            functions_map = bedder::py::introspect_python_functions(py, globals)?;
-            log::info!("python functions map: {:?}", &functions_map);
         }
+
+        // Introspect loaded functions regardless of whether a python file was provided
+        log::info!("Introspecting functions loaded from Python environment:");
+        let main_module = py.import("__main__")?;
+        let globals_for_columns = main_module.dict();
+        let functions_map = bedder::py::introspect_python_functions(py, globals_for_columns)?;
+        log::info!("python functions map: {:?}", &functions_map);
+
+        // No special prefix is required for filters. We will build a wrapper at runtime if --filter is set.
 
         let columns: Vec<Column<'_>> = args
             .columns
@@ -292,6 +297,14 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
             .collect();
         log::info!("py_columns: {:?}", py_columns);
 
+        // Compile filter expression directly (no wrapper function)
+        let compiled_filter = if let Some(filter_expr) = &args.filter {
+            let compiled = bedder::py::CompiledExpr::new(py, filter_expr)?;
+            Some(compiled)
+        } else {
+            None
+        };
+
         let mut output = Writer::init(
             args.output_path.to_str().unwrap(),
             Some(output_format),
@@ -305,7 +318,12 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Process intersections with columns
         for intersection in ii {
             let mut intersection = intersection.expect("error getting intersection");
-            output.write(&mut intersection, report_options.clone(), &py_columns)?;
+            output.write(
+                &mut intersection,
+                report_options.clone(),
+                &py_columns,
+                compiled_filter.as_ref(),
+            )?;
         }
         Ok::<(), Box<dyn std::error::Error>>(())
     })

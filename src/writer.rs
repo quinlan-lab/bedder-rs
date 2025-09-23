@@ -2,6 +2,7 @@ use crate::column::{Column, ColumnReporter, Value};
 use crate::hts_format::{Compression, Format};
 use crate::intersection::Intersections;
 use crate::position::Position;
+use crate::py::PyReportFragment;
 use crate::report::Report;
 use crate::report_options::ReportOptions;
 use rust_htslib::bam;
@@ -400,6 +401,7 @@ impl Writer {
         intersections: &mut Intersections,
         report_options: Arc<ReportOptions>,
         crs: &[T],
+        filter: Option<&crate::py::CompiledExpr<'_>>,
     ) -> Result<(), std::io::Error> {
         let format = self.format.clone();
         match format {
@@ -416,6 +418,18 @@ impl Writer {
                 };
 
                 for fragment in report.iter() {
+                    if let Some(filt) = filter {
+                        let py_fragment = PyReportFragment::new(fragment.clone());
+                        let ok = filt.eval_bool(py_fragment).map_err(|e| {
+                            std::io::Error::new(
+                                std::io::ErrorKind::InvalidData,
+                                format!("Error evaluating filter: {}", e),
+                            )
+                        })?;
+                        if !ok {
+                            continue;
+                        }
+                    }
                     if let Position::Vcf(ref record) = *fragment
                         .a
                         .as_ref()
@@ -442,6 +456,18 @@ impl Writer {
                 };
 
                 for frag in report.iter() {
+                    if let Some(filt) = filter {
+                        let py_fragment = PyReportFragment::new(frag.clone());
+                        let ok = filt.eval_bool(py_fragment).map_err(|e| {
+                            std::io::Error::new(
+                                std::io::ErrorKind::InvalidData,
+                                format!("Error evaluating filter: {}", e),
+                            )
+                        })?;
+                        if !ok {
+                            continue;
+                        }
+                    }
                     if let Position::Bed(ref bed_record) = *frag
                         .a
                         .as_ref()

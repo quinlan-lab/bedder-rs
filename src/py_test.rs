@@ -3,10 +3,12 @@ mod tests {
     use crate::bedder_bed::BedRecord;
     use crate::bedder_vcf::BedderRecord;
     use crate::column::Value;
+    use crate::hts_format::Format as BedderFormat;
     use crate::intersection::{Intersection, Intersections};
     use crate::position::Position;
-    use crate::py::{CompiledPython, PyReportFragment};
+    use crate::py::{CompiledExpr, CompiledPython, PyReportFragment};
     use crate::report_options::ReportOptions;
+    use crate::writer::{InputHeader, Writer};
     use parking_lot::Mutex;
     use pyo3::exceptions::PyRuntimeError;
     use pyo3::exceptions::PyValueError;
@@ -17,8 +19,10 @@ mod tests {
     use pyo3::Python;
     use rust_htslib::bcf::header::Header;
     use rust_htslib::bcf::Read;
-    use rust_htslib::bcf::{Format, Reader, Writer};
+    use rust_htslib::bcf::{Format, Reader, Writer as BCFWriter};
     use std::ffi::CString;
+    use std::fs::File as StdFile;
+    use std::io::Read as _;
     use std::sync::Arc;
     use tempfile::NamedTempFile;
 
@@ -94,7 +98,7 @@ def bedder_test_func(fragment) -> str:
             //let header_view = Arc::new(HeaderView::new(inner_ptr));
 
             let temp_file = NamedTempFile::new().expect("failed to create temp file");
-            let writer = Writer::from_path(temp_file.path(), &raw_header, true, Format::Vcf)
+            let writer = BCFWriter::from_path(temp_file.path(), &raw_header, true, Format::Vcf)
                 .expect("failed to create writer");
             drop(writer);
             let vcf = Reader::from_path(temp_file.path()).expect("failed to open reader");
@@ -150,6 +154,101 @@ assert vcf_record.info("INTS") == [1,2,3]
             Ok(())
         })
         .expect("test failed");
+    }
+
+    #[test]
+    fn test_writer_applies_filter() {
+        Python::attach(|py| -> PyResult<()> {
+            // Define two filter functions
+            let code = r#"
+def bedder_filter_true(fragment) -> bool:
+    return True
+def bedder_filter_false(fragment) -> bool:
+    return False
+"#;
+            let c_code = CString::new(code)?;
+            py.run(&c_code, None, None)?;
+
+            // Compile simple boolean expressions directly
+            let compiled_true = CompiledExpr::new(py, "True")?;
+            let compiled_false = CompiledExpr::new(py, "False")?;
+
+            // Prepare intersections and writer (BED)
+            let mut intersections = create_test_intersection();
+            let tmp1 = NamedTempFile::new().expect("tmp bed1");
+            let mut writer1 = Writer::init(
+                tmp1.path().to_str().unwrap(),
+                Some(BedderFormat::Bed),
+                None,
+                InputHeader::None,
+                &[],
+            )
+            .expect("init writer1");
+
+            // Explicitly type the empty columns slice to satisfy ColumnReporter generic
+            let cols: &[crate::column::Column<'_>] = &[];
+
+            writer1
+                .write(
+                    &mut intersections,
+                    Arc::new(ReportOptions::default()),
+                    cols,
+                    Some(&compiled_true),
+                )
+                .expect("write with true filter");
+
+            // Ensure data is flushed to disk before reading
+            drop(writer1);
+
+            // Read file and ensure non-empty
+            let mut s = String::new();
+            StdFile::open(tmp1.path())
+                .unwrap()
+                .read_to_string(&mut s)
+                .unwrap();
+            assert!(
+                !s.trim().is_empty(),
+                "Output should not be empty when filter is true",
+            );
+            eprintln!("s: {}", s);
+
+            // Now write with false filter to a new file
+            let mut intersections2 = create_test_intersection();
+            let tmp2 = NamedTempFile::new().expect("tmp bed2");
+            let mut writer2 = Writer::init(
+                tmp2.path().to_str().unwrap(),
+                Some(BedderFormat::Bed),
+                None,
+                InputHeader::None,
+                &[],
+            )
+            .expect("init writer2");
+
+            writer2
+                .write(
+                    &mut intersections2,
+                    Arc::new(ReportOptions::default()),
+                    cols,
+                    Some(&compiled_false),
+                )
+                .expect("write with false filter");
+
+            // Ensure data is flushed to disk before reading
+            drop(writer2);
+
+            let mut s2 = String::new();
+            StdFile::open(tmp2.path())
+                .unwrap()
+                .read_to_string(&mut s2)
+                .unwrap();
+            assert!(
+                s2.trim().is_empty(),
+                "Output should be empty when filter is false"
+            );
+
+            Ok(())
+        })
+        .expect("filter test failed");
     }
 
     /*
