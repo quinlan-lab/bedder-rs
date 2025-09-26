@@ -48,7 +48,7 @@ There are several things to note here:
 This function, if placed in a file named `example.py` could be used as:
 
 ```bash
-bedder -a some.bed -b other.bed -P example.py -c 'py:odd`
+bedder intersect -a some.bed -b other.bed -P example.py -c 'py:odd`
 ```
 
 where `odd` matches the function name above after dropping the `bedder_` prefix.
