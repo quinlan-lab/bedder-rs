@@ -449,7 +449,8 @@ impl PyVcfRecord {
             let filters = v.record.filters();
             let mut filter_list = Vec::new();
             for filter in filters {
-                filter_list.push(filter.to_string());
+                let filter_name = v.record.header().id_to_name(filter);
+                filter_list.push(String::from_utf8_lossy(&filter_name).to_string());
             }
             Ok(filter_list)
         } else {

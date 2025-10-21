@@ -157,6 +157,60 @@ assert vcf_record.info("INTS") == [1,2,3]
     }
 
     #[test]
+    fn test_vcf_filters_returns_names() {
+        Python::attach(|py| -> PyResult<()> {
+            crate::py::initialize_python(py)?;
+
+            let mut raw_header = Header::new();
+            raw_header.push_record(b"##fileformat=VCFv4.2");
+            raw_header.push_record(b"##contig=<ID=chr1,length=10000>");
+            raw_header.push_record(b"##FILTER=<ID=q10,Description=\"Quality below 10\">");
+            raw_header.push_record(b"##FILTER=<ID=lowdp,Description=\"Depth below 10\">");
+
+            let temp_file = NamedTempFile::new().expect("failed to create temp file");
+            let writer = BCFWriter::from_path(temp_file.path(), &raw_header, true, Format::Vcf)
+                .expect("failed to create writer");
+            drop(writer);
+
+            let vcf = Reader::from_path(temp_file.path()).expect("failed to open reader");
+            let mut record = vcf.empty_record();
+            let rid = vcf
+                .header()
+                .name2rid(b"chr1")
+                .map_err(|e| PyValueError::new_err(e.to_string()))?;
+            record.set_rid(Some(rid));
+            record.set_pos(123);
+            record
+                .set_alleles(&[b"A", b"T"])
+                .map_err(|e| PyValueError::new_err(e.to_string()))?;
+            record
+                .push_filter("q10".as_bytes())
+                .map_err(|e| PyValueError::new_err(e.to_string()))?;
+            record
+                .push_filter("lowdp".as_bytes())
+                .map_err(|e| PyValueError::new_err(e.to_string()))?;
+
+            let bedder_record = BedderRecord::new(record);
+            let position = Position::Vcf(Box::new(bedder_record));
+            let py_vcf = crate::py::PyVcfRecord::new(Arc::new(Mutex::new(position)));
+
+            let py_vcf_bound = Py::new(py, py_vcf).unwrap();
+            let globals = PyDict::new(py);
+            globals.set_item("vcf_record", py_vcf_bound)?;
+
+            let code = r#"
+filters = sorted(vcf_record.filters)
+assert filters == ["lowdp", "q10"], filters
+"#;
+            let c_code = CString::new(code)?;
+            py.run(&c_code, Some(&globals), None)?;
+
+            Ok(())
+        })
+        .expect("filters test failed");
+    }
+
+    #[test]
     fn test_writer_applies_filter() {
         Python::attach(|py| -> PyResult<()> {
             // Define two filter functions
