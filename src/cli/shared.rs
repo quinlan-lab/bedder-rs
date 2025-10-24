@@ -250,6 +250,7 @@ pub fn process_bedder(
             .build(),
     );
 
+    Python::initialize()?;
     Python::attach(|py| -> Result<(), Box<dyn std::error::Error>> {
         if let Some(python_file) = &common_args.python_file {
             let file = File::open(python_file)?;
