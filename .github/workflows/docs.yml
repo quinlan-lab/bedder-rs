@@ -1,0 +1,73 @@
+name: Docs
+
+on:
+    push:
+        branches: [main, dev]
+        tags: ["v*"]
+    workflow_dispatch: {}
+
+permissions:
+    contents: read
+    pages: write
+    id-token: write
+
+concurrency:
+    group: "pages"
+    cancel-in-progress: true
+
+jobs:
+    build:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+            - uses: actions/setup-python@v5
+              with:
+                  python-version: "3.10"
+            - uses: dtolnay/rust-toolchain@stable
+            - uses: astral-sh/setup-uv@v2
+            - name: Init crate-type revert flag
+              run: echo "REVERT_CDYLIB=0" >> "$GITHUB_ENV"
+            - name: Enable cdylib crate type
+              run: |
+                  if grep -Fq 'crate-type = ["rlib"]' Cargo.toml; then
+                      sed -i 's/crate-type = \["rlib"\]/crate-type = ["rlib", "cdylib"]/g' Cargo.toml
+                      echo "REVERT_CDYLIB=1" >> "$GITHUB_ENV"
+                  fi
+            - name: Create docs venv
+              run: |
+                  if [ ! -d .venv/docs ]; then
+                      uv venv .venv/docs
+                  fi
+            - name: Install tools
+              run: |
+                  source .venv/docs/bin/activate
+                  uv pip install --upgrade maturin pdoc pyo3-stubgen
+            - name: Build extension
+              run: |
+                  source .venv/docs/bin/activate
+                  maturin develop --release
+            - name: Generate stubs
+              run: |
+                  source .venv/docs/bin/activate
+                  pyo3-stubgen bedder stubs
+            - name: Generate HTML docs
+              run: |
+                  source .venv/docs/bin/activate
+                  pdoc bedder --output-dir docs || pdoc stubs/bedder/__init__.pyi --output-dir docs
+            - name: Upload artifact
+              uses: actions/upload-pages-artifact@v3
+              with:
+                  path: docs
+            - name: Restore crate-type
+              if: always() && env.REVERT_CDYLIB == '1'
+              run: sed -i 's/crate-type = \["rlib", "cdylib"\]/crate-type = ["rlib"]/g' Cargo.toml
+
+    deploy:
+        needs: build
+        runs-on: ubuntu-latest
+        environment:
+            name: github-pages
+            url: ${{ steps.deployment.outputs.page_url }}
+        steps:
+            - id: deployment
+              uses: actions/deploy-pages@v4

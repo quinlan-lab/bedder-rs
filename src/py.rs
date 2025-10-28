@@ -20,6 +20,14 @@ use rust_htslib as htslib;
 ///     stop (int): The end position (exclusive)
 ///     name (str, optional): The name field if present
 ///     score (float, optional): The score field if present
+///
+/// # Example
+/// ```python
+/// bed_record = position.bed()
+/// if bed_record is not None:
+///     print(bed_record.chrom, bed_record.start, bed_record.stop)
+///     bed_record.set_name("example")
+/// ```
 #[pyclass]
 #[derive(Clone, Debug)] // Added Debug for easier inspection
 pub struct PyBedRecord {
@@ -29,7 +37,12 @@ pub struct PyBedRecord {
 #[pymethods]
 impl PyBedRecord {
     #[getter]
-    /// Get the chromosome name
+    /// Get the chromosome name.
+    ///
+    /// # Example
+    /// ```python
+    /// chrom = bed_record.chrom
+    /// ```
     fn chrom(&self) -> PyResult<String> {
         Ok(self
             .inner
@@ -40,7 +53,12 @@ impl PyBedRecord {
     }
 
     #[getter]
-    /// Get the start position (0-based)
+    /// Get the start position (0-based).
+    ///
+    /// # Example
+    /// ```python
+    /// start = bed_record.start
+    /// ```
     fn start(&self) -> PyResult<u64> {
         Ok(self
             .inner
@@ -50,7 +68,12 @@ impl PyBedRecord {
     }
 
     #[getter]
-    /// Get the end position (exclusive)
+    /// Get the end position (exclusive).
+    ///
+    /// # Example
+    /// ```python
+    /// stop = bed_record.stop
+    /// ```
     fn stop(&self) -> PyResult<u64> {
         Ok(self
             .inner
@@ -60,7 +83,12 @@ impl PyBedRecord {
     }
 
     #[getter]
-    /// Get the name field if present
+    /// Get the name field if present.
+    ///
+    /// # Example
+    /// ```python
+    /// label = bed_record.name
+    /// ```
     fn name(&self) -> PyResult<Option<String>> {
         if let Position::Bed(b) = &*self.inner.try_lock().expect("failed to lock interval") {
             Ok(b.0.name().map(|s| s.to_string()))
@@ -70,7 +98,12 @@ impl PyBedRecord {
     }
 
     #[setter]
-    /// Set the name field
+    /// Set the name field.
+    ///
+    /// # Example
+    /// ```python
+    /// bed_record.name = "example"
+    /// ```
     fn set_name(&mut self, name: &str) -> PyResult<()> {
         if let Position::Bed(b) = &mut *self.inner.try_lock().expect("failed to lock interval") {
             b.0.set_name(name.to_string());
@@ -79,7 +112,12 @@ impl PyBedRecord {
     }
 
     #[getter]
-    /// Get the score field if present
+    /// Get the score field if present.
+    ///
+    /// # Example
+    /// ```python
+    /// score = bed_record.score
+    /// ```
     fn score(&self) -> PyResult<Option<f64>> {
         if let Position::Bed(b) = &*self.inner.try_lock().expect("failed to lock interval") {
             Ok(b.0.score())
@@ -89,7 +127,12 @@ impl PyBedRecord {
     }
 
     #[setter]
-    /// Set the score field
+    /// Set the score field.
+    ///
+    /// # Example
+    /// ```python
+    /// bed_record.score = 42.0
+    /// ```
     fn set_score(&mut self, score: f64) -> PyResult<()> {
         if let Position::Bed(b) = &mut *self.inner.try_lock().expect("failed to lock interval") {
             b.0.set_score(score);
@@ -105,7 +148,14 @@ impl PyBedRecord {
         self.__repr__()
     }
 
-    /// Get any additional fields beyond the standard BED fields
+    /// Get any additional fields beyond the standard BED fields.
+    ///
+    /// # Example
+    /// ```python
+    /// extra = bed_record.other_fields()
+    /// for value in extra:
+    ///     print(value)
+    /// ```
     fn other_fields(&self) -> PyResult<Vec<String>> {
         if let Position::Bed(b) = &*self.inner.try_lock().expect("failed to lock interval") {
             Ok(b.0.other_fields().iter().map(|f| f.to_string()).collect())
@@ -114,7 +164,12 @@ impl PyBedRecord {
         }
     }
 
-    /// index into the other_fields
+    /// Index into the `other_fields` list.
+    ///
+    /// # Example
+    /// ```python
+    /// value = bed_record[0]
+    /// ```
     fn __getitem__(&self, index: usize) -> PyResult<String> {
         if let Position::Bed(b) = &*self.inner.try_lock().expect("failed to lock interval") {
             Ok(b.0.other_fields()[index].to_string())
@@ -129,6 +184,16 @@ impl PyBedRecord {
 /// Attributes:
 ///     chrom (str): The chromosome name
 ///     pos (int): The position (0-based)
+///
+/// # Example
+/// ```python
+/// vcf_record = position.vcf()
+/// if vcf_record is not None:
+///     print(vcf_record.chrom, vcf_record.pos)
+///     dp = vcf_record.info("DP")
+///     if dp is not None:
+///         print("depth:", dp)
+/// ```
 #[pyclass]
 #[derive(Clone, Debug)]
 pub struct PyVcfRecord {
@@ -144,7 +209,12 @@ impl PyVcfRecord {
 #[pymethods]
 impl PyVcfRecord {
     #[getter]
-    /// Get the chromosome name
+    /// Get the chromosome name.
+    ///
+    /// # Example
+    /// ```python
+    /// chrom = vcf_record.chrom
+    /// ```
     fn chrom(&self) -> PyResult<String> {
         Ok(self
             .inner
@@ -155,7 +225,12 @@ impl PyVcfRecord {
     }
 
     #[getter]
-    /// Get the position (0-based)
+    /// Get the position (0-based).
+    ///
+    /// # Example
+    /// ```python
+    /// pos = vcf_record.pos
+    /// ```
     fn pos(&self) -> PyResult<u64> {
         Ok(self
             .inner
@@ -164,6 +239,12 @@ impl PyVcfRecord {
             .start())
     }
 
+    /// Get an INFO field by key, returning the best Python representation.
+    ///
+    /// # Example
+    /// ```python
+    /// mq = vcf_record.info("MQ")
+    /// ```
     fn info(&self, py: Python, key: &str) -> PyResult<Option<Py<PyAny>>> {
         if let Position::Vcf(v) = &*self.inner.try_lock().expect("failed to lock interval") {
             let header = v.record.header();
@@ -211,6 +292,12 @@ impl PyVcfRecord {
         }
     }
 
+    /// Get a FORMAT field by key, returning per-sample values.
+    ///
+    /// # Example
+    /// ```python
+    /// gq = vcf_record.format("GQ")
+    /// ```
     fn format(&self, py: Python, key: &str) -> PyResult<Option<Py<PyAny>>> {
         if let Position::Vcf(v) = &*self.inner.try_lock().expect("failed to lock interval") {
             let header = v.record.header();
@@ -236,6 +323,12 @@ impl PyVcfRecord {
         }
     }
 
+    /// Set an INFO field, converting Python values into typed VCF entries.
+    ///
+    /// # Example
+    /// ```python
+    /// vcf_record.set_info("DP", 35)
+    /// ```
     fn set_info(&mut self, key: &str, value: Py<PyAny>) -> PyResult<()> {
         if let Position::Vcf(v) = &mut *self.inner.try_lock().expect("failed to lock interval") {
             Python::attach(|py| {
@@ -372,6 +465,12 @@ impl PyVcfRecord {
     }
 
     #[getter]
+    /// Get the QUAL value if present.
+    ///
+    /// # Example
+    /// ```python
+    /// qual = vcf_record.qual
+    /// ```
     fn qual(&self) -> PyResult<Option<f32>> {
         if let Position::Vcf(v) = &*self.inner.try_lock().expect("failed to lock interval") {
             Ok(Some(v.record.qual()))
@@ -382,6 +481,12 @@ impl PyVcfRecord {
 
     #[allow(non_snake_case)]
     #[getter]
+    /// Get the reference allele.
+    ///
+    /// # Example
+    /// ```python
+    /// ref_allele = vcf_record.REF
+    /// ```
     fn REF(&self) -> PyResult<Option<String>> {
         if let Position::Vcf(v) = &*self.inner.try_lock().expect("failed to lock interval") {
             let alleles = v.record.alleles();
@@ -393,6 +498,12 @@ impl PyVcfRecord {
 
     #[allow(non_snake_case)]
     #[setter]
+    /// Update the reference allele.
+    ///
+    /// # Example
+    /// ```python
+    /// vcf_record.REF = "C"
+    /// ```
     fn set_REF(&mut self, ref_allele: &str) -> PyResult<()> {
         if let Position::Vcf(v) = &mut *self.inner.try_lock().expect("failed to lock interval") {
             let mut alleles = vec![ref_allele.as_bytes()];
@@ -412,6 +523,12 @@ impl PyVcfRecord {
     }
     #[allow(non_snake_case)]
     #[getter]
+    /// Get all alternate alleles.
+    ///
+    /// # Example
+    /// ```python
+    /// alts = vcf_record.ALT
+    /// ```
     fn ALT(&self) -> PyResult<Vec<String>> {
         if let Position::Vcf(v) = &*self.inner.try_lock().expect("failed to lock interval") {
             let alleles = v.record.alleles();
@@ -431,6 +548,12 @@ impl PyVcfRecord {
 
     #[allow(non_snake_case)]
     #[setter]
+    /// Replace alternate alleles.
+    ///
+    /// # Example
+    /// ```python
+    /// vcf_record.ALT = ["T", "G"]
+    /// ```
     fn set_ALT(&mut self, alt: Vec<String>) -> PyResult<()> {
         if let Position::Vcf(v) = &mut *self.inner.try_lock().expect("failed to lock interval") {
             let ref_allele = v.record.alleles()[0].to_owned();
@@ -444,6 +567,12 @@ impl PyVcfRecord {
     }
 
     #[getter]
+    /// Get currently set FILTER values.
+    ///
+    /// # Example
+    /// ```python
+    /// filters = vcf_record.filters
+    /// ```
     fn filters(&self) -> PyResult<Vec<String>> {
         if let Position::Vcf(v) = &*self.inner.try_lock().expect("failed to lock interval") {
             let filters = v.record.filters();
@@ -459,6 +588,12 @@ impl PyVcfRecord {
     }
 
     #[setter]
+    /// Replace FILTER values with the provided list.
+    ///
+    /// # Example
+    /// ```python
+    /// vcf_record.filters = ["PASS"]
+    /// ```
     fn set_filters(&mut self, filters: Vec<String>) -> PyResult<()> {
         if let Position::Vcf(v) = &mut *self.inner.try_lock().expect("failed to lock interval") {
             let filter_bytes: Vec<_> = filters.iter().map(|f| f.as_bytes()).collect();
@@ -470,6 +605,12 @@ impl PyVcfRecord {
     }
 
     #[setter]
+    /// Set a single FILTER value.
+    ///
+    /// # Example
+    /// ```python
+    /// vcf_record.set_filter("LowQual")
+    /// ```
     fn set_filter(&mut self, filter: &str) -> PyResult<()> {
         if let Position::Vcf(v) = &mut *self.inner.try_lock().expect("failed to lock interval") {
             v.record
@@ -484,6 +625,12 @@ impl PyVcfRecord {
     }
 
     #[getter]
+    /// Get the record identifier.
+    ///
+    /// # Example
+    /// ```python
+    /// identifier = vcf_record.id
+    /// ```
     fn id(&self) -> PyResult<String> {
         if let Position::Vcf(v) = &*self.inner.try_lock().expect("failed to lock interval") {
             let id = v.record.id();
@@ -494,6 +641,12 @@ impl PyVcfRecord {
     }
 
     #[setter]
+    /// Set the record identifier.
+    ///
+    /// # Example
+    /// ```python
+    /// vcf_record.id = "rs123"
+    /// ```
     fn set_id(&mut self, id: &str) -> PyResult<()> {
         if let Position::Vcf(v) = &mut *self.inner.try_lock().expect("failed to lock interval") {
             v.record
@@ -511,6 +664,14 @@ impl PyVcfRecord {
 ///     a (Position, optional): The query interval
 ///     b (list[Position]): List of intervals that intersect with the query
 ///     id (int): Unique identifier for this fragment
+///
+/// # Example
+/// ```python
+/// for fragment in report:
+///     anchor = fragment.a
+///     for overlap in fragment:
+///         print(overlap.chrom, overlap.start, overlap.stop)
+/// ```
 #[pyclass]
 #[derive(Clone, Debug)]
 pub struct PyReportFragment {
@@ -579,7 +740,14 @@ impl PyReportFragment {
 #[pymethods]
 impl PyReportFragment {
     #[getter]
-    /// Get the query interval if present
+    /// Get the query interval if present.
+    ///
+    /// # Example
+    /// ```python
+    /// anchor = fragment.a
+    /// if anchor is not None:
+    ///     print(anchor.chrom)
+    /// ```
     fn a(&self) -> PyResult<Option<PyPosition>> {
         match &self.inner.a {
             Some(pos) => Ok(Some(PyPosition { inner: pos.clone() })),
@@ -588,7 +756,14 @@ impl PyReportFragment {
     }
 
     #[getter]
-    /// Get the list of intersecting intervals
+    /// Get the list of intersecting intervals.
+    ///
+    /// # Example
+    /// ```python
+    /// overlaps = fragment.b
+    /// for position in overlaps:
+    ///     print(position.chrom)
+    /// ```
     fn b(&self) -> PyResult<Vec<PyPosition>> {
         Ok(self
             .inner
@@ -616,7 +791,12 @@ impl PyReportFragment {
     }
 
     #[getter]
-    /// Get the unique identifier for this fragment
+    /// Get the unique identifier for this fragment.
+    ///
+    /// # Example
+    /// ```python
+    /// fragment_id = fragment.id
+    /// ```
     fn id(&self) -> PyResult<usize> {
         Ok(self.inner.id)
     }
@@ -644,14 +824,24 @@ pub struct PyReport {
 #[pymethods]
 impl PyReport {
     #[new]
-    /// Create a new empty Report
+    /// Create a new empty Report.
+    ///
+    /// # Example
+    /// ```python
+    /// report = bedder.PyReport()
+    /// ```
     fn new() -> Self {
         PyReport {
             inner: Arc::new(crate::report::Report::new(Vec::new())),
         }
     }
 
-    /// Add a report fragment to the collection
+    /// Add a report fragment to the collection.
+    ///
+    /// # Example
+    /// ```python
+    /// report.add_fragment(fragment)
+    /// ```
     fn add_fragment(&mut self, frag: PyReportFragment) -> PyResult<()> {
         let inner_frags = vec![frag.inner];
         self.inner = Arc::new(crate::report::Report::new(inner_frags));
@@ -664,20 +854,42 @@ impl PyReport {
         Py::new(slf.py(), iter)
     }
 
+    /// Number of fragments in the report.
+    ///
+    /// # Example
+    /// ```python
+    /// size = len(report)
+    /// ```
     fn __len__(&self) -> PyResult<usize> {
         Ok(self.inner.len())
     }
 
+    /// Retrieve a fragment by index.
+    ///
+    /// # Example
+    /// ```python
+    /// first = report[0]
+    /// ```
     fn __getitem__(&self, index: usize) -> PyResult<PyReportFragment> {
         Ok(PyReportFragment::from(self.inner[index].clone()))
     }
 
-    /// Get count of overlaps for each query ID
+    /// Get count of overlaps for each query ID.
+    ///
+    /// # Example
+    /// ```python
+    /// overlap_counts = report.count_overlaps_by_id()
+    /// ```
     fn count_overlaps_by_id(&self) -> PyResult<Vec<u64>> {
         Ok(self.inner.count_overlaps_by_id())
     }
 
-    /// Get count of overlapping bases for each query ID
+    /// Get count of overlapping bases for each query ID.
+    ///
+    /// # Example
+    /// ```python
+    /// base_counts = report.count_bases_by_id()
+    /// ```
     fn count_bases_by_id(&self) -> PyResult<Vec<u64>> {
         Ok(self.inner.count_bases_by_id())
     }
@@ -723,6 +935,15 @@ use std::sync::Arc;
 ///     chrom (str): The chromosome name
 ///     start (int): The start position (0-based)
 ///     stop (int): The end position (exclusive)
+///
+/// # Example
+/// ```python
+/// fragment = report[0]
+/// position = fragment.b[0]
+/// print(position.chrom, position.start, position.stop)
+/// vcf_record = position.vcf()
+/// print(vcf_record.REF)
+/// ```
 #[pyclass]
 #[derive(Clone, Debug)]
 pub struct PyPosition {
@@ -732,7 +953,15 @@ pub struct PyPosition {
 #[pymethods]
 impl PyPosition {
     /// Get the BED record if this position represents a BED interval
-    fn bed(&self) -> PyResult<Option<PyBedRecord>> {
+    ///
+    /// # Example
+    /// ```python
+    /// bed = position.bed()
+    /// ```
+    ///
+    /// # Raises
+    ///     TypeError: If the position is not a BED record.
+    fn bed(&self) -> PyResult<PyBedRecord> {
         let is_bed = matches!(
             *self
                 .inner
@@ -741,16 +970,24 @@ impl PyPosition {
             Position::Bed(_)
         );
         if is_bed {
-            Ok(Some(PyBedRecord {
+            Ok(PyBedRecord {
                 inner: self.inner.clone(),
-            }))
+            })
         } else {
-            Ok(None)
+            Err(PyTypeError::new_err("position is not a BED record"))
         }
     }
 
     /// get the vcf record if this position represents a vcf record
-    fn vcf(&self) -> PyResult<Option<PyVcfRecord>> {
+    ///
+    /// # Example
+    /// ```python
+    /// vcf = position.vcf()
+    /// ```
+    ///
+    /// # Raises
+    ///     TypeError: If the position is not a VCF record.
+    fn vcf(&self) -> PyResult<PyVcfRecord> {
         let is_vcf = matches!(
             *self
                 .inner
@@ -759,16 +996,21 @@ impl PyPosition {
             Position::Vcf(_)
         );
         if is_vcf {
-            Ok(Some(PyVcfRecord {
+            Ok(PyVcfRecord {
                 inner: self.inner.clone(),
-            }))
+            })
         } else {
-            Ok(None)
+            Err(PyTypeError::new_err("position is not a VCF record"))
         }
     }
 
     #[getter]
     /// Get the chromosome name
+    ///
+    /// # Example
+    /// ```python
+    /// chrom = position.chrom
+    /// ```
     fn chrom(&self) -> PyResult<String> {
         Ok(self
             .inner
@@ -780,6 +1022,11 @@ impl PyPosition {
 
     #[getter]
     /// Get the start position (0-based)
+    ///
+    /// # Example
+    /// ```python
+    /// start = position.start
+    /// ```
     fn start(&self) -> PyResult<u64> {
         Ok(self
             .inner
@@ -790,6 +1037,11 @@ impl PyPosition {
 
     #[getter]
     /// Get the end position (exclusive)
+    ///
+    /// # Example
+    /// ```python
+    /// stop = position.stop
+    /// ```
     fn stop(&self) -> PyResult<u64> {
         Ok(self
             .inner
@@ -947,12 +1199,22 @@ impl PyIntersections {
 impl PyIntersections {
     #[getter]
     /// Get the base interval
+    ///
+    /// # Example
+    /// ```python
+    /// anchor = intersections.base_interval
+    /// ```
     fn base_interval(&self) -> PyResult<PyPosition> {
         Ok(PyPosition {
             inner: self.inner.base_interval.clone(),
         })
     }
     /// Get the base interval
+    ///
+    /// # Example
+    /// ```python
+    /// anchor = intersections.a
+    /// ```
     fn a(&self) -> PyResult<PyPosition> {
         Ok(PyPosition {
             inner: self.inner.base_interval.clone(),
@@ -961,6 +1223,12 @@ impl PyIntersections {
 
     #[getter]
     /// Get the list of overlapping intervals
+    ///
+    /// # Example
+    /// ```python
+    /// for hit in intersections.overlapping:
+    ///     print(hit.chrom)
+    /// ```
     fn overlapping(&self) -> PyResult<Vec<PyPosition>> {
         Ok(self
             .inner
@@ -973,6 +1241,11 @@ impl PyIntersections {
     }
 
     /// Report intersections based on specified modes and requirements
+    ///
+    /// # Example
+    /// ```python
+    /// report = intersections.report()
+    /// ```
     fn report(&mut self) -> PyResult<PyReport> {
         Ok(PyReport {
             inner: self.inner.report(&self.report_options),
@@ -1000,17 +1273,18 @@ pub struct CompiledPython<'py> {
 
 // Add this function to initialize the Python environment
 pub fn initialize_python(py: Python<'_>) -> PyResult<()> {
-    // Register the bedder_py module in sys.modules
-    let bedder_module = PyModule::new(py, "bedder_py")?;
+    // Register the bedder module in sys.modules (and alias as bedder_py)
+    let bedder_module = PyModule::new(py, "bedder")?;
     bedder_py(&bedder_module)?;
-    py.import("sys")?
-        .getattr("modules")?
-        .set_item("bedder_py", &bedder_module)?;
+    let sys_modules = py.import("sys")?.getattr("modules")?;
+    sys_modules.set_item("bedder", &bedder_module)?;
+    sys_modules.set_item("bedder_py", &bedder_module)?;
 
     // Import bedder classes into the __builtins__ module so they're globally available
     let builtins = py.import("builtins")?;
     let bedder_classes = [
         "PyBedRecord",
+        "PyVcfRecord",
         "PyPosition",
         "PyReport",
         "PyReportFragment",
@@ -1211,6 +1485,7 @@ impl<'py> CompiledExpr<'py> {
 #[pymodule]
 fn bedder_py(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyBedRecord>()?;
+    m.add_class::<PyVcfRecord>()?;
     m.add_class::<PyReportFragment>()?;
     m.add_class::<PyReport>()?;
     m.add_class::<PyPosition>()?;
@@ -1222,4 +1497,10 @@ fn bedder_py(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyReportIter>()?;
 
     Ok(())
+}
+
+#[pymodule]
+fn bedder(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
+    let _ = py;
+    bedder_py(m)
 }
