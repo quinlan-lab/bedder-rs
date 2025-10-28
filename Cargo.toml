@@ -54,6 +54,7 @@ csi = ["noodles/csi"]
 core = ["noodles/core"]
 # allow a Box<dyn Positioned> in the enum to support user-specified types.
 dyn_positioned = []
+python_embedded = []
 
 [dev-dependencies]
 criterion = { version = "0.7.0", features = ["html_reports"] }
