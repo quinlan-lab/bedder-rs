@@ -939,7 +939,7 @@ use std::sync::Arc;
 /// # Example
 /// ```python
 /// fragment = report[0]
-/// position = fragment.b[0]
+/// position = fragment.b[0] # or fragment.a
 /// print(position.chrom, position.start, position.stop)
 /// vcf_record = position.vcf()
 /// print(vcf_record.REF)
@@ -960,7 +960,8 @@ impl PyPosition {
     /// ```
     ///
     /// # Raises
-    ///     TypeError: If the position is not a BED record.
+    ///
+    /// TypeError: If the position is not a BED record.
     fn bed(&self) -> PyResult<PyBedRecord> {
         let is_bed = matches!(
             *self
@@ -986,7 +987,8 @@ impl PyPosition {
     /// ```
     ///
     /// # Raises
-    ///     TypeError: If the position is not a VCF record.
+    ///
+    /// TypeError: If the position is not a VCF record.
     fn vcf(&self) -> PyResult<PyVcfRecord> {
         let is_vcf = matches!(
             *self
