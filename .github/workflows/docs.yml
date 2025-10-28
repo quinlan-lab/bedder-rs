@@ -20,6 +20,31 @@ jobs:
         runs-on: ubuntu-latest
         steps:
             - uses: actions/checkout@v4
+            - name: Determine docs destination
+              id: docs_dest
+              run: |
+                  set -euo pipefail
+                  ref_type="${GITHUB_REF_TYPE}"
+                  ref_name="${GITHUB_REF_NAME}"
+                  if [ "${ref_type}" = "tag" ]; then
+                      dest="${ref_name}"
+                      case "${dest}" in
+                          v*) ;;
+                          *) dest="v${dest}" ;;
+                      esac
+                  elif [ "${ref_name}" = "dev" ]; then
+                      dest="dev"
+                  else
+                      dest="main"
+                  fi
+                  echo "DOCS_DEST=${dest}" >> "${GITHUB_ENV}"
+                  echo "dest=${dest}" >> "${GITHUB_OUTPUT}"
+            - name: Checkout existing Pages content
+              uses: actions/checkout@v4
+              continue-on-error: true
+              with:
+                  ref: gh-pages
+                  path: .gh-pages
             - uses: actions/setup-python@v5
               with:
                   python-version: "3.10"
@@ -54,10 +79,43 @@ jobs:
               run: |
                   source .venv/docs/bin/activate
                   pdoc bedder --output-dir docs || pdoc stubs/bedder/__init__.pyi --output-dir docs
+            - name: Prepare versioned docs site
+              run: |
+                  set -euo pipefail
+                  mkdir -p site
+                  if [ -d .gh-pages ]; then
+                      rsync -a --delete --exclude '.git' .gh-pages/ site/
+                  fi
+                  rm -rf "site/${DOCS_DEST}"
+                  mkdir -p "site/${DOCS_DEST}"
+                  rsync -a docs/ "site/${DOCS_DEST}/"
+                  mapfile -t versions < <(find site -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort -r)
+                  cat > site/index.html <<'EOF'
+                  <!DOCTYPE html>
+                  <html lang="en">
+                  <head>
+                      <meta charset="UTF-8" />
+                      <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+                      <title>bedder documentation</title>
+                  </head>
+                  <body>
+                      <main>
+                          <h1>bedder documentation</h1>
+                          <ul>
+                  EOF
+                  for version in "${versions[@]}"; do
+                      printf '            <li><a href="%s/">%s</a></li>\n' "${version}" "${version}" >> site/index.html
+                  done
+                  cat >> site/index.html <<'EOF'
+                      </ul>
+                  </main>
+                  </body>
+                  </html>
+                  EOF
             - name: Upload artifact
               uses: actions/upload-pages-artifact@v3
               with:
-                  path: docs
+                  path: site
             - name: Restore crate-type
               if: always() && env.REVERT_CDYLIB == '1'
               run: sed -i 's/crate-type = \["rlib", "cdylib"\]/crate-type = ["rlib"]/g' Cargo.toml
