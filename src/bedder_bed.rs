@@ -111,7 +111,7 @@ where
             last_record: None,
             line_number: 0,
             query_iter: None,
-            path: Some(path_string),
+            path: Some(path_string.into()),
         }
     }
 }

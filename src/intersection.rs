@@ -469,7 +469,7 @@ impl<'a> IntersectionIterator<'a> {
                 // Skip to the start of the next chromosome where database intervals exist
                 // Create a generic interval to avoid mixing file-specific Position metadata
                 let skip_pos = Position::Interval(crate::interval::Interval {
-                    chrom: next_pos.chrom().to_string(),
+                    chrom: next_pos.chrom().to_string().into(),
                     start: next_pos.start(),
                     stop: usize::MAX as u64,
                     ..Default::default()
@@ -529,7 +529,7 @@ impl<'a> IntersectionIterator<'a> {
                 // Create a generic interval for skipping rather than cloning from current_pos
                 // to avoid mixing file-specific Position metadata
                 let skip_pos = Position::Interval(crate::interval::Interval {
-                    chrom: current_pos.chrom().to_string(),
+                    chrom: current_pos.chrom().to_string().into(),
                     start: skip_target,
                     //stop: skip_target + 1,
                     stop: u64::MAX,
