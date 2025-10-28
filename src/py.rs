@@ -1342,7 +1342,7 @@ pub fn introspect_python_functions<'py>(
                 if let Ok(dict) = annotations.downcast::<pyo3::types::PyDict>() {
                     if let Some(return_type) = dict.get_item("return")? {
                         if let Ok(type_name) = return_type.getattr("__name__") {
-                            return_type_str = format!("{}", type_name.to_string());
+                            return_type_str = format!("{}", type_name);
                         } else {
                             // Fallback to repr if __name__ is not available
                             return_type_str = format!("{}", return_type.repr()?);

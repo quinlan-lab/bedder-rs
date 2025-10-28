@@ -20,7 +20,6 @@ enum Commands {
     Closest(cli::closest::ClosestCmdArgs),
 }
 
-#[cfg(not(python_embedded))]
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
