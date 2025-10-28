@@ -10,6 +10,7 @@ exclude = [
 [lib]
 name = "bedder"
 path = "src/lib.rs"
+#rate-type = ["rlib", "cdylib"]
 crate-type = ["rlib"]
 
 [[bin]]

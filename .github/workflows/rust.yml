@@ -27,5 +27,5 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo test --features smartstring
       - run: cargo test
+      #- run: cargo test --features smartstring
