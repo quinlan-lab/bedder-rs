@@ -210,6 +210,12 @@ pub struct ReportOptionsBuilder {
     b_requirements: OverlapAmount,
 }
 
+impl Default for ReportOptionsBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ReportOptionsBuilder {
     /// Create a new ReportOptionsBuilder with default values
     pub fn new() -> Self {

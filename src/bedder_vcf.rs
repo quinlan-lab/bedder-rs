@@ -24,7 +24,7 @@ impl BedderVCF {
             record_number: 0,
             header: h,
             last_record: None,
-            path: path,
+            path,
         };
         Ok(v)
     }
@@ -32,11 +32,11 @@ impl BedderVCF {
     pub fn from_path(p: &str) -> io::Result<BedderVCF> {
         if p == "-" || p == "stdin" || p == "/dev/stdin" {
             let r =
-                bcf::Reader::from_stdin().map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+                bcf::Reader::from_stdin().map_err(io::Error::other)?;
             BedderVCF::new(r, String::from("stdin"))
         } else {
             let r =
-                bcf::Reader::from_path(p).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+                bcf::Reader::from_path(p).map_err(io::Error::other)?;
             BedderVCF::new(r, String::from(p))
         }
     }
@@ -67,7 +67,7 @@ impl Skip for BedderVCF {
                 }
                 Ok(())
             }
-            Err(e) => Err(io::Error::new(io::ErrorKind::Other, e)),
+            Err(e) => Err(io::Error::other(e)),
         }
     }
 }
@@ -203,7 +203,7 @@ impl crate::position::PositionedIterator for BedderVCF {
                     e,
                     self.record_number
                 );
-                Some(Err(io::Error::new(io::ErrorKind::Other, e)))
+                Some(Err(io::Error::other(e)))
             }
         }
     }
