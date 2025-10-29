@@ -1,3 +1,4 @@
+*.o
 target/
 env
 /Cargo.lock

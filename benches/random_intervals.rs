@@ -3,7 +3,7 @@ use bedder::intersection::IntersectionIterator;
 use bedder::interval::Interval;
 use bedder::position::{Position, PositionedIterator};
 use bedder::string::String;
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{criterion_group, criterion_main, Criterion};
 use rand::Rng;
 use std::io;
 
@@ -24,7 +24,7 @@ impl Intervals {
             name,
             n_intervals,
             curr_max: 1.0,
-            rng: rand::thread_rng(),
+            rng: rand::rng(),
             interval_len,
             saved_chrom: String::from("chr1"),
         }
@@ -39,7 +39,7 @@ impl PositionedIterator for Intervals {
     fn next_position(&mut self, _q: Option<&Position>) -> Option<io::Result<Position>> {
         if self.i < self.n_intervals {
             self.i += 1;
-            let r: f64 = self.rng.gen();
+            let r: f64 = self.rng.random();
             self.curr_max *= r.powf(self.i as f64);
             let start = ((1.0 - self.curr_max) * (MAX_POSITION as f64)) as u64;
             Some(Ok(Position::Interval(Interval {
@@ -64,12 +64,19 @@ pub fn intersection_benchmark(c: &mut Criterion) {
         b.iter_with_large_drop(|| {
             let a_ivs = Intervals::new(String::from("a"), 100, 1000);
             let b_ivs = Box::new(Intervals::new(String::from("b"), 100_000, 100));
-            let iter = IntersectionIterator::new(a_ivs, vec![b_ivs], &chrom_order)
-                .expect("error getting iterator");
+            let iter = IntersectionIterator::new(
+                Box::new(a_ivs),
+                vec![b_ivs],
+                &chrom_order,
+                0,
+                0,
+                false,
+            )
+            .expect("error getting iterator");
 
             iter.for_each(|intersection| {
                 let intersection = intersection.expect("error getting intersection");
-                black_box(intersection.overlapping);
+                std::hint::black_box(intersection.overlapping);
             });
         });
     });
