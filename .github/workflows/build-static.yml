@@ -2,11 +2,11 @@ name: Build Static Binary with Embedded Python
 
 on:
   push:
-    branches: [ main, master, dev, build ]
+    branches: [main, master, dev, build]
   pull_request:
-    branches: [ main, master, dev, build ]
+    branches: [main, master, dev, build]
   release:
-    types: [ created ]
+    types: [created]
 
 env:
   CARGO_TERM_COLOR: always
@@ -14,20 +14,20 @@ env:
 
 jobs:
   build-static-binary:
-    name: Build Static Binary (${{ matrix.target }})
+    name: Build GNU Binary (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
         include:
           - os: ubuntu-22.04
-            target: x86_64-unknown-linux-musl
-            python_url: https://github.com/astral-sh/uv/releases/download/0.8.4/cpython-3.13.9%2B20251014-x86_64_v2-unknown-linux-musl-lto%2Bstatic-full.tar.zst
+            target: x86_64-unknown-linux-gnu
+            python_url: https://github.com/astral-sh/python-build-standalone/releases/download/20251028/cpython-3.13.9%2B20251028-x86_64-unknown-linux-gnu-pgo%2Blto-full.tar.zst
           # Add other platforms as needed
           # - os: macos-13
           #   target: x86_64-apple-darwin
           # - os: macos-14
           #   target: aarch64-apple-darwin
-    
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -43,62 +43,78 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y musl-tools clang libssl-dev openssl libffi-dev zstd curl
+          sudo apt-get install -y build-essential clang lld libssl-dev openssl libffi-dev zstd curl pkg-config jq
 
       - name: Download and extract static Python
         run: |
           # Create directories for Python
-          mkdir -p third_party/python-musl
-          
-          # Download static Python from UV project releases
+          mkdir -p third_party/python-gnu
+
+          # Download static Python from python-build-standalone releases
           echo "Downloading Python from: ${{ matrix.python_url }}"
-          curl -L -o python-archive.tar.zst "${{ matrix.python_url }}"
-          
+          curl -fL -o python-archive.tar.zst "${{ matrix.python_url }}"
+
           # Extract to the expected location
-          mkdir -p third_party/python-musl/python
-          tar --zstd -xf python-archive.tar.zst -C third_party/python-musl/python
-          
+          mkdir -p third_party/python-gnu/python
+          tar --zstd -xf python-archive.tar.zst -C third_party/python-gnu/python --strip-components=1
+
           # Verify the extraction
-          ls -la third_party/python-musl/python/install/lib/
-          
-          # Verify we have the static library
-          if [ ! -f "third_party/python-musl/python/install/lib/libpython3.13.a" ]; then
-            echo "Static Python library not found!"
+          ls -la third_party/python-gnu/python/install/lib/ || true
+          ls -la third_party/python-gnu/python/build/lib/ || true
+
+      - name: List available static libraries in Python install
+        run: |
+          echo "Listing .a files under install/lib:"
+          find third_party/python-gnu/python/install/lib -maxdepth 1 -type f -name '*.a' -printf "%f\n" | sort || true
+          echo "\nListing .a files under build/lib:"
+          find third_party/python-gnu/python/build/lib -maxdepth 1 -type f -name '*.a' -printf "%f\n" | sort || true
+
+          # Verify we have libpython (.a or .so)
+          if [ ! -f "third_party/python-gnu/python/install/lib/libpython3.13.a" ] && [ ! -f "third_party/python-gnu/python/install/lib/libpython3.13.so" ]; then
+            echo "libpython3.13.{a,so} not found!"
             exit 1
           fi
 
+      # musl-specific syscall shims removed for gnu target
+
       - name: Set up Python environment variables
         run: |
-          echo "PYTHON_EMBED_HOME=${{ github.workspace }}/third_party/python-musl/python/install" >> $GITHUB_ENV
-          echo "PYO3_LIB_DIR=${{ github.workspace }}/third_party/python-musl/python/install/lib" >> $GITHUB_ENV
-          echo "PYO3_INCLUDE_DIR=${{ github.workspace }}/third_party/python-musl/python/install/include" >> $GITHUB_ENV
+          echo "PYTHON_EMBED_HOME=${{ github.workspace }}/third_party/python-gnu/python/install" >> $GITHUB_ENV
+          echo "PYO3_LIB_DIR=${{ github.workspace }}/third_party/python-gnu/python/install/lib" >> $GITHUB_ENV
+          echo "PYO3_INCLUDE_DIR=${{ github.workspace }}/third_party/python-gnu/python/install/include" >> $GITHUB_ENV
+          echo "PKG_CONFIG_PATH=${{ github.workspace }}/third_party/python-gnu/python/install/lib/pkgconfig:$PKG_CONFIG_PATH" >> $GITHUB_ENV
+          echo "PYO3_PYTHON=${{ github.workspace }}/third_party/python-gnu/python/install/bin/python3.13" >> $GITHUB_ENV
+          echo "PYTHON_SYS_EXECUTABLE=${{ github.workspace }}/third_party/python-gnu/python/install/bin/python3.13" >> $GITHUB_ENV
+          echo "PATH=${{ github.workspace }}/third_party/python-gnu/python/install/bin:$PATH" >> $GITHUB_ENV
+          # Use Python's lib/include; let linker resolve shared libs normally
+          echo "LIBRARY_PATH=${{ github.workspace }}/third_party/python-gnu/python/install/lib:${{ github.workspace }}/third_party/python-gnu/python/build/lib:$LIBRARY_PATH" >> $GITHUB_ENV
+          echo "PYO3_STATIC=1" >> $GITHUB_ENV
 
-      - name: Set up musl target (Linux)
-        if: runner.os == 'Linux' && contains(matrix.target, 'musl')
+      - name: Ensure target added
         run: |
-          # Install musl target if needed
           rustup target add ${{ matrix.target }}
 
-      - name: Build static binary
+      - name: Build release binary
         run: |
-          # Build with static linking and embedded Python
+          # Clean to ensure fresh build with correct flags
+          cargo clean
+
+          # Build with embedded Python (gnu target)
           cargo build --release --target ${{ matrix.target }} 
-          
+
           # Verify the binary was created
           if [ ! -f "target/${{ matrix.target }}/release/bedder" ]; then
             echo "Binary not found!"
             exit 1
           fi
 
-      - name: Check binary for static linking
+      - name: Inspect built binary
         run: |
-          # Check if the binary is truly static
-          ldd "target/${{ matrix.target }}/release/bedder" 2>&1 | grep -q "not a dynamic executable" || echo "Binary may not be fully static"
-          
-          # Show file type
+          echo "=== File type ==="
           file "target/${{ matrix.target }}/release/bedder"
-          
-          # Show file size
+          echo -e "\n=== Linked libs ==="
+          ldd "target/${{ matrix.target }}/release/bedder" || true
+          echo -e "\n=== File size ==="
           ls -lah "target/${{ matrix.target }}/release/bedder"
 
       - name: Test binary
