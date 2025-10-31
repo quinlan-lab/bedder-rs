@@ -1,0 +1,114 @@
+name: Static Linux Build
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-static-linux:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Install Rust toolchain with musl target
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        toolchain: stable
+        targets: x86_64-unknown-linux-musl
+        
+    - name: Install musl tools and lld linker
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y musl-tools lld clang
+        
+    - name: Download and extract static Python build
+      run: |
+        # Download the static Python build from python-build-standalone
+        wget https://github.com/astral-sh/python-build-standalone/releases/download/20251028/cpython-3.13.9+20251028-x86_64_v2-unknown-linux-musl-lto+static-full.tar.zst
+        
+        # Install zstd to extract the archive
+        sudo apt-get install -y zstd
+        
+        # Extract the archive
+        tar -xf cpython-3.13.9+20251028-x86_64_v2-unknown-linux-musl-lto+static-full.tar.zst
+        
+        # Set up environment variables for the static Python installation
+        echo "PYTHON_ROOT=$(pwd)/python/install" >> $GITHUB_ENV
+        echo "PYO3_PYTHON=$(pwd)/python/install/bin/python3.13" >> $GITHUB_ENV
+        echo "PYO3_CONFIG_FILE=$(pwd)/pyo3-config.txt" >> $GITHUB_ENV
+        
+    - name: Patch Cargo.toml for static build
+      run: |
+        # For static builds with embedded Python, we need to remove abi3 feature
+        # abi3 is for Python extension modules, not for embedding Python
+        sed -i 's/features=\["macros", "abi3-py313"\]/features=["macros"]/' Cargo.toml
+        
+        # Comment out mimalloc dependency as Python's static library includes its own allocator
+        sed -i 's/^mimalloc = /#mimalloc = /' Cargo.toml
+        sed -i 's/^use mimalloc::/\/\/use mimalloc::/' src/main.rs || true
+        sed -i 's/^#\[global_allocator\]/\/\/#[global_allocator]/' src/main.rs || true
+        sed -i 's/^static GLOBAL: /\/\/static GLOBAL: /' src/main.rs || true
+        
+        echo "Updated Cargo.toml:"
+        grep -E "(pyo3|mimalloc)" Cargo.toml
+        
+    - name: Configure pyo3 for static linking
+      run: |
+        # Create pyo3 config file for static linking
+        cat > pyo3-config.txt << EOF
+        implementation=CPython
+        version=3.13
+        shared=false
+        abi3=false
+        lib_name=python3.13
+        lib_dir=$PYTHON_ROOT/lib
+        executable=$PYTHON_ROOT/bin/python3.13
+        pointer_width=64
+        build_flags=
+        suppress_build_script_link_lines=false
+        EOF
+        
+        cat pyo3-config.txt
+        
+    - name: Build static binary
+      run: |
+        # Build with static linking to musl and Python static libraries
+        # The Python static build includes many extension modules that need additional libraries
+        # Note: We use lld linker as it can handle LLVM bitcode from the Python LTO build
+        export RUSTFLAGS="-C target-feature=+crt-static -C linker=clang -C link-arg=-fuse-ld=lld -C link-arg=--target=x86_64-unknown-linux-musl -L $(pwd)/python/build/lib -C link-arg=-ltk8.6 -C link-arg=-ltcl8.6 -C link-arg=-lX11 -C link-arg=-lxcb -C link-arg=-lXau -C link-arg=-ledit -C link-arg=-lncursesw -C link-arg=-lpanelw -C link-arg=-lformw -C link-arg=-lmenuw -C link-arg=-lexpat -C link-arg=-lffi -C link-arg=-lzstd -C link-arg=-lsqlite3 -C link-arg=-lmpdec -C link-arg=-lbz2 -C link-arg=-llzma -C link-arg=-lssl -C link-arg=-lcrypto -C link-arg=-lz -C link-arg=-luuid -C link-arg=-ldb"
+        export PKG_CONFIG_ALLOW_CROSS=1
+        export PKG_CONFIG_ALL_STATIC=1
+        
+        # Build the static binary
+        # Note: preadv2/pwritev2 may cause issues on some musl versions - these are handled by Python at runtime
+        cargo build --release --target x86_64-unknown-linux-musl
+        
+    - name: Verify static binary
+      run: |
+        # Check that the binary is statically linked
+        echo "Binary info:"
+        ls -lh target/x86_64-unknown-linux-musl/release/bedder
+        
+        echo -e "\nChecking dynamic dependencies (should show 'not a dynamic executable'):"
+        ldd target/x86_64-unknown-linux-musl/release/bedder || echo "✓ Completely static binary (no dynamic dependencies)"
+        
+        echo -e "\nFile type:"
+        file target/x86_64-unknown-linux-musl/release/bedder
+        
+    - name: Test binary
+      run: |
+        target/x86_64-unknown-linux-musl/release/bedder --help
+        
+    - name: Upload static binary
+      uses: actions/upload-artifact@v4
+      with:
+        name: bedder-static-musl-linux-x86_64
+        path: target/x86_64-unknown-linux-musl/release/bedder

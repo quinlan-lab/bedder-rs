@@ -31,13 +31,13 @@ env_logger = "0.11.8"
 log = "0.4.19"
 linear-map = "1.2.0"
 hashbrown = "0.16.0"
-#mimalloc = "0.1.39"
+mimalloc = "0.1.39"
 #rust-htslib = { version = "0.49.0", features = ["libdeflate", "static"]}
 rust-htslib = { git = "https://github.com/brentp/rust-htslib.git", rev = "645bb6f", features=["libdeflate", "static"] }
 tempfile = "^3.14.0"
 simplebed = { git = "https://github.com/brentp/simplebed-rs.git", version = "0.1.5" }
 #simplebed = { path = "/home/brentp/src/simplebed-rs" }
-pyo3 = {version = "0.26.0", features=["macros"], default-features=false}
+pyo3 = {version = "0.26.0", features=["macros", "abi3-py313"], default-features=false}
 pyo3-ffi = "0.26.0"
 #mlua = {version = "0.10.3", features=["luau", "send"]}
 parking_lot = {version="0.12.3"}
