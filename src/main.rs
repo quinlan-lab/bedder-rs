@@ -20,8 +20,9 @@ enum Commands {
     Closest(cli::closest::ClosestCmdArgs),
 }
 
-#[global_allocator]
-static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+// Conditionally use mimalloc unless Python is embedded (which has its own allocator)
+//#[global_allocator]
+//static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     if env::var("RUST_LOG").is_err() {

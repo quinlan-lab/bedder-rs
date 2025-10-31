@@ -37,7 +37,7 @@ rust-htslib = { git = "https://github.com/brentp/rust-htslib.git", rev = "645bb6
 tempfile = "^3.14.0"
 simplebed = { git = "https://github.com/brentp/simplebed-rs.git", version = "0.1.5" }
 #simplebed = { path = "/home/brentp/src/simplebed-rs" }
-pyo3 = {version = "0.26.0", features=["macros", "abi3-py313"], default-features=false}
+pyo3 = {version = "0.26.0", features=["macros"], default-features=false}
 pyo3-ffi = "0.26.0"
 #mlua = {version = "0.10.3", features=["luau", "send"]}
 parking_lot = {version="0.12.3"}
@@ -54,7 +54,6 @@ csi = ["noodles/csi"]
 core = ["noodles/core"]
 # allow a Box<dyn Positioned> in the enum to support user-specified types.
 dyn_positioned = []
-python_embedded = []
 
 [dev-dependencies]
 criterion = { version = "0.7.0", features = ["html_reports"] }
