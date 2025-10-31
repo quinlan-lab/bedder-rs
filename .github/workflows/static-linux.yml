@@ -29,6 +29,55 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y musl-tools lld clang
         
+    - name: Create syscall stubs for missing musl functions
+      run: |
+        # Create stubs for preadv2 and pwritev2 which are not in musl
+        # These are newer Linux syscalls that Python uses but musl doesn't provide wrappers for
+        mkdir -p syscall-stubs
+        cat > syscall-stubs/syscall_stubs.c << 'EOF'
+        #define _GNU_SOURCE
+        #include <sys/uio.h>
+        #include <sys/syscall.h>
+        #include <unistd.h>
+        
+        // Stub for preadv2 - fallback to preadv if not available
+        ssize_t preadv2(int fd, const struct iovec *iov, int iovcnt, off_t offset, int flags) {
+            // If flags is 0, we can use preadv
+            if (flags == 0) {
+                return preadv(fd, iov, iovcnt, offset);
+            }
+            // Otherwise, try the syscall directly
+        #ifdef SYS_preadv2
+            return syscall(SYS_preadv2, fd, iov, iovcnt, offset, flags);
+        #else
+            // Fallback if syscall not available
+            return preadv(fd, iov, iovcnt, offset);
+        #endif
+        }
+        
+        // Stub for pwritev2 - fallback to pwritev if not available
+        ssize_t pwritev2(int fd, const struct iovec *iov, int iovcnt, off_t offset, int flags) {
+            // If flags is 0, we can use pwritev
+            if (flags == 0) {
+                return pwritev(fd, iov, iovcnt, offset);
+            }
+            // Otherwise, try the syscall directly
+        #ifdef SYS_pwritev2
+            return syscall(SYS_pwritev2, fd, iov, iovcnt, offset, flags);
+        #else
+            // Fallback if syscall not available
+            return pwritev(fd, iov, iovcnt, offset);
+        #endif
+        }
+        EOF
+        
+        # Compile the stubs into a static library
+        musl-gcc -c syscall-stubs/syscall_stubs.c -o syscall-stubs/syscall_stubs.o
+        ar rcs syscall-stubs/libsyscall_stubs.a syscall-stubs/syscall_stubs.o
+        
+        echo "Created syscall stubs library"
+        ls -l syscall-stubs/
+        
     - name: Download and extract static Python build
       run: |
         # Download the static Python build from python-build-standalone
@@ -100,15 +149,42 @@ jobs:
         # Build with static linking to musl and Python static libraries
         # The Python static build includes many extension modules that need additional libraries
         # Note: We use lld linker as it can handle LLVM bitcode from the Python LTO build
-        export RUSTFLAGS="-C target-feature=+crt-static -C linker=clang -C link-arg=-fuse-ld=lld -C link-arg=--target=x86_64-unknown-linux-musl -L $(pwd)/python/build/lib -C link-arg=-ltk8.6 -C link-arg=-ltcl8.6 -C link-arg=-lX11 -C link-arg=-lxcb -C link-arg=-lXau -C link-arg=-ledit -C link-arg=-lncursesw -C link-arg=-lpanelw -C link-arg=-lformw -C link-arg=-lmenuw -C link-arg=-lexpat -C link-arg=-lffi -C link-arg=-lzstd -C link-arg=-lsqlite3 -C link-arg=-lmpdec -C link-arg=-lbz2 -C link-arg=-llzma -C link-arg=-lssl -C link-arg=-lcrypto -C link-arg=-lz -C link-arg=-luuid -C link-arg=-ldb"
+        
+        # Set up library paths for Python static libraries and syscall stubs
+        export PYTHON_LIB_DIR="$(pwd)/python/build/lib"
+        export STUB_LIB_DIR="$(pwd)/syscall-stubs"
+        
+        # Configure RUSTFLAGS for static linking with musl
+        export RUSTFLAGS="-C target-feature=+crt-static -C linker=clang -C link-arg=-fuse-ld=lld -C link-arg=--target=x86_64-unknown-linux-musl -L ${PYTHON_LIB_DIR} -L ${STUB_LIB_DIR}"
+        
+        # Add syscall stubs first
+        export RUSTFLAGS="$RUSTFLAGS -C link-arg=-lsyscall_stubs"
+        
+        # Add all required Python extension libraries
+        # Order matters - dependencies must come after libraries that need them
+        LINK_LIBS="-ltk8.6 -ltcl8.6 -lX11 -lxcb -lXau -ledit -lncursesw -lpanelw -lformw -lmenuw -lexpat -lffi -lzstd -lsqlite3 -lmpdec -lbz2 -llzma -lssl -lcrypto -lz -luuid -ldb"
+        
+        for lib in $LINK_LIBS; do
+          export RUSTFLAGS="$RUSTFLAGS -C link-arg=$lib"
+        done
+        
         export PKG_CONFIG_ALLOW_CROSS=1
         export PKG_CONFIG_ALL_STATIC=1
+        
+        echo "RUSTFLAGS: $RUSTFLAGS"
+        echo "Building static binary..."
         
         # Build the static binary
         # Disable default features to exclude mimalloc (conflicts with Python's allocator)
         # Re-enable needed features except mimalloc
-        # Note: preadv2/pwritev2 may cause issues on some musl versions - these are handled by Python at runtime
-        cargo build --release --target x86_64-unknown-linux-musl --no-default-features --features bed,csi,core,bam,sam,bgzf
+        cargo build --release --target x86_64-unknown-linux-musl --no-default-features --features bed,csi,core,bam,sam,bgzf 2>&1 | tee build.log
+        
+        # Check if build succeeded
+        if [ ! -f target/x86_64-unknown-linux-musl/release/bedder ]; then
+          echo "Build failed! Last 100 lines of output:"
+          tail -100 build.log
+          exit 1
+        fi
         
     - name: Verify static binary
       run: |
