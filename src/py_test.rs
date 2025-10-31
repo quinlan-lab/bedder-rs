@@ -48,6 +48,7 @@ mod tests {
 
     #[test]
     fn test_simple_snippet() {
+        Python::initialize();
         Python::attach(|py| -> PyResult<()> {
             let code = r#"
 def bedder_test_func(fragment) -> str:
@@ -81,6 +82,8 @@ def bedder_test_func(fragment) -> str:
 
     #[test]
     fn test_vcf_info() {
+        Python::initialize();
+
         Python::attach(|py| -> PyResult<()> {
             crate::py::initialize_python(py)?;
 
@@ -158,6 +161,8 @@ assert vcf_record.info("INTS") == [1,2,3]
 
     #[test]
     fn test_vcf_filters_returns_names() {
+
+        Python::initialize();
         Python::attach(|py| -> PyResult<()> {
             crate::py::initialize_python(py)?;
 
@@ -212,6 +217,7 @@ assert filters == ["lowdp", "q10"], filters
 
     #[test]
     fn test_writer_applies_filter() {
+        Python::initialize();
         Python::attach(|py| -> PyResult<()> {
             // Define two filter functions
             let code = r#"

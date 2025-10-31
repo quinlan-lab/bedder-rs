@@ -1,4 +1,5 @@
 *.o
+third_party
 target/
 env
 /Cargo.lock
