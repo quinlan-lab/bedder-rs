@@ -2,11 +2,11 @@ name: Build Static Binary with Embedded Python
 
 on:
   push:
-    branches: [ main, master, dev, build ]
+    branches: [main, master, dev, build]
   pull_request:
-    branches: [ main, master, dev, build ]
+    branches: [main, master, dev, build]
   release:
-    types: [ created ]
+    types: [created]
 
 env:
   CARGO_TERM_COLOR: always
@@ -21,13 +21,13 @@ jobs:
         include:
           - os: ubuntu-22.04
             target: x86_64-unknown-linux-musl
-            python_url: https://github.com/astral-sh/uv/releases/download/0.8.4/cpython-3.13.9%2B20251014-x86_64_v2-unknown-linux-musl-lto%2Bstatic-full.tar.zst
+            python_url: https://github.com/astral-sh/python-build-standalone/releases/download/20251028/cpython-3.14.0%2B20251028-x86_64-unknown-linux-musl-lto%2Bstatic-full.tar.zst
           # Add other platforms as needed
           # - os: macos-13
           #   target: x86_64-apple-darwin
           # - os: macos-14
           #   target: aarch64-apple-darwin
-    
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -43,35 +43,66 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y musl-tools clang libssl-dev openssl libffi-dev zstd curl
+          sudo apt-get install -y musl-tools clang lld libssl-dev openssl libffi-dev zstd curl pkg-config
 
       - name: Download and extract static Python
         run: |
           # Create directories for Python
           mkdir -p third_party/python-musl
-          
-          # Download static Python from UV project releases
+
+          # Download static Python from python-build-standalone releases
           echo "Downloading Python from: ${{ matrix.python_url }}"
           curl -L -o python-archive.tar.zst "${{ matrix.python_url }}"
-          
+
           # Extract to the expected location
           mkdir -p third_party/python-musl/python
-          tar --zstd -xf python-archive.tar.zst -C third_party/python-musl/python
-          
+          tar --zstd -xf python-archive.tar.zst -C third_party/python-musl/python --strip-components=1
+
           # Verify the extraction
           ls -la third_party/python-musl/python/install/lib/
-          
+
           # Verify we have the static library
-          if [ ! -f "third_party/python-musl/python/install/lib/libpython3.13.a" ]; then
+          if [ ! -f "third_party/python-musl/python/install/lib/libpython3.14.a" ]; then
             echo "Static Python library not found!"
             exit 1
           fi
+
+      - name: Build shims for missing syscalls (musl)
+        if: runner.os == 'Linux' && contains(matrix.target, 'musl')
+        run: |
+          cat > preadv2_shim.c << 'EOF'
+          #define _GNU_SOURCE
+          #include <sys/uio.h>
+          #include <sys/syscall.h>
+          #include <unistd.h>
+          #include <stdint.h>
+          // Provide preadv2 / pwritev2 when the C library doesn't export them
+          ssize_t preadv2(int fd, const struct iovec *iov, int iovcnt, off_t offset, int flags) {
+            return preadv(fd, iov, iovcnt, offset);
+          }
+          ssize_t pwritev2(int fd, const struct iovec *iov, int iovcnt, off_t offset, int flags) {
+            return pwritev(fd, iov, iovcnt, offset);
+          }
+          EOF
+          clang -O2 -c preadv2_shim.c -o preadv2_shim.o
+          echo "RUSTFLAGS=$RUSTFLAGS -C link-arg=$(pwd)/preadv2_shim.o" >> $GITHUB_ENV
 
       - name: Set up Python environment variables
         run: |
           echo "PYTHON_EMBED_HOME=${{ github.workspace }}/third_party/python-musl/python/install" >> $GITHUB_ENV
           echo "PYO3_LIB_DIR=${{ github.workspace }}/third_party/python-musl/python/install/lib" >> $GITHUB_ENV
           echo "PYO3_INCLUDE_DIR=${{ github.workspace }}/third_party/python-musl/python/install/include" >> $GITHUB_ENV
+          echo "PKG_CONFIG_PATH=${{ github.workspace }}/third_party/python-musl/python/install/lib/pkgconfig:$PKG_CONFIG_PATH" >> $GITHUB_ENV
+          echo "PYO3_PYTHON=${{ github.workspace }}/third_party/python-musl/python/install/bin/python3.14" >> $GITHUB_ENV
+          echo "PYTHON_SYS_EXECUTABLE=${{ github.workspace }}/third_party/python-musl/python/install/bin/python3.14" >> $GITHUB_ENV
+          #echo "PYO3_CROSS=1" >> $GITHUB_ENV
+          #echo "PYO3_CROSS_PYTHON_VERSION=3.14" >> $GITHUB_ENV
+          #echo "PYO3_NO_PYTHON=1" >> $GITHUB_ENV
+          echo "PATH=${{ github.workspace }}/third_party/python-musl/python/install/bin:$PATH" >> $GITHUB_ENV
+          # Use lld linker which handles LLVM bitcode from LTO properly
+          echo "RUSTFLAGS=$RUSTFLAGS -C linker=clang -C link-arg=-fuse-ld=lld -C link-arg=-lm -C link-arg=-lffi -C link-arg=-lX11 -C link-arg=-lzstd -C link-arg=-lxcb -C link-arg=-lXau -C link-arg=-luuid -C link-arg=-lsqlite3 -C link-arg=-lncursesw -C link-arg=-lpanelw -C link-arg=-ldb -C link-arg=-lmpdec -C link-arg=-ltk8.6 -C link-arg=-ltcl8.6 -C link-arg=-lexpat -C link-arg=-ledit -L native=${{ github.workspace }}/third_party/python-musl/python/install/lib -L native=${{ github.workspace }}/third_party/python-musl/python/build/lib" >> $GITHUB_ENV
+          echo "LIBRARY_PATH=${{ github.workspace }}/third_party/python-musl/python/install/lib:${{ github.workspace }}/third_party/python-musl/python/build/lib:$LIBRARY_PATH" >> $GITHUB_ENV
+          echo "PYO3_STATIC=1" >> $GITHUB_ENV
 
       - name: Set up musl target (Linux)
         if: runner.os == 'Linux' && contains(matrix.target, 'musl')
@@ -81,9 +112,12 @@ jobs:
 
       - name: Build static binary
         run: |
+          # Clean to ensure fresh build with correct flags
+          cargo clean
+
           # Build with static linking and embedded Python
           cargo build --release --target ${{ matrix.target }} 
-          
+
           # Verify the binary was created
           if [ ! -f "target/${{ matrix.target }}/release/bedder" ]; then
             echo "Binary not found!"
@@ -94,10 +128,10 @@ jobs:
         run: |
           # Check if the binary is truly static
           ldd "target/${{ matrix.target }}/release/bedder" 2>&1 | grep -q "not a dynamic executable" || echo "Binary may not be fully static"
-          
+
           # Show file type
           file "target/${{ matrix.target }}/release/bedder"
-          
+
           # Show file size
           ls -lah "target/${{ matrix.target }}/release/bedder"
 
