@@ -45,20 +45,37 @@ jobs:
         echo "PYO3_PYTHON=$(pwd)/python/install/bin/python3.13" >> $GITHUB_ENV
         echo "PYO3_CONFIG_FILE=$(pwd)/pyo3-config.txt" >> $GITHUB_ENV
         
-    - name: Patch Cargo.toml for static build
+    - name: Create pyo3 override for static build
       run: |
-        # For static builds with embedded Python, we need to remove abi3 feature
-        # abi3 is for Python extension modules, not for embedding Python
-        sed -i 's/features=\["macros", "abi3-py313"\]/features=["macros"]/' Cargo.toml
+        # For static musl builds with embedded Python, we need pyo3 without abi3
+        # Create a temporary patch in Cargo.toml that uses a local path override
+        # This is cleaner than sed and doesn't modify the committed files
         
-        # Comment out mimalloc dependency as Python's static library includes its own allocator
-        sed -i 's/^mimalloc = /#mimalloc = /' Cargo.toml
-        sed -i 's/^use mimalloc::/\/\/use mimalloc::/' src/main.rs || true
-        sed -i 's/^#\[global_allocator\]/\/\/#[global_allocator]/' src/main.rs || true
-        sed -i 's/^static GLOBAL: /\/\/static GLOBAL: /' src/main.rs || true
+        # Create a local pyo3-no-abi3 directory with a Cargo.toml that re-exports pyo3
+        mkdir -p pyo3-override
+        cat > pyo3-override/Cargo.toml << 'EOF'
+        [package]
+        name = "pyo3-override"
+        version = "0.26.0"
+        edition = "2021"
         
-        echo "Updated Cargo.toml:"
-        grep -E "(pyo3|mimalloc)" Cargo.toml
+        [dependencies]
+        pyo3 = { version = "0.26.0", features = ["macros"], default-features = false }
+        
+        [lib]
+        path = "lib.rs"
+        EOF
+        
+        cat > pyo3-override/lib.rs << 'EOF'
+        pub use pyo3::*;
+        EOF
+        
+        # Add path override to Cargo.toml (this won't be committed)
+        echo '' >> Cargo.toml
+        echo '[patch.crates-io]' >> Cargo.toml
+        echo 'pyo3 = { path = "pyo3-override" }' >> Cargo.toml
+        
+        echo "Added pyo3 override to use non-abi3 version"
         
     - name: Configure pyo3 for static linking
       run: |
@@ -88,8 +105,10 @@ jobs:
         export PKG_CONFIG_ALL_STATIC=1
         
         # Build the static binary
+        # Disable default features to exclude mimalloc (conflicts with Python's allocator)
+        # Re-enable needed features except mimalloc
         # Note: preadv2/pwritev2 may cause issues on some musl versions - these are handled by Python at runtime
-        cargo build --release --target x86_64-unknown-linux-musl
+        cargo build --release --target x86_64-unknown-linux-musl --no-default-features --features bed,csi,core,bam,sam,bgzf
         
     - name: Verify static binary
       run: |
