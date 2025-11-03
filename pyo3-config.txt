@@ -1,8 +1,0 @@
-implementation=CPython
-version=3.13
-shared=false
-abi3=false
-lib_name=python3.13
-lib_dir=/home/brentp/src/bedder-rs/third_party/python-gnu/python/install/lib
-executable=/home/brentp/src/bedder-rs/third_party/python-gnu/python/install/bin/python3.13
-suppress_build_script_link_lines=true

@@ -1,158 +1,98 @@
-name: Build Static Binary with Embedded Python
+name: Build Static GNU Binary
 
 on:
   push:
     branches: [main, master, dev, build]
   pull_request:
-    branches: [main, master, dev, build]
-  release:
-    types: [created]
-
-env:
-  CARGO_TERM_COLOR: always
-  RUST_BACKTRACE: 1
+  workflow_dispatch:
 
 jobs:
-  build-static-binary:
-    name: Build GNU Binary (${{ matrix.target }})
-    runs-on: ${{ matrix.os }}
+  linux-gnu:
+    name: Build bedder (${{ matrix.target }})
+    runs-on: ubuntu-22.04
     strategy:
       matrix:
         include:
-          - os: ubuntu-22.04
-            target: x86_64-unknown-linux-gnu
+          - target: x86_64-unknown-linux-gnu
             python_url: https://github.com/astral-sh/python-build-standalone/releases/download/20251028/cpython-3.13.9%2B20251028-x86_64-unknown-linux-gnu-pgo%2Blto-full.tar.zst
-          # Add other platforms as needed
-          # - os: macos-13
-          #   target: x86_64-apple-darwin
-          # - os: macos-14
-          #   target: aarch64-apple-darwin
+    env:
+      TARGET: ${{ matrix.target }}
+      PYTHON_URL: ${{ matrix.python_url }}
+      PYTHON_ARCHIVE: ${{ github.workspace }}/python-archive.tar.zst
+      PYTHON_GNU_DIR: ${{ github.workspace }}/third_party/python-gnu/python
+      PYTHON_EMBED_HOME: ${{ github.workspace }}/third_party/python-gnu/python/install
+      PYTHON_BUILD_LIB: ${{ github.workspace }}/third_party/python-gnu/python/build/lib
+      PYO3_STATIC: "1"
+      PYO3_PYTHON: ${{ github.workspace }}/third_party/python-gnu/python/install/bin/python3.13
+      PYTHON_SYS_EXECUTABLE: ${{ github.workspace }}/third_party/python-gnu/python/install/bin/python3.13
+      PYO3_INCLUDE_DIR: ${{ github.workspace }}/third_party/python-gnu/python/install/include
+      PYO3_LIB_DIR: ${{ github.workspace }}/third_party/python-gnu/python/install/lib
+      PYO3_LIB_NAME: python3.13
+      PYO3_CONFIG_FILE: ${{ github.workspace }}/pyo3-config.txt
+      OPENSSL_DIR: ${{ github.workspace }}/third_party/python-gnu/python/install
+      OPENSSL_LIB_DIR: ${{ github.workspace }}/third_party/python-gnu/python/build/lib
+      OPENSSL_INCLUDE_DIR: ${{ github.workspace }}/third_party/python-gnu/python/install/include
+      OPENSSL_STATIC: "1"
+      OPENSSL_NO_VENDOR: "1"
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          submodules: recursive
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
 
-      - name: Install system dependencies (Linux)
-        if: runner.os == 'Linux'
+      - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential clang lld libssl-dev openssl libffi-dev zstd curl pkg-config jq
+          sudo apt-get install -y build-essential clang lld libssl-dev pkg-config zstd curl
 
-      - name: Download and extract static Python
+      - name: Download and extract standalone Python
         run: |
-          # Create directories for Python
           mkdir -p third_party/python-gnu
+          echo "Downloading: ${PYTHON_URL}"
+          curl -fL "${PYTHON_URL}" -o "${PYTHON_ARCHIVE}"
+          mkdir -p "${PYTHON_GNU_DIR}"
+          tar --zstd -xf "${PYTHON_ARCHIVE}" -C "${PYTHON_GNU_DIR}" --strip-components=1
+          ls -al "${PYTHON_EMBED_HOME}/lib" || true
 
-          # Download static Python from python-build-standalone releases
-          echo "Downloading Python from: ${{ matrix.python_url }}"
-          curl -fL -o python-archive.tar.zst "${{ matrix.python_url }}"
+      - name: Export Python to PATH
+        run: echo "PATH=${PYTHON_EMBED_HOME}/bin:${PATH}" >> "$GITHUB_ENV"
 
-          # Extract to the expected location
-          mkdir -p third_party/python-gnu/python
-          tar --zstd -xf python-archive.tar.zst -C third_party/python-gnu/python --strip-components=1
-
-          # Verify the extraction
-          ls -la third_party/python-gnu/python/install/lib/ || true
-          ls -la third_party/python-gnu/python/build/lib/ || true
-
-      - name: List available static libraries in Python install
+      - name: Generate PyO3 config override
         run: |
-          echo "Listing .a files under install/lib:"
-          find third_party/python-gnu/python/install/lib -maxdepth 1 -type f -name '*.a' -printf "%f\n" | sort || true
-          echo "\nListing .a files under build/lib:"
-          find third_party/python-gnu/python/build/lib -maxdepth 1 -type f -name '*.a' -printf "%f\n" | sort || true
+          printf '%s\n' \
+            'implementation=CPython' \
+            'version=3.13' \
+            'shared=false' \
+            'abi3=false' \
+            'lib_name=python3.13' \
+            "lib_dir=${PYO3_LIB_DIR}" \
+            "executable=${PYO3_PYTHON}" \
+            'suppress_build_script_link_lines=true' \
+            > "${PYO3_CONFIG_FILE}"
 
-          # Verify we have libpython (.a or .so)
-          if [ ! -f "third_party/python-gnu/python/install/lib/libpython3.13.a" ] && [ ! -f "third_party/python-gnu/python/install/lib/libpython3.13.so" ]; then
-            echo "libpython3.13.{a,so} not found!"
-            exit 1
-          fi
-
-      # musl-specific syscall shims removed for gnu target
-
-      - name: Set up Python environment variables
-        run: |
-          echo "PYTHON_EMBED_HOME=${{ github.workspace }}/third_party/python-gnu/python/install" >> $GITHUB_ENV
-          echo "PYO3_LIB_DIR=${{ github.workspace }}/third_party/python-gnu/python/install/lib" >> $GITHUB_ENV
-          echo "PYO3_INCLUDE_DIR=${{ github.workspace }}/third_party/python-gnu/python/install/include" >> $GITHUB_ENV
-          echo "PKG_CONFIG_PATH=${{ github.workspace }}/third_party/python-gnu/python/install/lib/pkgconfig:$PKG_CONFIG_PATH" >> $GITHUB_ENV
-          echo "PYO3_PYTHON=${{ github.workspace }}/third_party/python-gnu/python/install/bin/python3.13" >> $GITHUB_ENV
-          echo "PYTHON_SYS_EXECUTABLE=${{ github.workspace }}/third_party/python-gnu/python/install/bin/python3.13" >> $GITHUB_ENV
-          echo "PATH=${{ github.workspace }}/third_party/python-gnu/python/install/bin:$PATH" >> $GITHUB_ENV
-          # Use Python's lib/include; let linker resolve shared libs normally
-          echo "LIBRARY_PATH=${{ github.workspace }}/third_party/python-gnu/python/install/lib:${{ github.workspace }}/third_party/python-gnu/python/build/lib:$LIBRARY_PATH" >> $GITHUB_ENV
-          echo "PYO3_STATIC=1" >> $GITHUB_ENV
-
-      - name: Ensure target added
-        run: |
-          rustup target add ${{ matrix.target }}
+      - name: Ensure target installed
+        run: rustup target add ${TARGET}
 
       - name: Build release binary
         run: |
-          # Clean to ensure fresh build with correct flags
           cargo clean
+          cargo build --release --target ${TARGET}
 
-          # Build with embedded Python (gnu target)
-          cargo build --release --target ${{ matrix.target }} 
-
-          # Verify the binary was created
-          if [ ! -f "target/${{ matrix.target }}/release/bedder" ]; then
-            echo "Binary not found!"
-            exit 1
-          fi
-
-      - name: Inspect built binary
+      - name: Inspect binary
         run: |
-          echo "=== File type ==="
-          file "target/${{ matrix.target }}/release/bedder"
-          echo -e "\n=== Linked libs ==="
-          ldd "target/${{ matrix.target }}/release/bedder" || true
-          echo -e "\n=== File size ==="
-          ls -lah "target/${{ matrix.target }}/release/bedder"
+          file target/${TARGET}/release/bedder
+          ldd target/${TARGET}/release/bedder
 
-      - name: Test binary
-        run: |
-          # Test that the binary works
-          ./target/${{ matrix.target }}/release/bedder --help
+      - name: Smoke test
+        run: ./target/${TARGET}/release/bedder --help
 
-      - name: Upload binary artifact
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: bedder-static-${{ matrix.target }}
+          name: bedder-${{ matrix.target }}
           path: target/${{ matrix.target }}/release/bedder
           if-no-files-found: error
-
-  create-release:
-    name: Create Release
-    needs: build-static-binary
-    if: github.event_name == 'release'
-    runs-on: ubuntu-22.04
-    steps:
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: releases
-
-      - name: List downloaded artifacts
-        run: |
-          find releases -type f -name "bedder" | while read file; do
-            echo "Found: $file"
-            chmod +x "$file"
-            file "$file"
-          done
-
-      - name: Upload release assets
-        uses: softprops/action-gh-release@v1
-        if: startsWith(github.ref, 'refs/tags/')
-        with:
-          files: |
-            releases/*/*/bedder
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
