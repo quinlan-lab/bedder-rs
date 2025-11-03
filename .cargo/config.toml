@@ -1,14 +1,22 @@
 [env]
-# Disable PyO3's auto-detection of Python interpreter for static embedding
-#PYO3_NO_PYTHON = "1"
-# Point PyO3 to the embedded Python headers and library directory
-#PYO3_INCLUDE_DIR = "/home/brentp/src/bedder-rs/third_party/python-musl/python/install/include/python3.13"
-#PYO3_LIB_DIR = "/home/brentp/src/bedder-rs/third_party/python-musl/python/install/lib"
-#PYO3_CONFIG_FILE = "/home/brentp/src/bedder-rs/pyo3-config.toml"
+# Configure PyO3 to use the vendored GNU Python interpreter and link it statically.
+PYO3_STATIC = "1"
+PYTHON_EMBED_HOME = "/home/brentp/src/bedder-rs/third_party/python-gnu/python/install"
+PYO3_PYTHON = "/home/brentp/src/bedder-rs/third_party/python-gnu/python/install/bin/python3.13"
+PYTHON_SYS_EXECUTABLE = "/home/brentp/src/bedder-rs/third_party/python-gnu/python/install/bin/python3.13"
+PYO3_INCLUDE_DIR = "/home/brentp/src/bedder-rs/third_party/python-gnu/python/install/include"
+PYO3_LIB_DIR = "/home/brentp/src/bedder-rs/third_party/python-gnu/python/install/lib"
+PYO3_LIB_NAME = "python3.13"
+PYO3_CONFIG_FILE = "/home/brentp/src/bedder-rs/pyo3-config.txt"
+OPENSSL_DIR = "/home/brentp/src/bedder-rs/third_party/python-gnu/python/install"
+OPENSSL_LIB_DIR = "/home/brentp/src/bedder-rs/third_party/python-gnu/python/build/lib"
+OPENSSL_INCLUDE_DIR = "/home/brentp/src/bedder-rs/third_party/python-gnu/python/install/include"
+OPENSSL_STATIC = "1"
+OPENSSL_NO_VENDOR = "1"
 
 # Embed an rpath to the conda lib dir so test/run binaries find libpython without LD_LIBRARY_PATH
 [build]
-#rustflags = ["-C", "link-arg=-Wl,-rpath,/home/brentp/miniforge3/lib"]
+# Additional build configuration can be added here if needed.
 
 # Configuration for static linking with musl
 [target.x86_64-unknown-linux-musl]

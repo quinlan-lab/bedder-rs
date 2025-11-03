@@ -1,0 +1,119 @@
+use std::env;
+use std::path::{Path, PathBuf};
+
+fn main() {
+    println!("cargo:rustc-check-cfg=cfg(python_embedded)");
+    println!("cargo:rerun-if-env-changed=PYTHON_EMBED_HOME");
+    println!("cargo:rerun-if-env-changed=PYO3_LIB_DIR");
+    println!("cargo:rerun-if-env-changed=PYO3_INCLUDE_DIR");
+
+    let manifest_dir =
+        PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR not set"));
+
+    let default_python_home = manifest_dir
+        .join("third_party")
+        .join("python-gnu")
+        .join("python")
+        .join("install");
+
+    let python_home = env::var("PYTHON_EMBED_HOME")
+        .map(PathBuf::from)
+        .unwrap_or(default_python_home);
+
+    let lib_dir = env::var("PYO3_LIB_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| python_home.join("lib"));
+    let include_dir = env::var("PYO3_INCLUDE_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| python_home.join("include"));
+
+    let config_dir = lib_dir
+        .join("python3.13")
+        .join("config-3.13-x86_64-linux-gnu");
+
+    for dir in [&lib_dir, &config_dir, &include_dir] {
+        if dir.exists() {
+            println!("cargo:rerun-if-changed={}", dir.display());
+        }
+    }
+
+    add_link_search(&lib_dir);
+    add_link_search(&config_dir);
+
+    let build_lib_dir = python_home
+        .parent()
+        .map(|p| p.join("build").join("lib"))
+        .unwrap_or_else(|| {
+            manifest_dir
+                .join("third_party")
+                .join("python-gnu")
+                .join("python")
+                .join("build")
+                .join("lib")
+        });
+    add_link_search(&build_lib_dir);
+
+    let search_dirs: Vec<&Path> = [&lib_dir, &config_dir, &build_lib_dir]
+        .into_iter()
+        .map(|p| p.as_path())
+        .collect();
+
+    let static_candidates = search_dirs
+        .iter()
+        .map(|dir| dir.join("libpython3.13.a"))
+        .collect::<Vec<_>>();
+
+    if static_candidates.iter().any(|p| p.exists()) {
+        println!("cargo:rustc-cfg=python_embedded");
+        let mut static_lib_paths = Vec::new();
+
+        if let Some(path) = find_static_lib("python3.13", &search_dirs) {
+            static_lib_paths.push(path);
+        } else {
+            println!(
+                "cargo:warning=libpython3.13.a not found under {}; static linking will fail",
+                python_home.display()
+            );
+        }
+
+        for lib in [
+            "edit", "panelw", "formw", "menuw", "ncursesw", "expat", "sqlite3", "mpdec", "db",
+            "uuid", "ffi", "X11", "Xau", "xcb",
+        ] {
+            if let Some(path) = find_static_lib(lib, &search_dirs) {
+                static_lib_paths.push(path);
+            }
+        }
+
+        if !static_lib_paths.is_empty() {
+            println!("cargo:rustc-link-arg=-Wl,--whole-archive");
+            for path in static_lib_paths {
+                println!("cargo:rustc-link-arg={}", path.display());
+            }
+            println!("cargo:rustc-link-arg=-Wl,--no-whole-archive");
+        }
+
+        for lib in ["pthread", "dl", "util", "m", "z"] {
+            println!("cargo:rustc-link-lib={lib}");
+        }
+        println!("cargo:rustc-link-arg=-Wl,--export-dynamic");
+    } else {
+        println!(
+            "cargo:warning=libpython3.13.a not found under {}",
+            python_home.display()
+        );
+    }
+}
+
+fn add_link_search(path: &Path) {
+    if path.exists() {
+        println!("cargo:rustc-link-search=native={}", path.display());
+    }
+}
+
+fn find_static_lib<'a>(name: &str, search_dirs: &'a [&Path]) -> Option<PathBuf> {
+    search_dirs
+        .iter()
+        .map(|dir| dir.join(format!("lib{name}.a")))
+        .find(|path| path.exists())
+}
