@@ -1,4 +1,4 @@
-name: Build Static GNU Binary
+name: Build Static Binary
 
 on:
   push:
@@ -7,33 +7,46 @@ on:
   workflow_dispatch:
 
 jobs:
-  linux-gnu:
+  linux-static:
     name: Build bedder (${{ matrix.target }})
     runs-on: ubuntu-22.04
     strategy:
       matrix:
         include:
-          - target: x86_64-unknown-linux-gnu
-            python_url: https://github.com/astral-sh/python-build-standalone/releases/download/20251028/cpython-3.13.9%2B20251028-x86_64-unknown-linux-gnu-pgo%2Blto-full.tar.zst
+          - target: x86_64-unknown-linux-musl
+            python_url: https://github.com/astral-sh/python-build-standalone/releases/download/20251014/cpython-3.13.9%2B20251014-x86_64_v2-unknown-linux-musl-lto%2Bstatic-full.tar.zst
     env:
       TARGET: ${{ matrix.target }}
       PYTHON_URL: ${{ matrix.python_url }}
       PYTHON_ARCHIVE: ${{ github.workspace }}/python-archive.tar.zst
-      PYTHON_GNU_DIR: ${{ github.workspace }}/third_party/python-gnu/python
-      PYTHON_EMBED_HOME: ${{ github.workspace }}/third_party/python-gnu/python/install
-      PYTHON_BUILD_LIB: ${{ github.workspace }}/third_party/python-gnu/python/build/lib
+      PYTHON_DIST_DIR: ${{ github.workspace }}/third_party/python-musl/python
+      PYTHON_EMBED_HOME: ${{ github.workspace }}/third_party/python-musl/python/install
+      PYTHON_BUILD_LIB: ${{ github.workspace }}/third_party/python-musl/python/build/lib
       PYO3_STATIC: "1"
-      PYO3_PYTHON: ${{ github.workspace }}/third_party/python-gnu/python/install/bin/python3.13
-      PYTHON_SYS_EXECUTABLE: ${{ github.workspace }}/third_party/python-gnu/python/install/bin/python3.13
-      PYO3_INCLUDE_DIR: ${{ github.workspace }}/third_party/python-gnu/python/install/include
-      PYO3_LIB_DIR: ${{ github.workspace }}/third_party/python-gnu/python/install/lib
+      PYO3_PYTHON: ${{ github.workspace }}/third_party/python-musl/python/install/bin/python3.13
+      PYTHON_SYS_EXECUTABLE: ${{ github.workspace }}/third_party/python-musl/python/install/bin/python3.13
+      PYO3_INCLUDE_DIR: ${{ github.workspace }}/third_party/python-musl/python/install/include
+      PYO3_LIB_DIR: ${{ github.workspace }}/third_party/python-musl/python/install/lib
       PYO3_LIB_NAME: python3.13
       PYO3_CONFIG_FILE: ${{ github.workspace }}/pyo3-config.txt
-      OPENSSL_DIR: ${{ github.workspace }}/third_party/python-gnu/python/install
-      OPENSSL_LIB_DIR: ${{ github.workspace }}/third_party/python-gnu/python/build/lib
-      OPENSSL_INCLUDE_DIR: ${{ github.workspace }}/third_party/python-gnu/python/install/include
       OPENSSL_STATIC: "1"
       OPENSSL_NO_VENDOR: "1"
+      OPENSSL_DIR: ${{ github.workspace }}/third_party/openssl-musl/install
+      OPENSSL_LIB_DIR: ${{ github.workspace }}/third_party/openssl-musl/install/lib
+      OPENSSL_INCLUDE_DIR: ${{ github.workspace }}/third_party/openssl-musl/install/include
+      PKG_CONFIG_ALLOW_CROSS: "1"
+      PKG_CONFIG_ALL_STATIC: "1"
+      CC_x86_64_unknown_linux_musl: clang
+      CXX_x86_64_unknown_linux_musl: clang++
+      CFLAGS_x86_64_unknown_linux_musl: --target=x86_64-unknown-linux-musl -isystem /usr/include/x86_64-linux-musl
+      CFLAGS_x86_64-unknown-linux-musl: --target=x86_64-unknown-linux-musl -isystem /usr/include/x86_64-linux-musl
+      CXXFLAGS_x86_64_unknown_linux_musl: --target=x86_64-unknown-linux-musl -isystem /usr/include/x86_64-linux-musl
+      CXXFLAGS_x86_64-unknown-linux-musl: --target=x86_64-unknown-linux-musl -isystem /usr/include/x86_64-linux-musl
+      AR_x86_64_unknown_linux_musl: llvm-ar
+      RANLIB_x86_64_unknown_linux_musl: llvm-ranlib
+      CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: clang
+      CPATH: /usr/include/x86_64-linux-musl
+      LIBRARY_PATH: /usr/lib/x86_64-linux-musl
 
     steps:
       - name: Checkout repository
@@ -50,16 +63,50 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential clang lld libssl-dev pkg-config zstd curl
+          sudo apt-get install -y build-essential clang lld llvm libssl-dev pkg-config zstd curl musl-tools
 
       - name: Download and extract standalone Python
         run: |
-          mkdir -p third_party/python-gnu
+          mkdir -p third_party/python-musl
           echo "Downloading: ${PYTHON_URL}"
           curl -fL "${PYTHON_URL}" -o "${PYTHON_ARCHIVE}"
-          mkdir -p "${PYTHON_GNU_DIR}"
-          tar --zstd -xf "${PYTHON_ARCHIVE}" -C "${PYTHON_GNU_DIR}" --strip-components=1
+      - name: Build OpenSSL (musl static)
+        env:
+          OPENSSL_VERSION: 3.3.1
+        run: |
+          set -euxo pipefail
+          mkdir -p third_party/openssl-musl
+          cd third_party/openssl-musl
+          curl -sSL "https://www.openssl.org/source/openssl-${OPENSSL_VERSION}.tar.gz" -o openssl.tar.gz
+          tar xf openssl.tar.gz
+          cd "openssl-${OPENSSL_VERSION}"
+          INSTALL_PREFIX="$GITHUB_WORKSPACE/third_party/openssl-musl/install"
+          mkdir -p "${INSTALL_PREFIX}"
+          CC="clang --target=x86_64-unknown-linux-musl -isystem /usr/include/x86_64-linux-musl" \
+          AR=llvm-ar \
+          RANLIB=llvm-ranlib \
+          ./Configure linux-x86_64 no-shared no-dso no-tests no-asm \
+            --prefix="${INSTALL_PREFIX}" \
+            --openssldir="${INSTALL_PREFIX}/ssl" \
+            -static
+          make -j"$(nproc)"
+          make install_sw
+          cd ..
+          rm -rf "openssl-${OPENSSL_VERSION}" openssl.tar.gz
+
+          mkdir -p "${PYTHON_DIST_DIR}"
+          tar --zstd -xf "${PYTHON_ARCHIVE}" -C "${PYTHON_DIST_DIR}" --strip-components=1
           ls -al "${PYTHON_EMBED_HOME}/lib" || true
+
+      - name: Remove duplicate symbols from libedit
+        run: |
+          LIBEDIT="${PYTHON_BUILD_LIB}/libedit.a"
+          if [ -f "${LIBEDIT}" ]; then
+            if ar -t "${LIBEDIT}" | grep -q '^wcsdup\.o$'; then
+              ar -dv "${LIBEDIT}" wcsdup.o || true
+              ranlib "${LIBEDIT}" || true
+            fi
+          fi
 
       - name: Export Python to PATH
         run: echo "PATH=${PYTHON_EMBED_HOME}/bin:${PATH}" >> "$GITHUB_ENV"
@@ -81,6 +128,8 @@ jobs:
         run: rustup target add ${TARGET}
 
       - name: Build release binary
+        env:
+          RUSTFLAGS: -C target-feature=+crt-static -C linker=clang -C link-arg=--target=x86_64-unknown-linux-musl -C link-arg=-fuse-ld=lld -C link-arg=-static -C link-arg=-L/usr/lib/x86_64-linux-musl
         run: |
           cargo clean
           cargo build --release --target ${TARGET}

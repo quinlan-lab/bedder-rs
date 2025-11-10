@@ -10,11 +10,23 @@ fn main() {
     let manifest_dir =
         PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR not set"));
 
-    let default_python_home = manifest_dir
-        .join("third_party")
-        .join("python-gnu")
-        .join("python")
-        .join("install");
+    let default_python_home = ["python-standalone", "python-musl", "python-gnu"]
+        .iter()
+        .map(|folder| {
+            manifest_dir
+                .join("third_party")
+                .join(folder)
+                .join("python")
+                .join("install")
+        })
+        .find(|path| path.exists())
+        .unwrap_or_else(|| {
+            manifest_dir
+                .join("third_party")
+                .join("python-gnu")
+                .join("python")
+                .join("install")
+        });
 
     let python_home = env::var("PYTHON_EMBED_HOME")
         .map(PathBuf::from)
@@ -27,9 +39,24 @@ fn main() {
         .map(PathBuf::from)
         .unwrap_or_else(|_| python_home.join("include"));
 
-    let config_dir = lib_dir
-        .join("python3.13")
-        .join("config-3.13-x86_64-linux-gnu");
+    let target_triple = env::var("TARGET").unwrap_or_else(|_| String::from("x86_64-unknown-linux-gnu"));
+    let config_suffix = target_triple.replace("unknown-", "");
+    let config_dir_candidates = [
+        lib_dir
+            .join("python3.13")
+            .join(format!("config-3.13-{config_suffix}")),
+        lib_dir
+            .join("python3.13")
+            .join("config-3.13-x86_64-linux-gnu"),
+    ];
+    let config_dir = config_dir_candidates
+        .into_iter()
+        .find(|path| path.exists())
+        .unwrap_or_else(|| {
+            lib_dir
+                .join("python3.13")
+                .join(format!("config-3.13-{config_suffix}"))
+        });
 
     for dir in [&lib_dir, &config_dir, &include_dir] {
         if dir.exists() {
@@ -44,12 +71,25 @@ fn main() {
         .parent()
         .map(|p| p.join("build").join("lib"))
         .unwrap_or_else(|| {
-            manifest_dir
-                .join("third_party")
-                .join("python-gnu")
-                .join("python")
-                .join("build")
-                .join("lib")
+            ["python-standalone", "python-musl", "python-gnu"]
+                .iter()
+                .map(|folder| {
+                    manifest_dir
+                        .join("third_party")
+                        .join(folder)
+                        .join("python")
+                        .join("build")
+                        .join("lib")
+                })
+                .find(|path| path.exists())
+                .unwrap_or_else(|| {
+                    manifest_dir
+                        .join("third_party")
+                        .join("python-gnu")
+                        .join("python")
+                        .join("build")
+                        .join("lib")
+                })
         });
     add_link_search(&build_lib_dir);
 
@@ -66,6 +106,9 @@ fn main() {
     if static_candidates.iter().any(|p| p.exists()) {
         println!("cargo:rustc-cfg=python_embedded");
         let mut static_lib_paths = Vec::new();
+
+        // Ensure the final binary is linked fully static once we have the static Python runtime.
+        println!("cargo:rustc-link-arg=-static");
 
         if let Some(path) = find_static_lib("python3.13", &search_dirs) {
             static_lib_paths.push(path);
