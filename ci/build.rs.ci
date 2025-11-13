@@ -119,21 +119,12 @@ fn main() {
             );
         }
 
-        for lib in [
-            "edit", "panelw", "formw", "menuw", "ncursesw", "expat", "sqlite3", "mpdec", "db",
-            "uuid", "ffi", "X11", "Xau", "xcb",
-        ] {
-            if let Some(path) = find_static_lib(lib, &search_dirs) {
-                static_lib_paths.push(path);
-            }
-        }
-
+        // Source-built Python doesn't bundle extra libraries separately
+        // Just link libpython statically
         if !static_lib_paths.is_empty() {
-            println!("cargo:rustc-link-arg=-Wl,--whole-archive");
             for path in static_lib_paths {
                 println!("cargo:rustc-link-arg={}", path.display());
             }
-            println!("cargo:rustc-link-arg=-Wl,--no-whole-archive");
         }
 
         for lib in ["pthread", "dl", "util", "m", "z"] {

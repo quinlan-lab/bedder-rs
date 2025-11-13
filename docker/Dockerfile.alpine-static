@@ -1,5 +1,7 @@
 FROM rust:alpine3.22 AS builder
 
+SHELL ["/bin/bash", "-c"]
+
 ARG TARGET_TRIPLE=x86_64-unknown-linux-musl
 ARG PYTHON_VERSION=3.13.1
 ENV TARGET="${TARGET_TRIPLE}" \
