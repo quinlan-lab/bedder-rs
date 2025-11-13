@@ -20,6 +20,7 @@ enum Commands {
     Closest(cli::closest::ClosestCmdArgs),
 }
 
+#[cfg(feature = "mimalloc_allocator")]
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
