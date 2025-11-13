@@ -1,0 +1,112 @@
+FROM rust:alpine3.22 AS builder
+
+ARG TARGET_TRIPLE=x86_64-unknown-linux-musl
+ARG PYTHON_VERSION=3.13.1
+ENV TARGET="${TARGET_TRIPLE}" \
+    WORKDIR_PATH="/workspace" \
+    PYTHON_PREFIX="/opt/python" \
+    PYTHON_VERSION="3.13.1" \
+    PYO3_CONFIG_FILE="/workspace/pyo3-config.txt" \
+    OPENSSL_STATIC="1" \
+    OPENSSL_NO_VENDOR="1" \
+    OPENSSL_DIR="/usr" \
+    OPENSSL_LIB_DIR="/usr/lib" \
+    OPENSSL_INCLUDE_DIR="/usr/include" \
+    PKG_CONFIG_ALLOW_CROSS="1" \
+    PKG_CONFIG_ALL_STATIC="1" \
+    CC_x86_64_unknown_linux_musl="clang" \
+    CXX_x86_64_unknown_linux_musl="clang++" \
+    CFLAGS_x86_64_unknown_linux_musl="--target=${TARGET_TRIPLE} -isystem /usr/include/x86_64-linux-musl" \
+    CXXFLAGS_x86_64_unknown_linux_musl="--target=${TARGET_TRIPLE} -isystem /usr/include/x86_64-linux-musl" \
+    CFLAGS_x86_64-unknown-linux-musl="--target=${TARGET_TRIPLE} -isystem /usr/include/x86_64-linux-musl" \
+    CXXFLAGS_x86_64-unknown-linux-musl="--target=${TARGET_TRIPLE} -isystem /usr/include/x86_64-linux-musl" \
+    AR_x86_64_unknown_linux_musl="llvm-ar" \
+    RANLIB_x86_64_unknown_linux_musl="llvm-ranlib" \
+    CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER="clang" \
+    CPATH="/usr/include/x86_64-linux-musl" \
+    LIBRARY_PATH="/usr/lib/x86_64-linux-musl" \
+    CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS="-C target-feature=+crt-static -C linker=clang -C link-arg=-fuse-ld=lld"
+
+RUN apk add --no-cache \
+    build-base \
+    clang \
+    lld \
+    llvm \
+    musl-dev \
+    zstd \
+    curl \
+    tar \
+    perl \
+    make \
+    cmake \
+    git \
+    pkgconfig \
+    libffi-dev \
+    sqlite-dev \
+    openssl-dev \
+    openssl-libs-static \
+    clang18-libclang \
+    clang18-libs \
+    clang18-dev \
+    clang18-static \
+    bzip2-dev \
+    expat-dev \
+    gdbm-dev \
+    libc-dev \
+    ncurses-dev \
+    readline-dev \
+    xz-dev \
+    npm 
+
+RUN npm install --force -g @openai/codex && apk add --no-cache socat
+
+RUN if [ ! -f /usr/lib/libclang.so ]; then \
+    clang_so="$(find /usr/lib -name 'libclang.so*' -print -quit)"; \
+    if [ -n "${clang_so}" ]; then \
+    ln -s "${clang_so}" /usr/lib/libclang.so; \
+    fi; \
+    fi
+
+# Build Python from source for complete Alpine compatibility
+RUN cd /tmp && \
+    curl -sSL "https://www.python.org/ftp/python/${PYTHON_VERSION}/Python-${PYTHON_VERSION}.tar.xz" -o python.tar.xz && \
+    tar -xf python.tar.xz && \
+    cd "Python-${PYTHON_VERSION}" && \
+    ./configure \
+    --prefix="${PYTHON_PREFIX}" \
+    --disable-shared \
+    --enable-ipv6 \
+    --without-ensurepip \
+    --with-system-ffi \
+    --with-system-expat \
+    CFLAGS="-fPIC" && \
+    make -j$(nproc) && \
+    make install && \
+    cd /tmp && \
+    rm -rf "Python-${PYTHON_VERSION}" python.tar.xz
+
+# Prepare Rust toolchain and workspace entrypoint
+RUN rustup target add "${TARGET_TRIPLE}"
+
+# Set up Python environment variables
+ENV PATH="${PYTHON_PREFIX}/bin:${PATH}" \
+    PYO3_PYTHON="${PYTHON_PREFIX}/bin/python3" \
+    PYTHON_SYS_EXECUTABLE="${PYTHON_PREFIX}/bin/python3" \
+    PYO3_INCLUDE_DIR="${PYTHON_PREFIX}/include/python3.13" \
+    PYO3_LIB_DIR="${PYTHON_PREFIX}/lib" \
+    PYO3_LIB_NAME="python3.13" \
+    PYO3_STATIC="1"
+
+ENV LIBCLANG_PATH="/usr/lib/llvm18/lib" \
+    LIBCLANG_STATIC="1" \
+    LIBCLANG_STATIC_PATH="/usr/lib/llvm18/lib"
+
+
+# run codex-login after running the container as docker run -p 1455:1455 ...
+RUN echo "#!/bin/sh" > /tmp/codex-login-script.sh && \
+    echo "CONTAINER_IP=\$(hostname -i | awk '{print \$1}')" >> /tmp/codex-login-script.sh && \
+    echo "socat TCP-LISTEN:1455,fork,reuseaddr,bind=\"\$CONTAINER_IP\" TCP:127.0.0.1:1455 >/tmp/codex-login.log 2>&1 &" >> /tmp/codex-login-script.sh && \
+    echo "codex login" >> /tmp/codex-login-script.sh && \
+    cat /tmp/codex-login-script.sh > /usr/local/bin/codex-login && \
+    chmod +x /usr/local/bin/codex-login && \
+    rm /tmp/codex-login-script.sh
