@@ -6,7 +6,6 @@ ENV TARGET="${TARGET_TRIPLE}" \
     WORKDIR_PATH="/workspace" \
     PYTHON_PREFIX="/opt/python" \
     PYTHON_VERSION="3.13.1" \
-    PYO3_CONFIG_FILE="/workspace/pyo3-config.txt" \
     OPENSSL_STATIC="1" \
     OPENSSL_NO_VENDOR="1" \
     OPENSSL_DIR="/usr" \
@@ -25,7 +24,8 @@ ENV TARGET="${TARGET_TRIPLE}" \
     CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER="clang" \
     CPATH="/usr/include/x86_64-linux-musl" \
     LIBRARY_PATH="/usr/lib/x86_64-linux-musl" \
-    CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS="-C target-feature=+crt-static -C linker=clang -C link-arg=-fuse-ld=lld"
+    RUSTFLAGS="-Ctarget-feature=-crt-static"
+#CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS="-C target-feature=+crt-static -C linker=clang -C link-arg=-fuse-ld=lld" \
 
 RUN apk add --no-cache \
     build-base \
@@ -56,9 +56,12 @@ RUN apk add --no-cache \
     ncurses-dev \
     readline-dev \
     xz-dev \
-    npm 
+    npm \
+    socat \
+    bash \
+    ripgrep
 
-RUN npm install --force -g @openai/codex && apk add --no-cache socat
+RUN npm install -g @openai/codex
 
 RUN if [ ! -f /usr/lib/libclang.so ]; then \
     clang_so="$(find /usr/lib -name 'libclang.so*' -print -quit)"; \
@@ -109,4 +112,19 @@ RUN echo "#!/bin/sh" > /tmp/codex-login-script.sh && \
     echo "codex login" >> /tmp/codex-login-script.sh && \
     cat /tmp/codex-login-script.sh > /usr/local/bin/codex-login && \
     chmod +x /usr/local/bin/codex-login && \
-    rm /tmp/codex-login-script.sh
+    rm /tmp/codex-login-script.sh && \
+    mkdir -p /root/.codex && \
+    echo "[features]" >> /root/.codex/config.toml && \
+    echo "web_search_requests = true" >> /root/.codex/config.toml && \
+    echo "[shell_environment_policy]" >> /root/.codex/config.toml && \
+    echo "ignore_default_excludes = true" >> /root/.codex/config.toml
+
+RUN \
+    mkdir -p /workspace/bedder-rs && \
+    git clone -b dev https://github.com/quinlan-lab/bedder-rs.git /workspace/bedder-rs 
+
+RUN echo "chr1\t100\t200" > /workspace/a.bed && \
+    echo "chr1\t150\t250" > /workspace/b.bed && \
+    echo "chr1\t500" > /workspace/g.genome
+
+RUN cargo install --locked cargo-zigbuild
