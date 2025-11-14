@@ -34,3 +34,13 @@ This means it can't find your python libraries. You can activate a uv (or pip) v
 ```
 PYTHONPATH=~/miniforge3/lib/python3.10/
 ```
+
+## can't find libpython.so
+
+For this error:
+
+```
+error while loading shared libraries: libpython3.13.so.1.0: cannot open shared object file: No such file or directory
+```
+
+you are using a binary that does not have python linked staticly so you must set LD_LIBRARY_PATH to a directory that contains the `.so` files mentioned in the error message.
