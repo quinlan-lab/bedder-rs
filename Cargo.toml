@@ -43,6 +43,7 @@ pyo3 = {version = "0.26.0", features=["macros"], default-features=false}
 pyo3-ffi = "0.26.0"
 #mlua = {version = "0.10.3", features=["luau", "send"]}
 parking_lot = {version="0.12.3"}
+libc = "0.2"
 
 
 [features]
@@ -67,6 +68,9 @@ clap = { version = "4.5.21", features = ["derive"] }
 [[bench]]
 name = "random_intervals"
 harness = false
+
+[build-dependencies]
+pyo3-build-config = { version = "0.26.0", features = ["resolve-config"] }
 
 [profile.release]
 lto = "fat"
