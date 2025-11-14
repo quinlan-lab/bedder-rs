@@ -31,3 +31,15 @@ pub unsafe extern "C" fn __xmknodat(
 ) -> c_int {
     libc::mknodat(dirfd, path, mode, read_dev(dev))
 }
+
+#[no_mangle]
+pub extern "C" fn __flt_rounds() -> c_int {
+    // python's dtoa expects rounding to-nearest mode indicator
+    1
+}
+
+#[no_mangle]
+pub extern "C" fn issetugid() -> c_int {
+    // musl exports issetugid but glibc does not; treat as "no elevated privileges"
+    0
+}
