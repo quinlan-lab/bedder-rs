@@ -35,7 +35,7 @@ TOOLS_WRAPPER_DIR="${WORKDIR}/.build-tools"
 mkdir -p "${TOOLS_WRAPPER_DIR}"
 export PATH="${TOOLS_WRAPPER_DIR}:${PATH}"
 
-PYTHON_ROOT="$(resolve_python_root "${PYTHON_ROOT_OVERRIDE:-}" "${PYTHON_ROOT:-}" "/opt/python/python" "/opt/python-gnu/python" || true)"
+PYTHON_ROOT="$(resolve_python_root "${PYTHON_ROOT_OVERRIDE:-}" "${PYTHON_ROOT:-}" "/opt/python/python" "/opt/python-gnu/python" "/opt/python-musl/python" || true)"
 if [ -z "${PYTHON_ROOT}" ]; then
   echo "error: unable to find Python root (expected install under /opt/python)" >&2
   exit 1
