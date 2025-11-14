@@ -9,30 +9,20 @@ on:
 jobs:
   linux-gnu:
     name: Build bedder (${{ matrix.target }})
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     strategy:
       matrix:
         include:
           - target: x86_64-unknown-linux-gnu
             python_url: https://github.com/astral-sh/python-build-standalone/releases/download/20251028/cpython-3.13.9%2B20251028-x86_64-unknown-linux-gnu-pgo%2Blto-full.tar.zst
     env:
-      TARGET: ${{ matrix.target }}
+      TARGET_TRIPLE: ${{ matrix.target }}
+      WORKDIR_PATH: ${{ github.workspace }}
       PYTHON_URL: ${{ matrix.python_url }}
       PYTHON_ARCHIVE: ${{ github.workspace }}/python-archive.tar.zst
       PYTHON_GNU_DIR: ${{ github.workspace }}/third_party/python-gnu/python
-      PYTHON_EMBED_HOME: ${{ github.workspace }}/third_party/python-gnu/python/install
-      PYTHON_BUILD_LIB: ${{ github.workspace }}/third_party/python-gnu/python/build/lib
-      PYO3_STATIC: "1"
-      PYO3_PYTHON: ${{ github.workspace }}/third_party/python-gnu/python/install/bin/python3.13
-      PYTHON_SYS_EXECUTABLE: ${{ github.workspace }}/third_party/python-gnu/python/install/bin/python3.13
-      PYO3_INCLUDE_DIR: ${{ github.workspace }}/third_party/python-gnu/python/install/include
-      PYO3_LIB_DIR: ${{ github.workspace }}/third_party/python-gnu/python/install/lib
-      PYO3_LIB_NAME: python3.13
+      PYTHON_ROOT_OVERRIDE: ${{ github.workspace }}/third_party/python-gnu/python
       PYO3_CONFIG_FILE: ${{ github.workspace }}/pyo3-config.txt
-      OPENSSL_DIR: ${{ github.workspace }}/third_party/python-gnu/python/install
-      OPENSSL_LIB_DIR: ${{ github.workspace }}/third_party/python-gnu/python/build/lib
-      OPENSSL_INCLUDE_DIR: ${{ github.workspace }}/third_party/python-gnu/python/install/include
-      OPENSSL_STATIC: "1"
       OPENSSL_NO_VENDOR: "1"
 
     steps:
@@ -43,11 +33,52 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
+      # Cleanup step before clang install
+      - name: Clean previous python-clang installs
+        run: |
+          sudo apt-get remove -y python-clang-18 python-clang-19 python-clang-20 python-clang-x.y || true
+          sudo apt-mark unhold python-clang-18 python-clang-19 python-clang-20 python-clang-x.y || true
+          sudo dpkg --configure -a
+          sudo apt-get update
+
+      # Install only one required clang version
+      - name: Install python3-clang
+        run: sudo apt-get install -y python3-clang-18
 
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential clang lld libssl-dev pkg-config zstd curl
+          sudo apt-get install -y \
+            build-essential \
+            clang \
+            clang++ \
+            lld \
+            pkg-config \
+            zstd \
+            curl \
+            ca-certificates \
+            tar \
+            perl \
+            make \
+            cmake \
+            git \
+            libffi-dev \
+            libsqlite3-dev \
+            libbz2-dev \
+            liblzma-dev \
+            libssl-dev \
+            libcurl4-openssl-dev \
+            libedit-dev \
+            libncursesw5-dev \
+            libgdbm-dev \
+            libexpat1-dev \
+            libtirpc-dev \
+            xz-utils \
+            ripgrep \
+            ninja-build \
+            jq
+          sudo apt-get clean
+          sudo rm -rf /var/lib/apt/lists/*
 
       - name: Download and extract standalone Python
         run: |
@@ -56,43 +87,44 @@ jobs:
           curl -fL "${PYTHON_URL}" -o "${PYTHON_ARCHIVE}"
           mkdir -p "${PYTHON_GNU_DIR}"
           tar --zstd -xf "${PYTHON_ARCHIVE}" -C "${PYTHON_GNU_DIR}" --strip-components=1
-          ls -al "${PYTHON_EMBED_HOME}/lib" || true
-
-      - name: Export Python to PATH
-        run: echo "PATH=${PYTHON_EMBED_HOME}/bin:${PATH}" >> "$GITHUB_ENV"
-
-      - name: Generate PyO3 config override
-        run: |
-          printf '%s\n' \
-            'implementation=CPython' \
-            'version=3.13' \
-            'shared=false' \
-            'abi3=false' \
-            'lib_name=python3.13' \
-            "lib_dir=${PYO3_LIB_DIR}" \
-            "executable=${PYO3_PYTHON}" \
-            'suppress_build_script_link_lines=true' \
-            > "${PYO3_CONFIG_FILE}"
+          ls -al "${PYTHON_GNU_DIR}/install/lib" || true
 
       - name: Ensure target installed
-        run: rustup target add ${TARGET}
+        run: rustup target add ${TARGET_TRIPLE}
 
-      - name: Build release binary
+      - name: Build static binary via helper script
+        env:
+          PYTHON_EMBED_HOME_OVERRIDE: ${{ github.workspace }}/third_party/python-gnu/python/install
+          PYTHON_BUILD_LIB_OVERRIDE: ${{ github.workspace }}/third_party/python-gnu/python/build/lib
+          PYTHON_BIN_OVERRIDE: ${{ github.workspace }}/third_party/python-gnu/python/install/bin/python3.13
+          PYTHON_INCLUDE_DIR_OVERRIDE: ${{ github.workspace }}/third_party/python-gnu/python/install/include
+          PYTHON_LIB_DIR_OVERRIDE: ${{ github.workspace }}/third_party/python-gnu/python/install/lib
+          PYO3_LIB_NAME: python3.13
+          OPENSSL_DIR: ${{ github.workspace }}/third_party/python-gnu/python/install
+          OPENSSL_LIB_DIR: ${{ github.workspace }}/third_party/python-gnu/python/build/lib
+          OPENSSL_INCLUDE_DIR: ${{ github.workspace }}/third_party/python-gnu/python/install/include
+          OPENSSL_STATIC: "1"
+          LIBZ_SYS_STATIC: "1"
+          LIBZ_STATIC: "1"
+          ZLIB_STATIC: "1"
+          BZIP2_STATIC: "1"
+          LZMA_API_STATIC: "1"
+          PKG_CONFIG_ALL_STATIC: "1"
         run: |
-          cargo clean
-          cargo build --release --target ${TARGET}
+          chmod +x docker/build-static.sh
+          docker/build-static.sh
 
       - name: Inspect binary
         run: |
-          file target/${TARGET}/release/bedder
-          ldd target/${TARGET}/release/bedder
+          file dist/bedder-${TARGET_TRIPLE}-static
+          ldd dist/bedder-${TARGET_TRIPLE}-static || true
 
       - name: Smoke test
-        run: ./target/${TARGET}/release/bedder --help
+        run: dist/bedder-${TARGET_TRIPLE}-static --help
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: bedder-${{ matrix.target }}
-          path: target/${{ matrix.target }}/release/bedder
+          name: bedder-${{ matrix.target }}-static
+          path: dist/bedder-${{ matrix.target }}-static
           if-no-files-found: error
