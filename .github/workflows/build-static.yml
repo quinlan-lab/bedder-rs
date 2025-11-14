@@ -33,17 +33,41 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
-      # Cleanup step before clang install
-      - name: Clean previous python-clang installs
+
+      # Diagnostic step: Capture apt/dpkg state for debugging package conflicts
+      # This helps identify held packages or conflicting python-clang versions
+      - name: Diagnose apt/dpkg state
         run: |
-          sudo apt-get remove -y python-clang-18 python-clang-19 python-clang-20 python-clang-x.y || true
-          sudo apt-mark unhold python-clang-18 python-clang-19 python-clang-20 python-clang-x.y || true
-          sudo dpkg --configure -a
+          sudo apt-get update
+          echo "=== apt holds ==="
+          apt-mark showhold || true
+          echo "=== dpkg selections with hold ==="
+          dpkg --get-selections | grep hold || true
+          echo "=== python-clang packages policy ==="
+          apt-cache policy python3-clang-18 python3-clang-19 python3-clang-20 python-clang-x.y || true
+          echo "=== available clang libs ==="
+          apt-cache search ^libclang || true
+
+      # Repair apt, remove conflicting python-clang packages, and update
+      # Debian python-clang packages often conflict across minor versions and can be held on runners.
+      # This step clears broken package states and removes conflicting packages before installation.
+      - name: Repair apt, remove conflicting python-clang packages, and update
+        run: |
+          sudo dpkg --configure -a || true
+          sudo apt-get install -y -f || true
+          sudo apt-get remove -y --purge python-clang-x.y python-clang-18 python-clang-19 python-clang-20 || true
+          sudo apt-mark unhold python-clang-x.y python-clang-18 python-clang-19 python-clang-20 || true
           sudo apt-get update
 
-      # Install only one required clang version
-      - name: Install python3-clang
-        run: sudo apt-get install -y python3-clang-18
+      # Install libclang and python clang bindings via pip
+      # Using libclang-dev + pip-installed bindings avoids Debian python-clang packaging conflicts
+      # that are common on GitHub runners. This approach is more reliable across different runner states.
+      - name: Install libclang and python clang via pip
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libclang-dev clang || true
+          python3 -m pip install --upgrade pip
+          python3 -m pip install clang
 
       - name: Install system dependencies
         run: |
