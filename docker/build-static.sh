@@ -35,7 +35,7 @@ TOOLS_WRAPPER_DIR="${WORKDIR}/.build-tools"
 mkdir -p "${TOOLS_WRAPPER_DIR}"
 export PATH="${TOOLS_WRAPPER_DIR}:${PATH}"
 
-PYTHON_ROOT="$(resolve_python_root "${PYTHON_ROOT_OVERRIDE:-}" "${PYTHON_ROOT:-}" "/opt/python/python" "/opt/python-gnu/python" "/opt/python-musl/python" || true)"
+PYTHON_ROOT="$(resolve_python_root "${PYTHON_ROOT_OVERRIDE:-}" "${PYTHON_ROOT:-}" "/opt/python/python" "/opt/python-gnu/python" || true)"
 if [ -z "${PYTHON_ROOT}" ]; then
   echo "error: unable to find Python root (expected install under /opt/python)" >&2
   exit 1
@@ -56,8 +56,39 @@ abi3=false
 lib_name=${PYTHON_LIB_NAME}
 lib_dir=${PYTHON_LIB_DIR}
 executable=${PYTHON_BIN}
-suppress_build_script_link_lines=true
 EOF
+
+PYTHON_EXTRA_LIB_TOKENS="$(
+  "${PYTHON_BIN}" <<'PY'
+import shlex
+import sysconfig
+
+parts = []
+for key in ("LOCALMODLIBS", "LIBS", "SYSLIBS"):
+    value = sysconfig.get_config_var(key)
+    if value:
+        parts.extend(shlex.split(value))
+
+print("\n".join(parts))
+PY
+)"
+
+if [ -n "${PYTHON_EXTRA_LIB_TOKENS}" ]; then
+  printf 'extra_build_script_line=cargo:rustc-link-search=native=%s\n' "${PY_BUILD_LIB}" >> "${PYO3_CONFIG_FILE}"
+  while IFS= read -r token; do
+    case "${token}" in
+      -l*)
+        lib="${token#-l}"
+        if [ -f "${PY_BUILD_LIB}/lib${lib}.a" ] || [ -f "${PYTHON_LIB_DIR}/lib${lib}.a" ]; then
+          printf 'extra_build_script_line=cargo:rustc-link-lib=static=%s\n' "${lib}" >> "${PYO3_CONFIG_FILE}"
+        fi
+        ;;
+      -L*)
+        printf 'extra_build_script_line=cargo:rustc-link-search=native=%s\n' "${token#-L}" >> "${PYO3_CONFIG_FILE}"
+        ;;
+    esac
+  done <<< "${PYTHON_EXTRA_LIB_TOKENS}"
+fi
 
 export PYO3_CONFIG_FILE
 export PYTHON_EMBED_HOME="${PYTHON_INSTALL}"
