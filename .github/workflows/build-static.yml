@@ -1,0 +1,185 @@
+name: Build Static GNU Binary
+
+on:
+  push:
+    branches: [main, master, dev, build]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  linux-gnu:
+    name: Build bedder (${{ matrix.target }})
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            python_url: https://github.com/astral-sh/python-build-standalone/releases/download/20251031/cpython-3.13.9%2B20251031-x86_64-unknown-linux-musl-lto%2Bstatic-full.tar.zst
+            python_config_dir: python3.13/config-3.13-x86_64-linux-musl
+    env:
+      TARGET_TRIPLE: ${{ matrix.target }}
+      WORKDIR_PATH: ${{ github.workspace }}
+      PYTHON_URL: ${{ matrix.python_url }}
+      PYTHON_ARCHIVE: ${{ github.workspace }}/python-archive.tar.zst
+      PYTHON_MUSL_DIR: ${{ github.workspace }}/third_party/python-musl/python
+      PYTHON_ROOT_OVERRIDE: ${{ github.workspace }}/third_party/python-musl/python
+      PYTHON_CONFIG_DIR: ${{ matrix.python_config_dir }}
+      PYO3_CONFIG_FILE: ${{ github.workspace }}/pyo3-config.txt
+      OPENSSL_NO_VENDOR: "1"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      # Cleanup step before clang install
+      - name: Clean previous python-clang installs
+        run: |
+          sudo apt-get remove -y python-clang-18 python-clang-19 python-clang-20 python-clang-x.y || true
+          sudo apt-mark unhold python-clang-18 python-clang-19 python-clang-20 python-clang-x.y || true
+          sudo dpkg --configure -a
+          sudo apt-get update
+          sudo apt autoremove -y
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            llvm \
+            lld \
+            pkg-config \
+            zstd \
+            curl \
+            ca-certificates \
+            tar \
+            perl \
+            make \
+            cmake \
+            git \
+            libffi-dev \
+            libsqlite3-dev \
+            libbz2-dev \
+            liblzma-dev \
+            libssl-dev \
+            libcurl4-openssl-dev \
+            libedit-dev \
+            libncursesw5-dev \
+            libgdbm-dev \
+            libexpat1-dev \
+            libtirpc-dev \
+            xz-utils \
+            ripgrep \
+            ninja-build \
+            libreadline-dev \
+            jq
+          sudo apt-get clean
+          sudo rm -rf /var/lib/apt/lists/*
+
+      - name: Download and extract standalone Python
+        run: |
+          mkdir -p third_party/python-musl
+          echo "Downloading: ${PYTHON_URL}"
+          curl -fL "${PYTHON_URL}" -o "${PYTHON_ARCHIVE}"
+          mkdir -p "${PYTHON_MUSL_DIR}"
+          tar --zstd -xf "${PYTHON_ARCHIVE}" -C "${PYTHON_MUSL_DIR}" --strip-components=1
+          ls -al "${PYTHON_MUSL_DIR}/install/lib/${PYTHON_CONFIG_DIR}" || true
+
+      - name: Inspect Python environment
+        run: |
+          echo "==== PY* environment vars ===="
+          env | grep -i PY || true
+          while IFS== read -r key value; do
+            if [ -z "${value}" ]; then
+              continue
+            fi
+            echo "::group::${key} -> ${value}"
+            if [ -d "${value}" ] || [ -f "${value}" ]; then
+              ls -lh "${value}" || true
+            else
+              echo "${value} (missing)"
+            fi
+            echo "::endgroup::"
+          done < <(env | grep -i PY)
+          echo "Checking key Python directories explicitly"
+          for path in \
+            "${PYTHON_MUSL_DIR}" \
+            "${PYTHON_MUSL_DIR}/install" \
+            "${PYTHON_MUSL_DIR}/install/lib" \
+            "${PYTHON_MUSL_DIR}/install/lib/${PYTHON_CONFIG_DIR}" \
+            "${PYTHON_MUSL_DIR}/build/lib"; do
+            echo "::group::ls -al ${path}"
+            ls -al "${path}" || true
+            echo "::endgroup::"
+          done
+          echo "Checking for libpython archive"
+          ls -al "${PYTHON_MUSL_DIR}/install/lib"/libpython*.a || true
+
+      - name: Ensure target installed
+        run: rustup target add ${TARGET_TRIPLE}
+
+      - name: Build static binary via helper script
+        env:
+          CARGO_BIN: /home/runner/.cargo/bin/cargo
+          PYTHON_EMBED_HOME_OVERRIDE: ${{ github.workspace }}/third_party/python-musl/python/install
+          PYTHON_BUILD_LIB_OVERRIDE: ${{ github.workspace }}/third_party/python-musl/python/build/lib
+          PYTHON_BIN_OVERRIDE: ${{ github.workspace }}/third_party/python-musl/python/install/bin/python3.13
+          PYTHON_INCLUDE_DIR_OVERRIDE: ${{ github.workspace }}/third_party/python-musl/python/install/include
+          PYTHON_LIB_DIR_OVERRIDE: ${{ github.workspace }}/third_party/python-musl/python/install/lib/${{ matrix.python_config_dir }}
+          PYO3_LIB_NAME: python3.13
+          OPENSSL_DIR: ${{ github.workspace }}/third_party/python-musl/python/install
+          OPENSSL_LIB_DIR: ${{ github.workspace }}/third_party/python-musl/python/build/lib
+          OPENSSL_INCLUDE_DIR: ${{ github.workspace }}/third_party/python-musl/python/install/include
+          OPENSSL_STATIC: "1"
+          LIBZ_SYS_STATIC: "1"
+          LIBZ_STATIC: "1"
+          ZLIB_STATIC: "1"
+          BZIP2_STATIC: "1"
+          LZMA_API_STATIC: "1"
+          PKG_CONFIG_ALL_STATIC: "1"
+        run: |
+          chmod +x docker/build-static.sh
+          docker/build-static.sh
+
+      - name: Inspect binary
+        run: |
+          file dist/bedder-${TARGET_TRIPLE}-static
+          ldd dist/bedder-${TARGET_TRIPLE}-static || true
+
+      - name: Smoke test
+        run: dist/bedder-${TARGET_TRIPLE}-static --help
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bedder-${{ matrix.target }}-static
+          path: dist/bedder-${{ matrix.target }}-static
+          if-no-files-found: error
+
+      - name: Create release (tags only)
+        if: startsWith(github.ref, 'refs/tags/')
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref }}
+          release_name: bedder static (${{ github.ref_name }})
+          draft: false
+          prerelease: false
+
+      - name: Upload release asset
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: dist/bedder-${{ matrix.target }}-static
+          asset_name: bedder-${{ matrix.target }}-static
+          asset_content_type: application/octet-stream

@@ -56,3 +56,6 @@ mod py_test;
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(all(target_os = "linux", target_env = "gnu"))]
+mod glibc_shims;

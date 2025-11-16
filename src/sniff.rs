@@ -52,7 +52,7 @@ pub fn open<P: AsRef<Path>, R: io::BufRead + io::Seek + 'static>(
     p: P,
 ) -> io::Result<(BedderReader<R>, FileType)> {
     let (ft, c) =
-        sniff(&mut reader).map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+        sniff(&mut reader).map_err(|e| io::Error::other(e.to_string()))?;
     info!("sniffed file type: {:?}, compression: {:?}", ft, c);
     let rdr = match ft {
         FileType::Bed => BedderReader::BedderBed(BedderBed::new(reader, Some(p))),

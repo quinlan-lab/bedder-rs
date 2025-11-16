@@ -23,8 +23,13 @@ mod tests {
     use std::ffi::CString;
     use std::fs::File as StdFile;
     use std::io::Read as _;
-    use std::sync::Arc;
+    use std::sync::{Arc, Once};
     use tempfile::NamedTempFile;
+
+    fn ensure_python_initialized() {
+        static INIT: Once = Once::new();
+        INIT.call_once(|| Python::initialize());
+    }
 
     fn create_test_intersection() -> Intersections {
         // Create a base interval
@@ -48,6 +53,7 @@ mod tests {
 
     #[test]
     fn test_simple_snippet() {
+        ensure_python_initialized();
         Python::attach(|py| -> PyResult<()> {
             let code = r#"
 def bedder_test_func(fragment) -> str:
@@ -81,6 +87,7 @@ def bedder_test_func(fragment) -> str:
 
     #[test]
     fn test_vcf_info() {
+        ensure_python_initialized();
         Python::attach(|py| -> PyResult<()> {
             crate::py::initialize_python(py)?;
 
@@ -158,6 +165,7 @@ assert vcf_record.info("INTS") == [1,2,3]
 
     #[test]
     fn test_vcf_filters_returns_names() {
+        ensure_python_initialized();
         Python::attach(|py| -> PyResult<()> {
             crate::py::initialize_python(py)?;
 
@@ -212,6 +220,7 @@ assert filters == ["lowdp", "q10"], filters
 
     #[test]
     fn test_writer_applies_filter() {
+        ensure_python_initialized();
         Python::attach(|py| -> PyResult<()> {
             // Define two filter functions
             let code = r#"

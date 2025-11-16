@@ -267,8 +267,8 @@ impl Writer {
                     record.clear_info_flag(key_bytes)
                 }
             }
-            Value::VecInt(v) => record.push_info_integer(key_bytes, &v),
-            Value::VecFloat(v) => record.push_info_float(key_bytes, &v),
+            Value::VecInt(v) => record.push_info_integer(key_bytes, v),
+            Value::VecFloat(v) => record.push_info_float(key_bytes, v),
             Value::VecString(v) => {
                 let byte_slices: Vec<&[u8]> = v.iter().map(|s| s.as_bytes()).collect();
                 record.push_info_string(key_bytes, &byte_slices)
@@ -320,7 +320,7 @@ impl Writer {
                             for (name, value) in column_values {
                                 Self::add_info_field_to_vcf_record(
                                     &mut record.record,
-                                    &name,
+                                    name,
                                     &value,
                                 )?;
                             }
@@ -403,7 +403,7 @@ impl Writer {
         crs: &[T],
         filter: Option<&crate::py::CompiledExpr<'_>>,
     ) -> Result<(), std::io::Error> {
-        let format = self.format.clone();
+        let format = self.format;
         match format {
             Format::Vcf | Format::Bcf => {
                 let report = self.apply_report(format, intersections, report_options, crs)?;

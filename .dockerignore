@@ -1,0 +1,11 @@
+*.bed 
+*.gz
+*.zst
+*.tbi
+*.csi
+target/
+third_party/
+docs/
+.git/
+dist/
+logs/

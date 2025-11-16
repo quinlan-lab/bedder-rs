@@ -1,0 +1,136 @@
+FROM rust:1.91 AS builder
+
+ARG TARGET_TRIPLE=x86_64-unknown-linux-musl
+ARG PYTHON_VERSION=3.13.9
+ARG PYTHON_RELEASE=20251031
+ARG PYTHON_DIST="cpython-${PYTHON_VERSION}+${PYTHON_RELEASE}-${TARGET_TRIPLE}-lto+static-full.tar.zst"
+ARG PYTHON_URL=""
+ARG PYTHON_SHA256=""
+
+ENV TARGET="${TARGET_TRIPLE}" \
+    WORKDIR_PATH="/workspace/bedder-rs" \
+    PYTHON_ROOT="/opt/python" \
+    OPENSSL_STATIC="1" \
+    OPENSSL_NO_VENDOR="1" \
+    OPENSSL_DIR="/usr" \
+    OPENSSL_LIB_DIR="/usr/lib" \
+    OPENSSL_INCLUDE_DIR="/usr/include" \
+    PKG_CONFIG_ALLOW_CROSS="1" \
+    PKG_CONFIG_ALL_STATIC="1" \
+    CC_x86_64_unknown_linux_musl="clang" \
+    CXX_x86_64_unknown_linux_musl="clang++" \
+    CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER="clang" \
+    CFLAGS_x86_64_unknown_linux_musl="--target=${TARGET_TRIPLE} -fPIC" \
+    CXXFLAGS_x86_64_unknown_linux_musl="--target=${TARGET_TRIPLE} -fPIC" \
+    AR_x86_64_unknown_linux_musl="llvm-ar" \
+    RANLIB_x86_64_unknown_linux_musl="llvm-ranlib" \
+    CPATH="/usr/include" \
+    LIBRARY_PATH="/usr/lib" \
+    BINDGEN_EXTRA_CLANG_ARGS="--sysroot=/usr -isystem/usr/include -isystem/usr/include/x86_64-linux-gnu" \
+    BINDGEN_USE_CLI="0" \
+    CLANG_PATH="/usr/bin/clang"
+
+RUN apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+    build-essential \
+    clang \
+    lld \
+    llvm-dev \
+    libclang-dev \
+    llvm \
+    pkg-config \
+    musl-tools \
+    musl-dev \
+    zstd \
+    curl \
+    ca-certificates \
+    tar \
+    perl \
+    make \
+    cmake \
+    git \
+    libffi-dev \
+    libsqlite3-dev \
+    libbz2-dev \
+    liblzma-dev \
+    libssl-dev \
+    libcurl4-openssl-dev \
+    libedit-dev \
+    libncursesw5-dev \
+    libgdbm-dev \
+    libexpat1-dev \
+    libmpdec-dev \
+    libuuid1 \
+    libtirpc-dev \
+    xz-utils \
+    ripgrep \
+    ninja-build \
+    bash \
+    ripgrep \
+    vim-tiny \
+    socat \
+    npm \
+    jq && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Ensure libclang is discoverable by bindgen/clang-sys
+RUN LLVM_LIBDIR=$(llvm-config --libdir) && \
+    ln -sf "${LLVM_LIBDIR}/libclang.so" /usr/lib/libclang.so && \
+    echo "Using libclang from ${LLVM_LIBDIR}" && \
+    echo "LIBCLANG path initialized"
+
+ENV LIBCLANG_PATH="/usr/lib" \
+    LIBCLANG_STATIC_PATH="/usr/lib"
+
+RUN set -eux; \
+    mkdir -p "${PYTHON_ROOT}"; \
+    DIST_ENCODED=$(printf '%s' "${PYTHON_DIST}" | sed 's/+/%2B/g'); \
+    DOWNLOAD_URL="${PYTHON_URL:-https://github.com/astral-sh/python-build-standalone/releases/download/${PYTHON_RELEASE}/${DIST_ENCODED}}"; \
+    curl -fSL "${DOWNLOAD_URL}" -o /tmp/python-dist.tar && \
+    if [ -n "${PYTHON_SHA256}" ]; then echo "${PYTHON_SHA256}  /tmp/python-dist.tar" | sha256sum -c -; fi && \
+    tar --zstd -xf /tmp/python-dist.tar -C "${PYTHON_ROOT}" && \
+    rm -f /tmp/python-dist.tar
+
+RUN rustup target add "${TARGET_TRIPLE}"
+
+ENV PYTHON_EMBED_HOME="${PYTHON_ROOT}/python/install" \
+    PYTHON_BUILD_LIB="${PYTHON_ROOT}/python/build/lib"
+
+ENV PATH="${PYTHON_EMBED_HOME}/bin:${PATH}" \
+    PYO3_PYTHON="${PYTHON_EMBED_HOME}/bin/python3" \
+    PYTHON_SYS_EXECUTABLE="${PYTHON_EMBED_HOME}/bin/python3" \
+    PYO3_INCLUDE_DIR="${PYTHON_EMBED_HOME}/include" \
+    PYO3_LIB_DIR="${PYTHON_EMBED_HOME}/lib" \
+    PYO3_LIB_NAME="python3.13" \
+    PYO3_STATIC="1" \
+    OPENSSL_DIR="${PYTHON_EMBED_HOME}" \
+    OPENSSL_LIB_DIR="${PYTHON_BUILD_LIB}" \
+    OPENSSL_INCLUDE_DIR="${PYTHON_EMBED_HOME}/include"
+
+
+WORKDIR /workspace/bedder-rs
+
+RUN cargo install --locked cargo-zigbuild && \
+    rm -rf /usr/local/cargo/registry /usr/local/cargo/git
+
+RUN echo "chr1\t100\t200" > /workspace/a.bed && \
+    echo "chr1\t150\t250" > /workspace/b.bed && \
+    echo "chr1\t500" > /workspace/g.genome #&& \
+    npm install -g @openai/codex
+
+RUN echo "#!/bin/sh" > /tmp/codex-login-script.sh && \
+    echo "CONTAINER_IP=\$(hostname -i | awk '{print \$1}')" >> /tmp/codex-login-script.sh && \
+    echo "socat TCP-LISTEN:1455,fork,reuseaddr,bind=\"\$CONTAINER_IP\" TCP:127.0.0.1:1455 >/tmp/codex-login.log 2>&1 &" >> /tmp/codex-login-script.sh && \
+    echo "codex login" >> /tmp/codex-login-script.sh && \
+    cat /tmp/codex-login-script.sh > /usr/local/bin/codex-login && \
+    chmod +x /usr/local/bin/codex-login && \
+    rm /tmp/codex-login-script.sh && \
+    mkdir -p /root/.codex && \
+    echo "[features]" >> /root/.codex/config.toml && \
+    echo "web_search_requests = true" >> /root/.codex/config.toml && \
+    echo "[shell_environment_policy]" >> /root/.codex/config.toml && \
+    echo "ignore_default_excludes = true" >> /root/.codex/config.toml && \
+    apt-get purge --auto-remove && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
+CMD ["/bin/bash"]

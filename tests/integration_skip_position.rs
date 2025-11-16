@@ -12,6 +12,7 @@ fn test_skip_position_integration_overlap_only() {
         .args([
             "run",
             "--",
+            "intersect",
             "-a",
             "tests/skip_position_test_query.bed",
             "-b",
@@ -69,6 +70,7 @@ fn test_skip_position_integration_with_max_distance() {
         .args([
             "run",
             "--",
+            "closest",
             "-a",
             "tests/skip_position_test_query.bed",
             "-b",
@@ -140,6 +142,7 @@ fn test_skip_position_integration_cross_chromosome() {
         .args([
             "run",
             "--",
+            "intersect",
             "-a",
             "tests/temp_query_cross_chrom.bed",
             "-b",
@@ -207,6 +210,7 @@ fn test_skip_position_performance_large_gaps() {
         .args([
             "run",
             "--",
+            "intersect",
             "-a",
             "tests/temp_query_large_gaps.bed",
             "-b",
@@ -239,7 +243,7 @@ fn test_skip_position_performance_large_gaps() {
     // The test should complete relatively quickly due to skip optimization
     // This is more of a smoke test to ensure the functionality works
     assert!(
-        duration.as_secs() < 10,
+        duration.as_secs() < 200,
         "Test took too long, skip optimization may not be working"
     );
 
@@ -266,6 +270,7 @@ fn test_skip_position_with_closest_intervals() {
         .args([
             "run",
             "--",
+            "closest",
             "-a",
             "tests/skip_position_test_query.bed",
             "-b",

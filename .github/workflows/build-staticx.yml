@@ -1,0 +1,101 @@
+name: Build StaticX GNU Binary
+
+on:
+  push:
+    branches: [main, master, dev, build]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  linux-gnu:
+    name: Build bedder (${{ matrix.target }})
+    runs-on: ubuntu-22.04
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            python_url: https://github.com/astral-sh/python-build-standalone/releases/download/20251028/cpython-3.13.9%2B20251028-x86_64-unknown-linux-gnu-pgo%2Blto-full.tar.zst
+    env:
+      TARGET: ${{ matrix.target }}
+      PYTHON_URL: ${{ matrix.python_url }}
+      PYTHON_ARCHIVE: ${{ github.workspace }}/python-archive.tar.zst
+      PYTHON_GNU_DIR: ${{ github.workspace }}/third_party/python-gnu/python
+      PYTHON_EMBED_HOME: ${{ github.workspace }}/third_party/python-gnu/python/install
+      PYTHON_BUILD_LIB: ${{ github.workspace }}/third_party/python-gnu/python/build/lib
+      PYO3_STATIC: "1"
+      PYO3_PYTHON: ${{ github.workspace }}/third_party/python-gnu/python/install/bin/python3.13
+      PYTHON_SYS_EXECUTABLE: ${{ github.workspace }}/third_party/python-gnu/python/install/bin/python3.13
+      PYO3_INCLUDE_DIR: ${{ github.workspace }}/third_party/python-gnu/python/install/include
+      PYO3_LIB_DIR: ${{ github.workspace }}/third_party/python-gnu/python/install/lib
+      PYO3_LIB_NAME: python3.13
+      PYO3_CONFIG_FILE: ${{ github.workspace }}/pyo3-config.txt
+      OPENSSL_DIR: ${{ github.workspace }}/third_party/python-gnu/python/install
+      OPENSSL_LIB_DIR: ${{ github.workspace }}/third_party/python-gnu/python/build/lib
+      OPENSSL_INCLUDE_DIR: ${{ github.workspace }}/third_party/python-gnu/python/install/include
+      OPENSSL_STATIC: "1"
+      OPENSSL_NO_VENDOR: "1"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Use CI build script
+        run: cp ci/build.rs.ci build.rs
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential clang lld libssl-dev pkg-config zstd curl
+
+      - name: Download and extract standalone Python
+        run: |
+          mkdir -p third_party/python-gnu
+          echo "Downloading: ${PYTHON_URL}"
+          curl -fL "${PYTHON_URL}" -o "${PYTHON_ARCHIVE}"
+          mkdir -p "${PYTHON_GNU_DIR}"
+          tar --zstd -xf "${PYTHON_ARCHIVE}" -C "${PYTHON_GNU_DIR}" --strip-components=1
+          ls -al "${PYTHON_EMBED_HOME}/lib" || true
+
+      - name: Export Python to PATH
+        run: echo "PATH=${PYTHON_EMBED_HOME}/bin:${PATH}" >> "$GITHUB_ENV"
+
+      - name: Generate PyO3 config override
+        run: |
+          printf '%s\n' \
+            'implementation=CPython' \
+            'version=3.13' \
+            'shared=false' \
+            'abi3=false' \
+            'lib_name=python3.13' \
+            "lib_dir=${PYO3_LIB_DIR}" \
+            "executable=${PYO3_PYTHON}" \
+            'suppress_build_script_link_lines=true' \
+            > "${PYO3_CONFIG_FILE}"
+
+      - name: Ensure target installed
+        run: rustup target add ${TARGET}
+
+      - name: Build release binary
+        run: |
+          cargo clean
+          cargo build --release --target ${TARGET}
+
+      - name: Inspect binary
+        run: |
+          file target/${TARGET}/release/bedder
+          ldd target/${TARGET}/release/bedder
+
+      - name: Smoke test
+        run: ./target/${TARGET}/release/bedder --help
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bedder-${{ matrix.target }}-staticx
+          path: target/${{ matrix.target }}/release/bedder
+          if-no-files-found: error

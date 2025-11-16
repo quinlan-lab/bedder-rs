@@ -63,10 +63,10 @@ fn filter_part_overlaps(result: &mut [ReportFragment]) {
                     .try_lock()
                     .expect("filter_part_overlaps: failed to lock b interval");
                 // Check for overlap: a.start <= b.stop && a.stop >= b.start
-                let overlaps = a.start() <= b.stop() && a.stop() >= b.start();
+                
                 // drop(b) happens here automatically when guard goes out of scope
                 // Keep b only if it overlaps with a
-                overlaps
+                a.start() <= b.stop() && a.stop() >= b.start()
             }
         });
         // drop(a) happens here automatically when guard goes out of scope
@@ -140,7 +140,7 @@ impl Intersections {
                         b_satisified.push(b_interval.clone());
                     }
                 }
-                if b_satisified.len() > 0 {
+                if !b_satisified.is_empty() {
                     self.push_overlap_fragments(
                         &mut result,
                         &b_satisified,
@@ -151,7 +151,7 @@ impl Intersections {
                 }
             } else {
                 // Calculate cumulative overlap and sum of lengths for this group
-                let total_bases_overlap = self.calculate_total_overlap(overlaps, &report_options);
+                let total_bases_overlap = self.calculate_total_overlap(overlaps, report_options);
                 let base = self
                     .base_interval
                     .try_lock()

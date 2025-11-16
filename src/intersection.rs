@@ -7,7 +7,7 @@ use parking_lot::Mutex;
 use std::cmp::Ordering;
 use std::collections::{vec_deque::VecDeque, BinaryHeap};
 use std::io;
-use std::io::{Error, ErrorKind};
+use std::io::Error;
 use std::sync::Arc;
 
 use crate::position::{Position, PositionedIterator};
@@ -159,12 +159,12 @@ impl Iterator for IntersectionIterator<'_> {
                         "interval beyond end of chromosome: {}",
                         region_str(&base_interval)
                     );
-                    return Some(Err(Error::new(ErrorKind::Other, msg)));
+                    return Some(Err(Error::other(msg)));
                 }
             }
         } else {
             let msg = format!("invalid chromosome: {}", region_str(&base_interval));
-            return Some(Err(Error::new(ErrorKind::Other, msg)));
+            return Some(Err(Error::other(msg)));
         }
 
         if self.out_of_order(&base_interval) {
@@ -178,7 +178,7 @@ impl Iterator for IntersectionIterator<'_> {
                 region_str(&p.try_lock().expect("failed to lock previous interval")),
                 region_str(&base_interval),
             );
-            return Some(Err(Error::new(ErrorKind::Other, msg)));
+            return Some(Err(Error::other(msg)));
         }
         // drop intervals from Q that are strictly before the base interval.
         self.pop_front(&base_interval);
@@ -204,7 +204,7 @@ impl Iterator for IntersectionIterator<'_> {
             for o in self.dequeue.iter() {
                 match cmp(
                     &o.interval.try_lock().expect("failed to lock interval"),
-                    &*base_interval_locked,
+                    &base_interval_locked,
                     self.chromosome_order,
                 ) {
                     Ordering::Less => continue,
@@ -368,7 +368,7 @@ impl Iterator for IntersectionIterator<'_> {
             }
         }
         drop(base_interval_locked);
-        if overlapping_positions.len() > 0 {
+        if !overlapping_positions.is_empty() {
             log::trace!("overlapping_positions: {:?}", overlapping_positions);
         }
 
@@ -559,7 +559,7 @@ impl<'a> IntersectionIterator<'a> {
                             region_str(&positioned),
                             self.other_iterators[i].name()
                         );
-                        return Err(Error::new(ErrorKind::Other, msg));
+                        return Err(Error::other(msg));
                     }
                 };
                 self.min_heap.push(ReverseOrderPosition {
@@ -693,7 +693,7 @@ impl<'a> IntersectionIterator<'a> {
                             region_str(&next_position),
                             other_iterators[file_index].name()
                         );
-                        return Err(Error::new(ErrorKind::Other, msg));
+                        return Err(Error::other(msg));
                     }
                 };
 
@@ -707,7 +707,7 @@ impl<'a> IntersectionIterator<'a> {
                         region_str(&next_position),
                         other_iterators[file_index].name()
                     );
-                    return Err(Error::new(ErrorKind::Other, msg));
+                    return Err(Error::other(msg));
                 }
                 self.min_heap.push(ReverseOrderPosition {
                     position: next_position,

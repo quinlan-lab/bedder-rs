@@ -1,5 +1,7 @@
 *.o
 target/
+dist/
+logs/
 env
 /Cargo.lock
 docs/

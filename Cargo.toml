@@ -1,6 +1,6 @@
 [package]
 name = "bedder"
-version = "0.1.6"
+version = "0.1.7"
 edition = "2021"
 exclude = [
     "examples/expressions.rs"
@@ -10,6 +10,7 @@ exclude = [
 [lib]
 name = "bedder"
 path = "src/lib.rs"
+#rate-type = ["rlib", "cdylib"]
 crate-type = ["rlib"]
 
 [[bin]]
@@ -30,16 +31,20 @@ env_logger = "0.11.8"
 log = "0.4.19"
 linear-map = "1.2.0"
 hashbrown = "0.16.0"
-mimalloc = "0.1.39"
+mimalloc = {version ="0.1.39", optional = true }
 #rust-htslib = { version = "0.49.0", features = ["libdeflate", "static"]}
-rust-htslib = { git = "https://github.com/brentp/rust-htslib.git", rev = "645bb6f", features=["libdeflate", "static"] }
+rust-htslib = { git = "https://github.com/brentp/rust-htslib.git", rev = "645bb6f", features=["libdeflate", "static", "bzip2", "lzma", "curl"], default-features=false }
+hts-sys = { git = "https://github.com/brentp/hts-sys", rev = "85686a5", default-features = false }
 tempfile = "^3.14.0"
 simplebed = { git = "https://github.com/brentp/simplebed-rs.git", version = "0.1.5" }
 #simplebed = { path = "/home/brentp/src/simplebed-rs" }
-pyo3 = {version = "0.26.0", features=["macros", "abi3-py313"], default-features=false}
+# TODO: make the abi3-py38 behind a feature since it's not added when building static
+pyo3 = {version = "0.26.0", features=["macros"], default-features=false}
 pyo3-ffi = "0.26.0"
 #mlua = {version = "0.10.3", features=["luau", "send"]}
 parking_lot = {version="0.12.3"}
+libc = "0.2"
+curl-sys = { version = "0.4.83", default-features = false, features = ["rustls", "static-curl"] }
 
 
 [features]
@@ -53,6 +58,9 @@ csi = ["noodles/csi"]
 core = ["noodles/core"]
 # allow a Box<dyn Positioned> in the enum to support user-specified types.
 dyn_positioned = []
+python_embedded = []
+mimalloc_allocator = ["mimalloc"]
+
 
 [dev-dependencies]
 criterion = { version = "0.7.0", features = ["html_reports"] }
@@ -61,6 +69,9 @@ clap = { version = "4.5.21", features = ["derive"] }
 [[bench]]
 name = "random_intervals"
 harness = false
+
+[build-dependencies]
+pyo3-build-config = { version = "0.26.0", features = ["resolve-config"] }
 
 [profile.release]
 lto = "fat"

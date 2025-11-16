@@ -111,7 +111,7 @@ where
             last_record: None,
             line_number: 0,
             query_iter: None,
-            path: Some(path_string),
+            path: Some(path_string.into()),
         }
     }
 }
@@ -161,10 +161,7 @@ where
                 query.start() + 1,
                 self.name()
             );
-            match self.skip_to(query.chrom(), query.start().saturating_sub(1_u64)) {
-                Ok(_) => log::info!("skipped to query: {}:{}", query.chrom(), query.start() + 1),
-                Err(_) => (),
-            }
+            if self.skip_to(query.chrom(), query.start().saturating_sub(1_u64)).is_ok() { log::info!("skipped to query: {}:{}", query.chrom(), query.start() + 1) }
         }
         // If we have an active query iterator, use it
         if let Some(iter) = &mut self.query_iter {
