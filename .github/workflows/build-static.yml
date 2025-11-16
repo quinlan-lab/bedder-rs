@@ -10,6 +10,8 @@ jobs:
   linux-gnu:
     name: Build bedder (${{ matrix.target }})
     runs-on: ubuntu-24.04
+    permissions:
+      contents: write
     strategy:
       matrix:
         include:
@@ -130,12 +132,6 @@ jobs:
           PYTHON_INCLUDE_DIR_OVERRIDE: ${{ github.workspace }}/third_party/python-musl/python/install/include
           PYTHON_LIB_DIR_OVERRIDE: ${{ github.workspace }}/third_party/python-musl/python/install/lib/${{ matrix.python_config_dir }}
           PYO3_LIB_NAME: python3.13
-          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS: >-
-            -C link-arg=-Wl,--whole-archive
-            -C link-arg=${{ github.workspace }}/third_party/python-musl/python/install/lib/${{ matrix.python_config_dir }}/libpython3.13.a
-            -C link-arg=-Wl,--no-whole-archive
-            -C link-arg=/usr/lib/x86_64-linux-gnu/libreadline.a
-            -C link-arg=/usr/lib/x86_64-linux-gnu/libhistory.a
           OPENSSL_DIR: ${{ github.workspace }}/third_party/python-musl/python/install
           OPENSSL_LIB_DIR: ${{ github.workspace }}/third_party/python-musl/python/build/lib
           OPENSSL_INCLUDE_DIR: ${{ github.workspace }}/third_party/python-musl/python/install/include
@@ -164,3 +160,26 @@ jobs:
           name: bedder-${{ matrix.target }}-static
           path: dist/bedder-${{ matrix.target }}-static
           if-no-files-found: error
+
+      - name: Create release (tags only)
+        if: startsWith(github.ref, 'refs/tags/')
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref }}
+          release_name: bedder static (${{ github.ref_name }})
+          draft: false
+          prerelease: false
+
+      - name: Upload release asset
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: dist/bedder-${{ matrix.target }}-static
+          asset_name: bedder-${{ matrix.target }}-static
+          asset_content_type: application/octet-stream
