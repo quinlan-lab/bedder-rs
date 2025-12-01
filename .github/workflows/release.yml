@@ -3,7 +3,7 @@ name: Release
 on:
   push:
     tags:
-      - 'v*'  # Trigger on version tags like v1.0.0, v2.1.3, etc.
+      - "v*" # Trigger on version tags like v1.0.0, v2.1.3, etc.
 
 env:
   CARGO_TERM_COLOR: always
@@ -19,142 +19,155 @@ jobs:
             use_staticx: true
           - os: macos-latest
             target: x86_64-apple-darwin
-            binary_name: bedder-static-macos-x86_64
+            binary_name: bedder-static-macos-x86_64-python3.13
             use_staticx: false
-    
+            python_version: "3.13"
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            binary_name: bedder-static-macos-x86_64-python3.14
+            use_staticx: false
+            python_version: "3.14"
+
     runs-on: ${{ matrix.os }}
     permissions:
-      contents: write  # Required for creating releases
-    
+      contents: write # Required for creating releases
+
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      
-    - name: Install Rust toolchain
-      uses: dtolnay/rust-toolchain@stable
-      with:
-        toolchain: stable
-        targets: ${{ matrix.target }}
-        
-    - name: Cache cargo registry
-      uses: actions/cache@v4
-      with:
-        path: |
-          ~/.cargo/registry/index/
-          ~/.cargo/registry/cache/
-          ~/.cargo/git/db/
-          target/
-        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-        restore-keys: |
-          ${{ runner.os }}-cargo-
-          
-    - name: Install Linux system dependencies
-      if: matrix.os == 'ubuntu-latest'
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y \
-          python3-dev \
-          libpython3-dev \
-          libssl-dev \
-          libexpat1-dev \
-          zlib1g-dev \
-          pkg-config
-          
-    - name: Install staticx (Linux only)
-      if: matrix.use_staticx
-      run: |
-        python3 -m pip install --user staticx
-        echo "$HOME/.local/bin" >> $GITHUB_PATH
-        
-    - name: Build release binary
-      run: cargo build --release --target ${{ matrix.target }}
-      
-    - name: Create static binary with staticx (Linux)
-      if: matrix.use_staticx
-      run: |
-        staticx ./target/${{ matrix.target }}/release/bedder ./${{ matrix.binary_name }}
-        chmod +x ./${{ matrix.binary_name }}
-        
-    - name: Create mostly static binary (macOS)
-      if: matrix.os == 'macos-latest'
-      run: |
-        # Copy the binary and rename it
-        cp ./target/${{ matrix.target }}/release/bedder ./${{ matrix.binary_name }}
-        chmod +x ./${{ matrix.binary_name }}
-        
-        # Show dependencies for verification
-        echo "Dependencies for macOS binary:"
-        otool -L ./${{ matrix.binary_name }} || true
-        
-    - name: Test binary
-      run: |
-        ./${{ matrix.binary_name }} --help || echo "Binary test failed"
-        ls -lh ./${{ matrix.binary_name }}
-        
-        # Platform-specific dependency checks
-        if [[ "${{ matrix.os }}" == "ubuntu-latest" ]]; then
-          ldd ./${{ matrix.binary_name }} || echo "Static binary verified (no dynamic dependencies)"
-        elif [[ "${{ matrix.os }}" == "macos-latest" ]]; then
-          echo "macOS binary dependencies:"
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          targets: ${{ matrix.target }}
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Install Python (macOS)
+        if: matrix.os == 'macos-latest'
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python_version }}
+
+      - name: Install Linux system dependencies
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            python3-dev \
+            libpython3-dev \
+            libssl-dev \
+            libexpat1-dev \
+            zlib1g-dev \
+            pkg-config
+
+      - name: Install staticx (Linux only)
+        if: matrix.use_staticx
+        run: |
+          python3 -m pip install --user staticx
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+      - name: Build release binary
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Create static binary with staticx (Linux)
+        if: matrix.use_staticx
+        run: |
+          staticx ./target/${{ matrix.target }}/release/bedder ./${{ matrix.binary_name }}
+          chmod +x ./${{ matrix.binary_name }}
+
+      - name: Create mostly static binary (macOS)
+        if: matrix.os == 'macos-latest'
+        run: |
+          # Copy the binary and rename it
+          cp ./target/${{ matrix.target }}/release/bedder ./${{ matrix.binary_name }}
+          chmod +x ./${{ matrix.binary_name }}
+
+          # Show dependencies for verification
+          echo "Dependencies for macOS binary:"
           otool -L ./${{ matrix.binary_name }} || true
-        fi
-        
-    - name: Upload binary artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: ${{ matrix.binary_name }}
-        path: ${{ matrix.binary_name }}
+
+      - name: Test binary
+        run: |
+          ./${{ matrix.binary_name }} --help || echo "Binary test failed"
+          ls -lh ./${{ matrix.binary_name }}
+
+          # Platform-specific dependency checks
+          if [[ "${{ matrix.os }}" == "ubuntu-latest" ]]; then
+            ldd ./${{ matrix.binary_name }} || echo "Static binary verified (no dynamic dependencies)"
+          elif [[ "${{ matrix.os }}" == "macos-latest" ]]; then
+            echo "macOS binary dependencies:"
+            otool -L ./${{ matrix.binary_name }} || true
+          fi
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.binary_name }}
+          path: ${{ matrix.binary_name }}
 
   release:
     needs: build-and-release
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      
+
     steps:
-    - name: Download all artifacts
-      uses: actions/download-artifact@v4
-      
-    - name: Create Release and Upload Assets
-      uses: softprops/action-gh-release@v2
-      with:
-        name: Release ${{ github.ref_name }}
-        body: |
-          ## Changes in ${{ github.ref_name }}
-          
-          ### Downloads
-          - **bedder-static-linux-x86_64**: Static binary for Linux x86_64 (no dependencies required)
-          - **bedder-static-macos-x86_64**: Mostly static binary for macOS x86_64 (minimal system dependencies)
-          
-          ### Installation
-          
-          #### Linux
-          ```bash
-          # Download and make executable
-          wget https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/bedder-static-linux-x86_64
-          chmod +x bedder-static-linux-x86_64
-          
-          # Optional: Move to PATH
-          sudo mv bedder-static-linux-x86_64 /usr/local/bin/bedder
-          ```
-          
-          #### macOS
-          ```bash
-          # Download and make executable
-          wget https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/bedder-static-macos-x86_64
-          chmod +x bedder-static-macos-x86_64
-          
-          # Optional: Move to PATH
-          sudo mv bedder-static-macos-x86_64 /usr/local/bin/bedder
-          ```
-          
-          ### Binary Info
-          - **Linux binary**: Fully static (~6MB, no dependencies)
-          - **macOS binary**: Mostly static (~6MB, minimal system dependencies)
-          - **Python**: Works with any Python 3.8+ system
-          - **Architecture**: x86_64
-        files: |
-          bedder-static-linux-x86_64/bedder-static-linux-x86_64
-          bedder-static-macos-x86_64/bedder-static-macos-x86_64
-        draft: false
-        prerelease: false 
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+
+      - name: Create Release and Upload Assets
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Release ${{ github.ref_name }}
+          body: |
+            ## Changes in ${{ github.ref_name }}
+
+            ### Downloads
+            - **bedder-static-linux-x86_64**: Static binary for Linux x86_64 (no dependencies required)
+            - **bedder-static-macos-x86_64-python3.13**: macOS x86_64 binary built with Python 3.13
+            - **bedder-static-macos-x86_64-python3.14**: macOS x86_64 binary built with Python 3.14
+
+            ### Installation
+
+            #### Linux
+            ```bash
+            # Download and make executable
+            wget https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/bedder-static-linux-x86_64
+            chmod +x bedder-static-linux-x86_64
+
+            # Optional: Move to PATH
+            sudo mv bedder-static-linux-x86_64 /usr/local/bin/bedder
+            ```
+
+            #### macOS (Python 3.13)
+            ```bash
+            wget https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/bedder-static-macos-x86_64-python3.13
+            chmod +x bedder-static-macos-x86_64-python3.13
+            sudo mv bedder-static-macos-x86_64-python3.13 /usr/local/bin/bedder
+            ```
+
+            #### macOS (Python 3.14)
+            ```bash
+            wget https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/bedder-static-macos-x86_64-python3.14
+            chmod +x bedder-static-macos-x86_64-python3.14
+            sudo mv bedder-static-macos-x86_64-python3.14 /usr/local/bin/bedder
+            ```
+
+          files: |
+            bedder-static-linux-x86_64/bedder-static-linux-x86_64
+            bedder-static-macos-x86_64-python3.13/bedder-static-macos-x86_64-python3.13
+            bedder-static-macos-x86_64-python3.14/bedder-static-macos-x86_64-python3.14
+          draft: false
+          prerelease: false
