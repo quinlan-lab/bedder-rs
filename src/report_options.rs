@@ -45,6 +45,9 @@ pub enum IntersectionPart {
     Piece,
     /// Report the whole interval of A that overlaps B
     Whole,
+    /// Report the whole interval, but once per overlap ("long" output).
+    #[value(name = "whole-long")]
+    WholeLong,
     /// Report each portion of A that does *NOT* overlap B
     Inverse,
 }
@@ -55,6 +58,7 @@ impl std::fmt::Display for IntersectionPart {
             IntersectionPart::None => write!(f, "none"),
             IntersectionPart::Piece => write!(f, "piece"),
             IntersectionPart::Whole => write!(f, "whole"),
+            IntersectionPart::WholeLong => write!(f, "whole-long"),
             IntersectionPart::Inverse => write!(f, "inverse"),
         }
     }
@@ -74,6 +78,7 @@ impl FromStr for IntersectionPart {
             "none" => Ok(Self::None),
             "piece" => Ok(Self::Piece),
             "whole" => Ok(Self::Whole),
+            "whole-long" | "whole_long" => Ok(Self::WholeLong),
             "inverse" => Ok(Self::Inverse),
             _ => Err(format!("unknown intersection part {}", s)),
         }

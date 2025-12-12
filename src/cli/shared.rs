@@ -84,7 +84,7 @@ pub struct OverlapArgs {
     pub b_mode: IntersectionMode,
 
     #[arg(
-        help = "the piece of the a intervals to report",
+        help = "the piece of the a intervals to report (use 'whole-long' to emit the full A record once per overlap)",
         short = 'p',
         long = "a-piece",
         default_value = "whole"
@@ -92,7 +92,7 @@ pub struct OverlapArgs {
     pub a_piece: IntersectionPart,
 
     #[arg(
-        help = "the piece of the b intervals to report",
+        help = "the piece of the b intervals to report ('whole-long' is accepted but currently behaves like 'whole')",
         long = "b-piece",
         short = 'P',
         default_value = "whole"
@@ -205,8 +205,8 @@ pub fn process_bedder(
         })
         .collect::<Result<Vec<_>, _>>()?;
 
-    let can_skip_ahead =
-        !matches!(a_piece, IntersectionPart::Whole) && !common_args.dont_use_indexes;
+    let can_skip_ahead = !matches!(a_piece, IntersectionPart::Whole | IntersectionPart::WholeLong)
+        && !common_args.dont_use_indexes;
 
     let ii = bedder::intersection::IntersectionIterator::new(
         a_iter,

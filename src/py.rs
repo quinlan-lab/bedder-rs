@@ -1124,6 +1124,13 @@ impl PyIntersectionPart {
     }
 
     #[staticmethod]
+    fn whole_long() -> Self {
+        PyIntersectionPart {
+            inner: IntersectionPart::WholeLong,
+        }
+    }
+
+    #[staticmethod]
     fn inverse() -> Self {
         PyIntersectionPart {
             inner: IntersectionPart::Inverse,

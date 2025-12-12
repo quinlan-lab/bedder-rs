@@ -296,6 +296,74 @@ impl Intersections {
     ) {
         assert!(overlaps.iter().all(|o| o.id as usize == b_idx));
 
+        if matches!(a_piece, IntersectionPart::WholeLong) {
+            let locked_base = self
+                .base_interval
+                .try_lock()
+                .expect("failed to lock interval");
+            let base = locked_base.clone_box();
+            drop(locked_base);
+
+            let base_start = base.start();
+            let base_stop = base.stop();
+
+            let make_b_positions = |intersection: &Intersection| -> Vec<Arc<Mutex<Position>>> {
+                match b_piece {
+                    IntersectionPart::None => vec![],
+                    IntersectionPart::Whole | IntersectionPart::WholeLong => {
+                        vec![intersection.interval.clone()]
+                    }
+                    IntersectionPart::Piece => {
+                        let o = intersection
+                            .interval
+                            .try_lock()
+                            .expect("failed to lock interval");
+                        let mut b_interval = o.clone_box();
+                        b_interval.set_start(b_interval.start().max(base_start));
+                        b_interval.set_stop(b_interval.stop().min(base_stop));
+                        drop(o);
+                        vec![Arc::new(Mutex::new(b_interval))]
+                    }
+                    IntersectionPart::Inverse => {
+                        let o = intersection
+                            .interval
+                            .try_lock()
+                            .expect("failed to lock interval");
+                        let mut b_positions = Vec::new();
+                        if o.start() < base_start {
+                            let mut b_interval = o.clone_box();
+                            b_interval.set_stop(b_interval.start());
+                            b_positions.push(Arc::new(Mutex::new(b_interval)));
+                        }
+                        if o.stop() > base_stop {
+                            let mut b_interval = o.clone_box();
+                            b_interval.set_start(base_stop);
+                            b_positions.push(Arc::new(Mutex::new(b_interval)));
+                        }
+                        drop(o);
+                        b_positions
+                    }
+                }
+            };
+
+            if overlaps.is_empty() {
+                result.push(ReportFragment {
+                    a: Some(Arc::new(Mutex::new(base))),
+                    b: vec![],
+                    id: b_idx,
+                });
+            } else {
+                for o in overlaps {
+                    result.push(ReportFragment {
+                        a: Some(Arc::new(Mutex::new(base.clone_box()))),
+                        b: make_b_positions(o),
+                        id: b_idx,
+                    });
+                }
+            }
+            return;
+        }
+
         let a_positions = match a_piece {
             // for None, we still need the a_interval to report the b_interval
             IntersectionPart::None | IntersectionPart::Whole => vec![self.base_interval.clone()],
@@ -335,6 +403,7 @@ impl Intersections {
                 drop(locked_base); // Explicitly drop the lock
                 inverse(&base_clone, overlaps)
             }
+            IntersectionPart::WholeLong => unreachable!("handled above"),
         };
 
         a_positions.iter().for_each(|a_position| {
@@ -399,7 +468,7 @@ impl Intersections {
                         id: b_idx,
                     }
                 }
-                IntersectionPart::Whole => ReportFragment {
+                IntersectionPart::Whole | IntersectionPart::WholeLong => ReportFragment {
                     a: a_pos,
                     b: overlaps
                         .iter()
@@ -455,9 +524,47 @@ impl Intersections {
 mod tests {
     use super::*;
     use crate::tests::parse_intersections::parse_intersections;
+    use std::sync::Arc;
 
     fn make_example(def: &str) -> Intersections {
         parse_intersections(def)
+    }
+
+    #[test]
+    fn test_whole_long_reports_full_a_per_overlap() {
+        let intersections = make_example("a: 1-10\nb: 3-6, 8-12");
+        let mut ro = ReportOptions::default();
+        ro.a_piece = IntersectionPart::WholeLong;
+        ro.b_piece = IntersectionPart::Whole;
+        ro.a_requirements = OverlapAmount::Bases(1);
+        ro.b_requirements = OverlapAmount::Bases(1);
+
+        let r = intersections.report(&ro);
+        assert_eq!(r.len(), 2);
+
+        let a0 = r[0].a.as_ref().unwrap();
+        let a1 = r[1].a.as_ref().unwrap();
+        assert!(
+            !Arc::ptr_eq(a0, a1),
+            "Expected whole-long to clone A per hit"
+        );
+
+        let a0l = a0.lock();
+        assert_eq!(a0l.start(), 1);
+        assert_eq!(a0l.stop(), 10);
+        drop(a0l);
+        let a1l = a1.lock();
+        assert_eq!(a1l.start(), 1);
+        assert_eq!(a1l.stop(), 10);
+
+        assert_eq!(r[0].b.len(), 1);
+        assert_eq!(r[1].b.len(), 1);
+        let b0 = r[0].b[0].lock();
+        assert_eq!(b0.start(), 3);
+        assert_eq!(b0.stop(), 6);
+        let b1 = r[1].b[0].lock();
+        assert_eq!(b1.start(), 8);
+        assert_eq!(b1.stop(), 12);
     }
 
     #[test]
