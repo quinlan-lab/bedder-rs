@@ -40,15 +40,19 @@ impl FromStr for IntersectionMode {
 pub enum IntersectionPart {
     /// Don't report the intersection.
     /// This is commonly used for -b to not report b intervals.
+    #[value(name = "none")]
     None,
     /// Report each portion of A that overlaps B
+    #[value(name = "piece")]
     Piece,
-    /// Report the whole interval of A that overlaps B
-    Whole,
+    /// Report the whole interval of A that overlaps B ("wide" output).
+    #[value(name = "whole-wide", alias = "whole_wide")]
+    WholeWide,
     /// Report the whole interval, but once per overlap ("long" output).
-    #[value(name = "whole-long")]
-    WholeLong,
+    #[value(name = "whole", alias = "whole-long", alias = "whole_long")]
+    Whole,
     /// Report each portion of A that does *NOT* overlap B
+    #[value(name = "inverse")]
     Inverse,
 }
 
@@ -57,8 +61,8 @@ impl std::fmt::Display for IntersectionPart {
         match self {
             IntersectionPart::None => write!(f, "none"),
             IntersectionPart::Piece => write!(f, "piece"),
+            IntersectionPart::WholeWide => write!(f, "whole-wide"),
             IntersectionPart::Whole => write!(f, "whole"),
-            IntersectionPart::WholeLong => write!(f, "whole-long"),
             IntersectionPart::Inverse => write!(f, "inverse"),
         }
     }
@@ -66,7 +70,7 @@ impl std::fmt::Display for IntersectionPart {
 
 impl From<&str> for IntersectionPart {
     fn from(s: &str) -> Self {
-        <Self as ValueEnum>::from_str(s, true).unwrap_or(Self::Whole)
+        <Self as ValueEnum>::from_str(s, true).unwrap_or(Self::WholeWide)
     }
 }
 
@@ -77,8 +81,9 @@ impl FromStr for IntersectionPart {
         match s.to_lowercase().as_str() {
             "none" => Ok(Self::None),
             "piece" => Ok(Self::Piece),
-            "whole" => Ok(Self::Whole),
-            "whole-long" | "whole_long" => Ok(Self::WholeLong),
+            // "whole" now means "whole-long" output.
+            "whole" | "whole-long" | "whole_long" => Ok(Self::Whole),
+            "whole-wide" | "whole_wide" => Ok(Self::WholeWide),
             "inverse" => Ok(Self::Inverse),
             _ => Err(format!("unknown intersection part {}", s)),
         }
@@ -172,7 +177,7 @@ impl Default for &OverlapAmount {
 /// let options = ReportOptions::builder()
 ///     .a_mode(IntersectionMode::Not)
 ///     .b_mode(IntersectionMode::Default)
-///     .a_piece(IntersectionPart::Whole)
+///     .a_piece(IntersectionPart::WholeWide)
 ///     .b_piece(IntersectionPart::Piece)
 ///     .a_requirements(OverlapAmount::Bases(5))
 ///     .b_requirements(OverlapAmount::Fraction(0.5))
@@ -227,8 +232,8 @@ impl ReportOptionsBuilder {
         Self {
             a_mode: IntersectionMode::Default,
             b_mode: IntersectionMode::Default,
-            a_piece: IntersectionPart::Whole,
-            b_piece: IntersectionPart::Whole,
+            a_piece: IntersectionPart::WholeWide,
+            b_piece: IntersectionPart::WholeWide,
             a_requirements: OverlapAmount::Bases(1),
             b_requirements: OverlapAmount::Bases(1),
         }

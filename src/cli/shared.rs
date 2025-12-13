@@ -84,7 +84,7 @@ pub struct OverlapArgs {
     pub b_mode: IntersectionMode,
 
     #[arg(
-        help = "the piece of the a intervals to report (use 'whole-long' to emit the full A record once per overlap)",
+        help = "the piece of the a intervals to report ('whole-wide' for wide output; 'whole' for long output with full A per overlap)",
         short = 'p',
         long = "a-piece",
         default_value = "whole"
@@ -92,10 +92,10 @@ pub struct OverlapArgs {
     pub a_piece: IntersectionPart,
 
     #[arg(
-        help = "the piece of the b intervals to report ('whole-long' is accepted but currently behaves like 'whole')",
+        help = "the piece of the b intervals to report",
         long = "b-piece",
         short = 'P',
-        default_value = "whole"
+        default_value = "whole-wide"
     )]
     pub b_piece: IntersectionPart,
 
@@ -167,7 +167,7 @@ pub fn process_bedder(
             log::error!("Cannot specify --n-closest with --a-requirements or --b-requirements. The 'closest' command is for finding nearest intervals, which may not overlap so overlap requirements are not applicable.");
             std::process::exit(1);
         }
-        b_piece = IntersectionPart::Whole;
+        b_piece = IntersectionPart::WholeWide;
     }
 
     let chrom_order =
@@ -205,7 +205,8 @@ pub fn process_bedder(
         })
         .collect::<Result<Vec<_>, _>>()?;
 
-    let can_skip_ahead = !matches!(a_piece, IntersectionPart::Whole | IntersectionPart::WholeLong)
+    let can_skip_ahead =
+        !matches!(a_piece, IntersectionPart::WholeWide | IntersectionPart::Whole)
         && !common_args.dont_use_indexes;
 
     let ii = bedder::intersection::IntersectionIterator::new(

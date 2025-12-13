@@ -1124,10 +1124,16 @@ impl PyIntersectionPart {
     }
 
     #[staticmethod]
-    fn whole_long() -> Self {
+    fn whole_wide() -> Self {
         PyIntersectionPart {
-            inner: IntersectionPart::WholeLong,
+            inner: IntersectionPart::WholeWide,
         }
+    }
+
+    // Backwards-compatible alias: older code may call whole_long().
+    #[staticmethod]
+    fn whole_long() -> Self {
+        PyIntersectionPart::whole()
     }
 
     #[staticmethod]
