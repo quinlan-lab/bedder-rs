@@ -571,6 +571,7 @@ mod tests {
     fn test_simple() {
         let intersections = make_example("a: 1-10\nb: 3-6, 8-12");
         let mut ro = ReportOptions::default();
+        ro.a_piece = IntersectionPart::WholeWide;
         ro.a_requirements = OverlapAmount::Bases(5);
         ro.b_requirements = OverlapAmount::Bases(1);
 
