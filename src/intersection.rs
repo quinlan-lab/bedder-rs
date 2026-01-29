@@ -725,18 +725,41 @@ impl<'a> IntersectionIterator<'a> {
             };
             self.dequeue.push_back(intersection);
 
-            // if this position is after base_interval, we can stop pulling through heap.
-            {
-                if cmp(
-                    &base_interval
-                        .try_lock()
-                        .expect("failed to lock base_interval"),
-                    &rc_pos.try_lock().expect("failed to lock interval"),
-                    self.chromosome_order,
-                ) == Ordering::Less
-                {
-                    break;
+            // if this position is after base_interval, we can stop pulling through heap
+            // (but for n_closest, we need to keep pulling to get enough "after" intervals)
+            let should_break = {
+                let base_locked = base_interval
+                    .try_lock()
+                    .expect("failed to lock base_interval");
+                let rc_locked = rc_pos.try_lock().expect("failed to lock interval");
+                if cmp(&base_locked, &rc_locked, self.chromosome_order) == Ordering::Less {
+                    if self.n_closest <= 0 {
+                        true
+                    } else {
+                        // For n_closest, count how many intervals we have after base_interval
+                        // We need to drop locks before iterating
+                        let base_chrom = base_locked.chrom().to_string();
+                        let base_stop = base_locked.stop();
+                        drop(base_locked);
+                        drop(rc_locked);
+
+                        let after_count = self
+                            .dequeue
+                            .iter()
+                            .filter(|o| {
+                                let interval = o.interval.try_lock().expect("Failed to lock interval in n_closest after_count");
+                                interval.chrom() == base_chrom && interval.start() >= base_stop
+                            })
+                            .count();
+                        // Stop if we have enough intervals after the base
+                        after_count >= self.n_closest as usize
+                    }
+                } else {
+                    false
                 }
+            };
+            if should_break {
+                break;
             }
         }
         Ok(())
@@ -1612,6 +1635,269 @@ mod tests {
                 case.name
             );
         }
+    }
+
+    #[test]
+    fn test_closest_multiple_queries() {
+        // User-reported scenario:
+        // Query: chr1:10-20 and chr1:50-60
+        // Target: chr1:30-40 and chr1:70-80
+        // n_closest=2
+        // Expected for chr1:10-20: chr1:30-40 (dist 10) and chr1:70-80 (dist 50)
+        // Expected for chr1:50-60: chr1:30-40 (dist 10) and chr1:70-80 (dist 10)
+        let genome_str = "chr1\t1000\n";
+        let chrom_order = parse_genome(genome_str.as_bytes()).unwrap();
+
+        let base_ivs = Intervals::new(
+            String::from("query"),
+            vec![
+                Interval {
+                    chrom: String::from("chr1"),
+                    start: 10,
+                    stop: 20,
+                    ..Default::default()
+                },
+                Interval {
+                    chrom: String::from("chr1"),
+                    start: 50,
+                    stop: 60,
+                    ..Default::default()
+                },
+            ],
+        );
+
+        let db_ivs = Intervals::new(
+            String::from("target"),
+            vec![
+                Interval {
+                    chrom: String::from("chr1"),
+                    start: 30,
+                    stop: 40,
+                    ..Default::default()
+                },
+                Interval {
+                    chrom: String::from("chr1"),
+                    start: 70,
+                    stop: 80,
+                    ..Default::default()
+                },
+            ],
+        );
+
+        let mut iter = IntersectionIterator::new(
+            Box::new(base_ivs),
+            vec![Box::new(db_ivs)],
+            &chrom_order,
+            0,  // max_distance
+            2,  // n_closest
+            false,
+        )
+        .expect("error getting iterator");
+
+        // First query: chr1:10-20
+        let first = iter.next().unwrap().unwrap();
+        assert_eq!(
+            first.overlapping.len(),
+            2,
+            "first query should have 2 closest intervals, got {}",
+            first.overlapping.len()
+        );
+
+        // Second query: chr1:50-60
+        let second = iter.next().unwrap().unwrap();
+        assert_eq!(
+            second.overlapping.len(),
+            2,
+            "second query should have 2 closest intervals, got {}",
+            second.overlapping.len()
+        );
+
+        // Verify no more results
+        assert!(iter.next().is_none(), "should have no more results");
+    }
+
+    #[test]
+    fn test_closest_at_chromosome_boundary() {
+        // Query at end of chr1, targets on chr1 and chr2
+        // Should only return chr1 intervals for chr1 query
+        let genome_str = "chr1\t1000\nchr2\t1000\n";
+        let chrom_order = parse_genome(genome_str.as_bytes()).unwrap();
+
+        let base_ivs = Intervals::new(
+            String::from("query"),
+            vec![Interval {
+                chrom: String::from("chr1"),
+                start: 900,
+                stop: 950,
+                ..Default::default()
+            }],
+        );
+
+        let db_ivs = Intervals::new(
+            String::from("target"),
+            vec![
+                Interval {
+                    chrom: String::from("chr1"),
+                    start: 800,
+                    stop: 850,
+                    ..Default::default()
+                }, // before query, dist 50
+                Interval {
+                    chrom: String::from("chr2"),
+                    start: 10,
+                    stop: 20,
+                    ..Default::default()
+                }, // different chrom - should not be included
+                Interval {
+                    chrom: String::from("chr2"),
+                    start: 100,
+                    stop: 110,
+                    ..Default::default()
+                }, // different chrom - should not be included
+            ],
+        );
+
+        let mut iter = IntersectionIterator::new(
+            Box::new(base_ivs),
+            vec![Box::new(db_ivs)],
+            &chrom_order,
+            0,  // max_distance
+            2,  // n_closest - asking for 2, but only 1 on same chrom
+            false,
+        )
+        .expect("error getting iterator");
+
+        let first = iter.next().unwrap().unwrap();
+        // Should only get 1 interval (the chr1 one), not chr2 intervals
+        assert_eq!(
+            first.overlapping.len(),
+            1,
+            "should only get 1 interval (same chrom), got {}",
+            first.overlapping.len()
+        );
+
+        // Verify it's the chr1 interval
+        let interval = first.overlapping[0].interval.try_lock().unwrap();
+        assert_eq!(interval.chrom(), "chr1");
+    }
+
+    #[test]
+    fn test_closest_not_enough_intervals() {
+        // Query wants n_closest=3 but only 1 target exists
+        let genome_str = "chr1\t1000\n";
+        let chrom_order = parse_genome(genome_str.as_bytes()).unwrap();
+
+        let base_ivs = Intervals::new(
+            String::from("query"),
+            vec![Interval {
+                chrom: String::from("chr1"),
+                start: 10,
+                stop: 20,
+                ..Default::default()
+            }],
+        );
+
+        let db_ivs = Intervals::new(
+            String::from("target"),
+            vec![Interval {
+                chrom: String::from("chr1"),
+                start: 50,
+                stop: 60,
+                ..Default::default()
+            }],
+        );
+
+        let mut iter = IntersectionIterator::new(
+            Box::new(base_ivs),
+            vec![Box::new(db_ivs)],
+            &chrom_order,
+            0,  // max_distance
+            3,  // n_closest - asking for 3, but only 1 exists
+            false,
+        )
+        .expect("error getting iterator");
+
+        let first = iter.next().unwrap().unwrap();
+        // Should get 1 interval (all that exists)
+        assert_eq!(
+            first.overlapping.len(),
+            1,
+            "should get 1 interval (all available), got {}",
+            first.overlapping.len()
+        );
+    }
+
+    #[test]
+    fn test_closest_all_intervals_before() {
+        // All target intervals are before the query
+        let genome_str = "chr1\t1000\n";
+        let chrom_order = parse_genome(genome_str.as_bytes()).unwrap();
+
+        let base_ivs = Intervals::new(
+            String::from("query"),
+            vec![Interval {
+                chrom: String::from("chr1"),
+                start: 500,
+                stop: 510,
+                ..Default::default()
+            }],
+        );
+
+        let db_ivs = Intervals::new(
+            String::from("target"),
+            vec![
+                Interval {
+                    chrom: String::from("chr1"),
+                    start: 100,
+                    stop: 110,
+                    ..Default::default()
+                }, // dist 390
+                Interval {
+                    chrom: String::from("chr1"),
+                    start: 200,
+                    stop: 210,
+                    ..Default::default()
+                }, // dist 290
+                Interval {
+                    chrom: String::from("chr1"),
+                    start: 300,
+                    stop: 310,
+                    ..Default::default()
+                }, // dist 190
+            ],
+        );
+
+        let mut iter = IntersectionIterator::new(
+            Box::new(base_ivs),
+            vec![Box::new(db_ivs)],
+            &chrom_order,
+            0,  // max_distance
+            2,  // n_closest
+            false,
+        )
+        .expect("error getting iterator");
+
+        let first = iter.next().unwrap().unwrap();
+        // Should get 2 closest (the ones at 200-210 and 300-310)
+        assert_eq!(
+            first.overlapping.len(),
+            2,
+            "should get 2 closest intervals, got {}",
+            first.overlapping.len()
+        );
+
+        // Verify distances - should be 190 and 290 (closest two)
+        let base_start = 500u64;
+        let mut distances: Vec<u64> = first
+            .overlapping
+            .iter()
+            .map(|o| {
+                let interval = o.interval.try_lock().unwrap();
+                base_start - interval.stop()
+            })
+            .collect();
+        distances.sort();
+        assert_eq!(distances, vec![190, 290]);
     }
 
     #[cfg(test)]

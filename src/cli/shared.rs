@@ -153,7 +153,7 @@ pub fn process_bedder(
         .as_ref()
         .map(|o| o.b_mode.clone())
         .unwrap_or_default();
-    let a_piece = overlap_args
+    let mut a_piece = overlap_args
         .as_ref()
         .map(|o| o.a_piece.clone())
         .unwrap_or_default();
@@ -162,11 +162,18 @@ pub fn process_bedder(
         .map(|o| o.b_piece.clone())
         .unwrap_or_default();
 
+    if matches!(a_piece, IntersectionPart::None) {
+        log::error!("--a-piece none is not supported. The query (A) interval must be reported.");
+        std::process::exit(1);
+    }
+
     if n_closest.is_some() {
         if a_requirements.is_some() || b_requirements.is_some() {
             log::error!("Cannot specify --n-closest with --a-requirements or --b-requirements. The 'closest' command is for finding nearest intervals, which may not overlap so overlap requirements are not applicable.");
             std::process::exit(1);
         }
+        // Use wide output format for closest: one line per query with all B intervals
+        a_piece = IntersectionPart::WholeWide;
         b_piece = IntersectionPart::WholeWide;
     }
 

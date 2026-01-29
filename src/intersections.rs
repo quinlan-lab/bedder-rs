@@ -332,7 +332,7 @@ impl Intersections {
                         let mut b_positions = Vec::new();
                         if o.start() < base_start {
                             let mut b_interval = o.clone_box();
-                            b_interval.set_stop(b_interval.start());
+                            b_interval.set_stop(base_start);
                             b_positions.push(Arc::new(Mutex::new(b_interval)));
                         }
                         if o.stop() > base_stop {
@@ -452,7 +452,7 @@ impl Intersections {
                         let o = o.interval.try_lock().expect("failed to lock interval");
                         if o.start() < base.start() {
                             let mut b_interval = o.clone_box();
-                            b_interval.set_stop(b_interval.start());
+                            b_interval.set_stop(base.start());
                             b_positions.push(Arc::new(Mutex::new(b_interval)));
                         }
                         if o.stop() > base.stop() {
@@ -752,6 +752,56 @@ mod tests {
         assert_eq!(r[1].b.len(), 1);
         assert_eq!(r[1].b[0].try_lock().unwrap().start(), 10);
         assert_eq!(r[1].b[0].try_lock().unwrap().stop(), 20);
+    }
+
+    #[test]
+    fn test_b_inverse_start_before() {
+        // Test case from user bug report: a: 25-27, b: 20-30
+        // Expected inverse: b pieces 20-25 and 27-30
+        let intersections = make_example("a: 25-27\nb: 20-30");
+        let mut ro = ReportOptions::default();
+        ro.a_mode = IntersectionMode::Default;
+        ro.b_mode = IntersectionMode::Default;
+        ro.a_piece = IntersectionPart::WholeWide;
+        ro.b_piece = IntersectionPart::Inverse;
+        ro.a_requirements = OverlapAmount::Bases(1);
+        ro.b_requirements = OverlapAmount::Bases(1);
+        let r = intersections.report(&ro);
+        assert_eq!(r.len(), 1);
+
+        assert_eq!(r[0].b.len(), 2);
+        // First piece: 20-25 (part of b before a)
+        assert_eq!(r[0].b[0].try_lock().unwrap().start(), 20);
+        assert_eq!(r[0].b[0].try_lock().unwrap().stop(), 25);
+        // Second piece: 27-30 (part of b after a)
+        assert_eq!(r[0].b[1].try_lock().unwrap().start(), 27);
+        assert_eq!(r[0].b[1].try_lock().unwrap().stop(), 30);
+    }
+
+    #[test]
+    fn test_b_inverse_long_output() {
+        // Test case for long output (--a-piece whole, default) with --b-piece inverse
+        // a: 25-27, b: 20-30
+        // Expected inverse: b pieces 20-25 and 27-30
+        let intersections = make_example("a: 25-27\nb: 20-30");
+        let mut ro = ReportOptions::default();
+        ro.a_mode = IntersectionMode::Default;
+        ro.b_mode = IntersectionMode::Default;
+        ro.a_piece = IntersectionPart::Whole; // long output (default)
+        ro.b_piece = IntersectionPart::Inverse;
+        ro.a_requirements = OverlapAmount::Bases(1);
+        ro.b_requirements = OverlapAmount::Bases(1);
+        let r = intersections.report(&ro);
+        // With Whole (long output), we get one fragment per B overlap
+        assert_eq!(r.len(), 1);
+
+        assert_eq!(r[0].b.len(), 2);
+        // First piece: 20-25 (part of b before a)
+        assert_eq!(r[0].b[0].try_lock().unwrap().start(), 20);
+        assert_eq!(r[0].b[0].try_lock().unwrap().stop(), 25);
+        // Second piece: 27-30 (part of b after a)
+        assert_eq!(r[0].b[1].try_lock().unwrap().start(), 27);
+        assert_eq!(r[0].b[1].try_lock().unwrap().stop(), 30);
     }
 
     #[test]
