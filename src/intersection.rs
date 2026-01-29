@@ -747,7 +747,7 @@ impl<'a> IntersectionIterator<'a> {
                             .dequeue
                             .iter()
                             .filter(|o| {
-                                let interval = o.interval.try_lock().unwrap();
+                                let interval = o.interval.try_lock().expect("Failed to lock interval in n_closest after_count");
                                 interval.chrom() == base_chrom && interval.start() >= base_stop
                             })
                             .count();
