@@ -365,75 +365,54 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_agg_count() {
-        let values = vec![1.0, 2.0, 3.0];
-        assert_eq!(AggOp::Count.compute(&values), "3");
+    fn test_agg_ops() {
+        let vals = vec![3.0, 1.0, 2.0];
+        assert_eq!(AggOp::Count.compute(&vals), "3");
+        assert_eq!(AggOp::Sum.compute(&vals), "6");
+        assert_eq!(AggOp::Mean.compute(&vals), "2");
+        assert_eq!(AggOp::Min.compute(&vals), "1");
+        assert_eq!(AggOp::Max.compute(&vals), "3");
+        assert_eq!(AggOp::Median.compute(&vals), "2");
+
+        // even-length median
+        assert_eq!(AggOp::Median.compute(&[1.0, 2.0, 3.0, 4.0]), "2.5");
+
+        // empty: count returns "0", others return "."
+        assert_eq!(AggOp::Count.compute(&[]), "0");
+        assert_eq!(AggOp::Sum.compute(&[]), ".");
+        assert_eq!(AggOp::Mean.compute(&[]), ".");
+        assert_eq!(AggOp::Min.compute(&[]), ".");
+        assert_eq!(AggOp::Max.compute(&[]), ".");
+        assert_eq!(AggOp::Median.compute(&[]), ".");
     }
 
     #[test]
-    fn test_agg_count_empty() {
-        let values: Vec<f64> = vec![];
-        assert_eq!(AggOp::Count.compute(&values), "0");
-    }
-
-    #[test]
-    fn test_agg_sum() {
-        let values = vec![1.0, 2.0, 3.0];
-        assert_eq!(AggOp::Sum.compute(&values), "6");
-    }
-
-    #[test]
-    fn test_agg_sum_empty() {
-        let values: Vec<f64> = vec![];
-        assert_eq!(AggOp::Sum.compute(&values), ".");
-    }
-
-    #[test]
-    fn test_agg_mean() {
-        let values = vec![1.0, 2.0, 3.0];
-        assert_eq!(AggOp::Mean.compute(&values), "2");
-    }
-
-    #[test]
-    fn test_agg_min() {
-        let values = vec![3.0, 1.0, 2.0];
-        assert_eq!(AggOp::Min.compute(&values), "1");
-    }
-
-    #[test]
-    fn test_agg_max() {
-        let values = vec![3.0, 1.0, 2.0];
-        assert_eq!(AggOp::Max.compute(&values), "3");
-    }
-
-    #[test]
-    fn test_agg_median_odd() {
-        let values = vec![3.0, 1.0, 2.0];
-        assert_eq!(AggOp::Median.compute(&values), "2");
-    }
-
-    #[test]
-    fn test_agg_median_even() {
-        let values = vec![1.0, 2.0, 3.0, 4.0];
-        assert_eq!(AggOp::Median.compute(&values), "2.5");
-    }
-
-    #[test]
-    fn test_agg_mean_empty() {
-        let values: Vec<f64> = vec![];
-        assert_eq!(AggOp::Mean.compute(&values), ".");
-    }
-
-    #[test]
-    fn test_format_number_integer() {
+    fn test_format_number() {
         assert_eq!(format_number(42.0), "42");
         assert_eq!(format_number(-3.0), "-3");
         assert_eq!(format_number(0.0), "0");
+        assert_eq!(format_number(2.5), "2.5");
+        assert_eq!(format_number(1.333), "1.333");
     }
 
     #[test]
-    fn test_format_number_float() {
-        assert_eq!(format_number(2.5), "2.5");
-        assert_eq!(format_number(1.333), "1.333");
+    fn test_expand_ops() {
+        // zip when equal length
+        let ops = expand_ops(&[4, 5], &[AggOp::Sum, AggOp::Mean]).unwrap();
+        assert_eq!(ops.len(), 2);
+        assert_eq!(ops[0].0, 4);
+        assert_eq!(ops[1].0, 5);
+
+        // replicate single column
+        let ops = expand_ops(&[5], &[AggOp::Sum, AggOp::Count]).unwrap();
+        assert_eq!(ops.len(), 2);
+        assert!(ops.iter().all(|(c, _)| *c == 5));
+
+        // replicate single operation
+        let ops = expand_ops(&[4, 5], &[AggOp::Sum]).unwrap();
+        assert_eq!(ops.len(), 2);
+
+        // mismatch is an error
+        assert!(expand_ops(&[4, 5], &[AggOp::Sum, AggOp::Mean, AggOp::Count]).is_err());
     }
 }
