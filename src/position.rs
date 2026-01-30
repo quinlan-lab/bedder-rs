@@ -167,6 +167,36 @@ impl Position {
             Position::Other(_o) => unimplemented!("TODO: clone Box<dyn Positioned>"),
         }
     }
+
+    /// Get the BED name field (column 4) if this is a BED record with a name.
+    pub fn name(&self) -> Option<&str> {
+        match self {
+            Position::Bed(b) => b.0.name(),
+            _ => None,
+        }
+    }
+
+    /// Get a 1-indexed BED column as f64.
+    /// 1=chrom (None), 2=start, 3=end, 4=name (None), 5=score, 6+=other_fields
+    pub fn column_as_f64(&self, col: usize) -> Option<f64> {
+        match self {
+            Position::Bed(b) => match col {
+                2 => Some(b.0.start() as f64),
+                3 => Some(b.0.end() as f64),
+                5 => b.0.score(),
+                n if n >= 6 => {
+                    let idx = n - 6;
+                    b.0.other_fields().get(idx).and_then(|v| match v {
+                        crate::bedder_bed::BedValue::Integer(i) => Some(*i as f64),
+                        crate::bedder_bed::BedValue::Float(f) => Some(*f),
+                        crate::bedder_bed::BedValue::String(s) => s.parse::<f64>().ok(),
+                    })
+                }
+                _ => None,
+            },
+            _ => None,
+        }
+    }
 }
 
 /// PositionedIterator is an iterator over Positioned objects.
