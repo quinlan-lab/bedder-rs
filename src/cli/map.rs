@@ -17,9 +17,9 @@ pub enum AggOp {
 }
 
 impl AggOp {
-    /// Given a vector of f64 values, compute the aggregate.
+    /// Given a slice of f64 values, compute the aggregate.
     /// Returns "." for empty data, except Count which returns "0".
-    pub fn compute(&self, values: &mut Vec<f64>) -> String {
+    pub fn compute(&self, values: &[f64]) -> String {
         if values.is_empty() {
             return match self {
                 AggOp::Count => "0".to_string(),
@@ -46,13 +46,14 @@ impl AggOp {
                     .fold(f64::NEG_INFINITY, f64::max),
             ),
             AggOp::Median => {
-                values
+                let mut sorted = values.to_vec();
+                sorted
                     .sort_unstable_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-                let mid = values.len() / 2;
-                let median = if values.len() % 2 == 0 {
-                    (values[mid - 1] + values[mid]) / 2.0
+                let mid = sorted.len() / 2;
+                let median = if sorted.len() % 2 == 0 {
+                    (sorted[mid - 1] + sorted[mid]) / 2.0
                 } else {
-                    values[mid]
+                    sorted[mid]
                 };
                 format_number(median)
             }
@@ -245,13 +246,11 @@ pub fn map_command(args: MapCmdArgs) -> Result<(), Box<dyn std::error::Error>> {
         false, // can_skip_ahead: need every A interval reported
     )?;
 
-    let output_path = if args.output_path.to_str() == Some("-") {
-        "/dev/stdout"
+    let mut bed_writer = if args.output_path.to_str() == Some("-") {
+        bedder::bedder_bed::simplebed::BedWriter::from_writer(Box::new(std::io::BufWriter::new(std::io::stdout())))?
     } else {
-        args.output_path.to_str().unwrap()
+        bedder::bedder_bed::simplebed::BedWriter::new(&args.output_path)?
     };
-    let mut bed_writer = bedder::bedder_bed::simplebed::BedWriter::new(output_path)
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
 
     for intersection_result in ii {
         let intersection = intersection_result?;
@@ -306,24 +305,20 @@ pub fn map_command(args: MapCmdArgs) -> Result<(), Box<dyn std::error::Error>> {
                 record.push_field(bedder::bedder_bed::BedValue::String(".".to_string()));
                 for (_, op) in &ops {
                     record.push_field(bedder::bedder_bed::BedValue::String(
-                        op.compute(&mut Vec::new()),
+                        op.compute(&[]),
                     ));
                 }
-                bed_writer.write_record(&record).map_err(|e| {
-                    std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string())
-                })?;
+                bed_writer.write_record(&record)?;
             } else {
                 for b_name in &insertion_order {
                     let vecs = groups.get_mut(b_name).unwrap();
                     let mut record = bed_record.clone();
                     record.push_field(bedder::bedder_bed::BedValue::String(b_name.clone()));
                     for (i, (_, op)) in ops.iter().enumerate() {
-                        let agg_result = op.compute(&mut vecs[i]);
+                        let agg_result = op.compute(&vecs[i]);
                         record.push_field(bedder::bedder_bed::BedValue::String(agg_result));
                     }
-                    bed_writer.write_record(&record).map_err(|e| {
-                        std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string())
-                    })?;
+                    bed_writer.write_record(&record)?;
                 }
             }
         } else {
@@ -338,12 +333,9 @@ pub fn map_command(args: MapCmdArgs) -> Result<(), Box<dyn std::error::Error>> {
 
                 if args.name_match {
                     if let Some(ref an) = a_name {
-                        if let Some(bn) = b_pos.name() {
-                            if bn != an.as_str() {
-                                continue;
-                            }
+                        if b_pos.name() != Some(an.as_str()) {
+                            continue;
                         }
-                        // B has no name → include it
                     }
                 }
 
@@ -356,18 +348,14 @@ pub fn map_command(args: MapCmdArgs) -> Result<(), Box<dyn std::error::Error>> {
 
             let mut record = bed_record.clone();
             for (i, (_, op)) in ops.iter().enumerate() {
-                let agg_result = op.compute(&mut value_vecs[i]);
+                let agg_result = op.compute(&value_vecs[i]);
                 record.push_field(bedder::bedder_bed::BedValue::String(agg_result));
             }
-            bed_writer.write_record(&record).map_err(|e| {
-                std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string())
-            })?;
+            bed_writer.write_record(&record)?;
         }
     }
 
-    bed_writer.flush().map_err(|e| {
-        std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
-    })?;
+    bed_writer.flush()?;
 
     Ok(())
 }
@@ -378,62 +366,62 @@ mod tests {
 
     #[test]
     fn test_agg_count() {
-        let mut values = vec![1.0, 2.0, 3.0];
-        assert_eq!(AggOp::Count.compute(&mut values), "3");
+        let values = vec![1.0, 2.0, 3.0];
+        assert_eq!(AggOp::Count.compute(&values), "3");
     }
 
     #[test]
     fn test_agg_count_empty() {
-        let mut values: Vec<f64> = vec![];
-        assert_eq!(AggOp::Count.compute(&mut values), "0");
+        let values: Vec<f64> = vec![];
+        assert_eq!(AggOp::Count.compute(&values), "0");
     }
 
     #[test]
     fn test_agg_sum() {
-        let mut values = vec![1.0, 2.0, 3.0];
-        assert_eq!(AggOp::Sum.compute(&mut values), "6");
+        let values = vec![1.0, 2.0, 3.0];
+        assert_eq!(AggOp::Sum.compute(&values), "6");
     }
 
     #[test]
     fn test_agg_sum_empty() {
-        let mut values: Vec<f64> = vec![];
-        assert_eq!(AggOp::Sum.compute(&mut values), ".");
+        let values: Vec<f64> = vec![];
+        assert_eq!(AggOp::Sum.compute(&values), ".");
     }
 
     #[test]
     fn test_agg_mean() {
-        let mut values = vec![1.0, 2.0, 3.0];
-        assert_eq!(AggOp::Mean.compute(&mut values), "2");
+        let values = vec![1.0, 2.0, 3.0];
+        assert_eq!(AggOp::Mean.compute(&values), "2");
     }
 
     #[test]
     fn test_agg_min() {
-        let mut values = vec![3.0, 1.0, 2.0];
-        assert_eq!(AggOp::Min.compute(&mut values), "1");
+        let values = vec![3.0, 1.0, 2.0];
+        assert_eq!(AggOp::Min.compute(&values), "1");
     }
 
     #[test]
     fn test_agg_max() {
-        let mut values = vec![3.0, 1.0, 2.0];
-        assert_eq!(AggOp::Max.compute(&mut values), "3");
+        let values = vec![3.0, 1.0, 2.0];
+        assert_eq!(AggOp::Max.compute(&values), "3");
     }
 
     #[test]
     fn test_agg_median_odd() {
-        let mut values = vec![3.0, 1.0, 2.0];
-        assert_eq!(AggOp::Median.compute(&mut values), "2");
+        let values = vec![3.0, 1.0, 2.0];
+        assert_eq!(AggOp::Median.compute(&values), "2");
     }
 
     #[test]
     fn test_agg_median_even() {
-        let mut values = vec![1.0, 2.0, 3.0, 4.0];
-        assert_eq!(AggOp::Median.compute(&mut values), "2.5");
+        let values = vec![1.0, 2.0, 3.0, 4.0];
+        assert_eq!(AggOp::Median.compute(&values), "2.5");
     }
 
     #[test]
     fn test_agg_mean_empty() {
-        let mut values: Vec<f64> = vec![];
-        assert_eq!(AggOp::Mean.compute(&mut values), ".");
+        let values: Vec<f64> = vec![];
+        assert_eq!(AggOp::Mean.compute(&values), ".");
     }
 
     #[test]
