@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 use clap::{Parser, ValueEnum};
@@ -70,10 +70,22 @@ fn format_number(v: f64) -> String {
 }
 
 /// Extract a value from a B interval for aggregation.
-fn extract_value(b_pos: &bedder::position::Position, operation: &AggOp, column: usize) -> Option<f64> {
+/// Logs a warning (once per column) when a non-numeric value is encountered.
+fn extract_value(
+    b_pos: &bedder::position::Position,
+    operation: &AggOp,
+    column: usize,
+    warned_columns: &mut HashSet<usize>,
+) -> Option<f64> {
     match operation {
         AggOp::Count => Some(0.0), // dummy value for counting
-        _ => b_pos.column_as_f64(column),
+        _ => {
+            let val = b_pos.column_as_f64(column);
+            if val.is_none() && warned_columns.insert(column) {
+                log::warn!("Non-numeric value in column {}.", column);
+            }
+            val
+        }
     }
 }
 
@@ -214,6 +226,12 @@ pub struct MapCmdArgs {
 }
 
 pub fn map_command(args: MapCmdArgs) -> Result<(), Box<dyn std::error::Error>> {
+    for &col in &args.columns {
+        if col == 0 {
+            return Err("column index must be >= 1 (columns are 1-indexed)".into());
+        }
+    }
+
     let ops = expand_ops(&args.columns, &args.operations)?;
 
     let chrom_order =
@@ -252,6 +270,8 @@ pub fn map_command(args: MapCmdArgs) -> Result<(), Box<dyn std::error::Error>> {
         bedder::bedder_bed::simplebed::BedWriter::new(&args.output_path)?
     };
 
+    let mut warned_columns: HashSet<usize> = HashSet::new();
+
     for intersection_result in ii {
         let intersection = intersection_result?;
         let base = intersection
@@ -259,7 +279,7 @@ pub fn map_command(args: MapCmdArgs) -> Result<(), Box<dyn std::error::Error>> {
             .try_lock()
             .expect("failed to lock base_interval");
 
-        let a_name: Option<String> = base.name().map(|s| s.to_string());
+        let a_name: String = base.name().unwrap_or(".").to_string();
 
         let bed_record = match &*base {
             bedder::position::Position::Bed(bed) => &bed.0,
@@ -280,12 +300,8 @@ pub fn map_command(args: MapCmdArgs) -> Result<(), Box<dyn std::error::Error>> {
 
                 let b_name = b_pos.name().unwrap_or(".").to_string();
 
-                if args.name_match {
-                    if let Some(ref an) = a_name {
-                        if b_name != *an {
-                            continue;
-                        }
-                    }
+                if args.name_match && b_name != a_name {
+                    continue;
                 }
 
                 if !groups.contains_key(&b_name) {
@@ -294,7 +310,7 @@ pub fn map_command(args: MapCmdArgs) -> Result<(), Box<dyn std::error::Error>> {
                 }
                 let vecs = groups.get_mut(&b_name).unwrap();
                 for (i, (col, op)) in ops.iter().enumerate() {
-                    if let Some(val) = extract_value(&b_pos, op, *col) {
+                    if let Some(val) = extract_value(&b_pos, op, *col, &mut warned_columns) {
                         vecs[i].push(val);
                     }
                 }
@@ -332,15 +348,14 @@ pub fn map_command(args: MapCmdArgs) -> Result<(), Box<dyn std::error::Error>> {
                     .expect("failed to lock b interval");
 
                 if args.name_match {
-                    if let Some(ref an) = a_name {
-                        if b_pos.name() != Some(an.as_str()) {
-                            continue;
-                        }
+                    let b_name = b_pos.name().unwrap_or(".");
+                    if b_name != a_name {
+                        continue;
                     }
                 }
 
                 for (i, (col, op)) in ops.iter().enumerate() {
-                    if let Some(val) = extract_value(&b_pos, op, *col) {
+                    if let Some(val) = extract_value(&b_pos, op, *col, &mut warned_columns) {
                         value_vecs[i].push(val);
                     }
                 }
@@ -373,6 +388,9 @@ mod tests {
         assert_eq!(AggOp::Min.compute(&vals), "1");
         assert_eq!(AggOp::Max.compute(&vals), "3");
         assert_eq!(AggOp::Median.compute(&vals), "2");
+
+        // single-element median
+        assert_eq!(AggOp::Median.compute(&[42.0]), "42");
 
         // even-length median
         assert_eq!(AggOp::Median.compute(&[1.0, 2.0, 3.0, 4.0]), "2.5");
