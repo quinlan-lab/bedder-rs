@@ -18,6 +18,8 @@ enum Commands {
     Intersect(cli::intersect::IntersectCmdArgs),
     /// Closest mode - hides overlap requirements
     Closest(cli::closest::ClosestCmdArgs),
+    /// Map operation — aggregate overlapping B values per A interval
+    Map(cli::map::MapCmdArgs),
 }
 
 #[cfg(feature = "mimalloc_allocator")]
@@ -37,5 +39,6 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
         Commands::Full(args) => cli::full::full_command(args),
         Commands::Intersect(args) => cli::intersect::intersect_command(args),
         Commands::Closest(args) => cli::closest::closest_command(args),
+        Commands::Map(args) => cli::map::map_command(args),
     }
 }
