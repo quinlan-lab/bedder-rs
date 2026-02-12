@@ -573,8 +573,17 @@ impl<'a> IntersectionIterator<'a> {
         Ok(())
     }
 
-    /// drop intervals from Q that are strictly before the base interval and more than max_distance away.
-    /// does not consider n_closest as that is handled elsewhere.
+    /// Drop intervals from Q that are too far behind the base interval.
+    ///
+    /// For plain overlap mode (`n_closest <= 0` and `max_distance <= 0`), any
+    /// interval ending at/before base.start can never overlap this or future base
+    /// intervals, so it should be removed immediately.
+    ///
+    /// For distance-constrained mode (`max_distance > 0`), keep only those within
+    /// max_distance behind base.start.
+    ///
+    /// For unbounded closest mode (`n_closest > 0` and `max_distance <= 0`), keep
+    /// historical intervals because they may still be among the closest.
     fn pop_front(&mut self, base_interval: &Position) {
         loop {
             let should_pop = if let Some(intersection) = self.dequeue.front() {
@@ -586,9 +595,15 @@ impl<'a> IntersectionIterator<'a> {
                 if interval.chrom() != base_interval.chrom() {
                     self.chromosome_order[interval.chrom()].index
                         < self.chromosome_order[base_interval.chrom()].index
-                } else if interval.stop() < base_interval.start() {
-                    let dist = base_interval.start() - interval.stop();
-                    self.max_distance > 0 && dist > self.max_distance as u64
+                } else if interval.stop() <= base_interval.start() {
+                    if self.n_closest > 0 && self.max_distance <= 0 {
+                        false
+                    } else if self.max_distance > 0 {
+                        let dist = base_interval.start() - interval.stop();
+                        dist > self.max_distance as u64
+                    } else {
+                        true
+                    }
                 } else {
                     false
                 }
