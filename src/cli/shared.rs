@@ -237,22 +237,22 @@ pub fn process_bedder(
 
     let (a_reqs, b_reqs) = if n_closest.is_some() || max_distance.is_some() {
         (
-            a_requirements.unwrap_or(OverlapAmount::Bases(0)),
-            b_requirements.unwrap_or(OverlapAmount::Bases(0)),
+            a_requirements.clone().unwrap_or(OverlapAmount::Bases(0)),
+            b_requirements.clone().unwrap_or(OverlapAmount::Bases(0)),
         )
     } else {
         (
-            a_requirements.unwrap_or(OverlapAmount::Bases(1)),
-            b_requirements.unwrap_or(OverlapAmount::Bases(1)),
+            a_requirements.clone().unwrap_or(OverlapAmount::Bases(1)),
+            b_requirements.clone().unwrap_or(OverlapAmount::Bases(1)),
         )
     };
 
     let report_options = Arc::new(
         ReportOptions::builder()
-            .a_mode(intersection_mode)
-            .b_mode(b_mode)
-            .a_piece(a_piece)
-            .b_piece(b_piece)
+            .a_mode(intersection_mode.clone())
+            .b_mode(b_mode.clone())
+            .a_piece(a_piece.clone())
+            .b_piece(b_piece.clone())
             .a_requirements(a_reqs)
             .b_requirements(b_reqs)
             .build(),

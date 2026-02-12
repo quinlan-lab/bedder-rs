@@ -6,12 +6,14 @@ use crate::string::String;
 use rust_htslib::{self, bcf, bcf::Read};
 use std::io;
 use std::result;
+use std::sync::Arc;
 
 pub struct BedderVCF {
     reader: bcf::Reader,
     record_number: u64,
     #[allow(unused)]
     pub header: bcf::header::HeaderView,
+    chrom_names: Vec<Arc<str>>,
     last_record: Option<bcf::Record>,
     path: String,
 }
@@ -19,10 +21,17 @@ pub struct BedderVCF {
 impl BedderVCF {
     pub fn new(r: bcf::Reader, path: String) -> io::Result<BedderVCF> {
         let h = r.header().clone();
+        let mut chrom_names = Vec::with_capacity(h.contig_count() as usize);
+        for rid in 0..h.contig_count() {
+            let name = h.rid2name(rid).map_err(io::Error::other)?;
+            let name = std::str::from_utf8(name).map_err(io::Error::other)?;
+            chrom_names.push(Arc::<str>::from(name));
+        }
         let v = BedderVCF {
             reader: r,
             record_number: 0,
             header: h,
+            chrom_names,
             last_record: None,
             path,
         };
@@ -40,6 +49,22 @@ impl BedderVCF {
             BedderVCF::new(r, String::from(p))
         }
     }
+
+    #[inline]
+    fn chrom_for_record(&self, record: &bcf::Record) -> io::Result<Arc<str>> {
+        if let Some(rid) = record.rid() {
+            if let Some(chrom) = self.chrom_names.get(rid as usize) {
+                return Ok(Arc::clone(chrom));
+            }
+        }
+        let rid = record
+            .rid()
+            .ok_or_else(|| io::Error::other("VCF record missing rid"))?;
+        let name = record.header().rid2name(rid).map_err(io::Error::other)?;
+        let name = std::str::from_utf8(name).map_err(io::Error::other)?;
+        Ok(Arc::<str>::from(name))
+    }
+
 }
 
 use rust_htslib::errors::Error;
@@ -89,7 +114,7 @@ pub fn match_value(
 #[derive(Debug)]
 pub struct BedderRecord {
     pub record: bcf::Record,
-    pub chrom: Option<String>,
+    pub chrom: Arc<str>,
 }
 
 impl Clone for BedderRecord {
@@ -104,18 +129,19 @@ impl Clone for BedderRecord {
 impl BedderRecord {
     pub fn new(record: bcf::Record) -> Self {
         let chrom_name = record.header().rid2name(record.rid().unwrap()).unwrap();
-        let chrom = unsafe { String::from_utf8_unchecked(chrom_name.to_vec()) };
-        Self {
-            record,
-            chrom: Some(chrom),
-        }
+        let chrom = Arc::<str>::from(std::str::from_utf8(chrom_name).unwrap());
+        Self { record, chrom }
+    }
+
+    pub fn new_with_chrom(record: bcf::Record, chrom: Arc<str>) -> Self {
+        Self { record, chrom }
     }
 }
 
 impl Positioned for BedderRecord {
     #[inline]
     fn chrom(&self) -> &str {
-        self.chrom.as_ref().unwrap()
+        self.chrom.as_ref()
     }
 
     #[inline]
@@ -181,7 +207,13 @@ impl crate::position::PositionedIterator for BedderVCF {
 
         if let Some(v) = self.last_record.take() {
             self.record_number += 1;
-            return Some(Ok(Position::Vcf(Box::new(BedderRecord::new(v)))));
+            let chrom = match self.chrom_for_record(&v) {
+                Ok(c) => c,
+                Err(e) => return Some(Err(e)),
+            };
+            return Some(Ok(Position::Vcf(Box::new(BedderRecord::new_with_chrom(
+                v, chrom,
+            )))));
         }
 
         let mut r = self.reader.empty_record();
@@ -190,12 +222,18 @@ impl crate::position::PositionedIterator for BedderVCF {
             None => None, // EOF
             Some(Ok(())) => {
                 self.record_number += 1;
+                let chrom = match self.chrom_for_record(&r) {
+                    Ok(c) => c,
+                    Err(e) => return Some(Err(e)),
+                };
                 log::trace!(
                     "read vcf record: {:?} from file: {}",
                     debug_record(&r),
                     self.path
                 );
-                Some(Ok(Position::Vcf(Box::new(BedderRecord::new(r)))))
+                Some(Ok(Position::Vcf(Box::new(BedderRecord::new_with_chrom(
+                    r, chrom,
+                )))))
             }
             Some(Err(e)) => {
                 log::error!(
