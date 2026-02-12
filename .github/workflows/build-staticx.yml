@@ -83,7 +83,7 @@ jobs:
       - name: Build release binary
         run: |
           cargo clean
-          cargo build --release --target ${TARGET}
+          cargo build --release --target ${TARGET} --no-default-features --features bed,csi,core,bam,sam,bgzf
 
       - name: Inspect binary
         run: |

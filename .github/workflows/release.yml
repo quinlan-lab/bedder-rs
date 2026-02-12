@@ -79,7 +79,7 @@ jobs:
           echo "$HOME/.local/bin" >> $GITHUB_PATH
 
       - name: Build release binary
-        run: cargo build --release --target ${{ matrix.target }}
+        run: if [ "${{ matrix.use_staticx }}" = "true" ]; then cargo build --release --target ${{ matrix.target }} --no-default-features --features bed,csi,core,bam,sam,bgzf; else cargo build --release --target ${{ matrix.target }}; fi
 
       - name: Create static binary with staticx (Linux)
         if: matrix.use_staticx

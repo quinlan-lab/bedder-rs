@@ -1,6 +1,6 @@
 [package]
 name = "bedder"
-version = "0.1.10"
+version = "0.1.12"
 edition = "2021"
 exclude = [
     "examples/expressions.rs"
@@ -36,7 +36,7 @@ mimalloc = {version ="0.1.39", optional = true }
 rust-htslib = { git = "https://github.com/brentp/rust-htslib.git", rev = "645bb6f", features=["libdeflate", "static", "bzip2", "lzma", "curl"], default-features=false }
 hts-sys = { git = "https://github.com/brentp/hts-sys", rev = "85686a5", default-features = false }
 tempfile = "^3.14.0"
-simplebed = { git = "https://github.com/brentp/simplebed-rs.git", version = "0.1.5" }
+simplebed = { git = "https://github.com/brentp/simplebed-rs.git", version = "0.1.7" }
 #simplebed = { path = "/home/brentp/src/simplebed-rs" }
 # TODO: make the abi3-py38 behind a feature since it's not added when building static
 pyo3 = {version = "0.26.0", features=["macros"], default-features=false}
