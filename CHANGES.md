@@ -1,3 +1,6 @@
+# v0.1.13
++ major performance increase for closest and small improvement for intersection.
+
 # v0.1.11
 + major performance increase: fix bug in eviction from queue for intersection. before this, intervals behind the query on the same chromosome were **not removed**
 
