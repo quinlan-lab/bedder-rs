@@ -6,7 +6,7 @@ mod tests {
     use crate::hts_format::Format as BedderFormat;
     use crate::intersection::{Intersection, Intersections};
     use crate::position::Position;
-    use crate::py::{CompiledExpr, CompiledPython, PyReportFragment};
+    use crate::py::{CompiledExpr, CompiledMapPython, CompiledPython, PyReportFragment};
     use crate::report_options::ReportOptions;
     use crate::writer::{InputHeader, Writer};
     use parking_lot::Mutex;
@@ -83,6 +83,47 @@ def bedder_test_func(fragment) -> str:
             Ok(())
         })
         .expect("Failed to run test");
+    }
+
+    #[test]
+    fn test_compiled_map_python_value_conversions() {
+        ensure_python_initialized();
+        Python::attach(|py| -> PyResult<()> {
+            let code = r#"
+def bedder_map_count(values) -> int:
+    return len(values)
+
+def bedder_map_mean(values) -> float:
+    if len(values) == 0:
+        return 0.0
+    return sum(values) / len(values)
+
+def bedder_map_has(values) -> bool:
+    return len(values) > 0
+
+def bedder_map_join(values) -> str:
+    return ",".join(str(int(v)) for v in values)
+"#;
+            let c_code = CString::new(code)?;
+            py.run(&c_code, None, None)?;
+            let globals = py.import("__main__")?.dict();
+            let functions_map = crate::py::introspect_python_functions(py, globals)?;
+
+            let count_fn = CompiledMapPython::new("map_count", &functions_map)?;
+            let mean_fn = CompiledMapPython::new("map_mean", &functions_map)?;
+            let has_fn = CompiledMapPython::new("map_has", &functions_map)?;
+            let join_fn = CompiledMapPython::new("map_join", &functions_map)?;
+
+            assert_eq!(count_fn.eval_values(&[1.0, 2.0, 3.0])?, "3");
+            assert_eq!(mean_fn.eval_values(&[1.0, 2.0])?, "1.5");
+            assert_eq!(mean_fn.eval_values(&[1.0, 3.0])?, "2");
+            assert_eq!(has_fn.eval_values(&[1.0])?, "1");
+            assert_eq!(has_fn.eval_values(&[])?, "0");
+            assert_eq!(join_fn.eval_values(&[1.0, 2.0])?, "1,2");
+
+            Ok(())
+        })
+        .expect("map python conversion test failed");
     }
 
     #[test]

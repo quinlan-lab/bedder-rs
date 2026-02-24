@@ -1,12 +1,14 @@
 use std::collections::{HashMap, HashSet};
+use std::ffi::CString;
 use std::path::PathBuf;
 
 use clap::{Parser, ValueEnum};
+use pyo3::prelude::*;
 
 use crate::cli::shared::HELP_TEMPLATE;
 
 /// The aggregation operation to apply to B values.
-#[derive(Debug, Clone, ValueEnum)]
+#[derive(Debug, Clone, PartialEq, Eq, ValueEnum)]
 pub enum AggOp {
     Count,
     Sum,
@@ -33,18 +35,8 @@ impl AggOp {
                 let sum: f64 = values.iter().sum();
                 format_number(sum / values.len() as f64)
             }
-            AggOp::Min => format_number(
-                values
-                    .iter()
-                    .cloned()
-                    .fold(f64::INFINITY, f64::min),
-            ),
-            AggOp::Max => format_number(
-                values
-                    .iter()
-                    .cloned()
-                    .fold(f64::NEG_INFINITY, f64::max),
-            ),
+            AggOp::Min => format_number(values.iter().cloned().fold(f64::INFINITY, f64::min)),
+            AggOp::Max => format_number(values.iter().cloned().fold(f64::NEG_INFINITY, f64::max)),
             AggOp::Median => {
                 let mut sorted = values.to_vec();
                 sorted
@@ -61,6 +53,40 @@ impl AggOp {
     }
 }
 
+/// Operation spec accepted by CLI: built-ins or `py:<name>`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MapOpSpec {
+    Builtin(AggOp),
+    Python(String),
+}
+
+impl std::str::FromStr for MapOpSpec {
+    type Err = String;
+
+    fn from_str(raw: &str) -> Result<Self, Self::Err> {
+        if let Some(name) = raw.strip_prefix("py:") {
+            if name.trim().is_empty() {
+                return Err("python operation name cannot be empty after 'py:'".to_string());
+            }
+            return Ok(MapOpSpec::Python(name.to_string()));
+        }
+
+        let op = <AggOp as ValueEnum>::from_str(raw, true).map_err(|_| {
+            format!(
+                "invalid operation '{}'; expected one of count,sum,mean,min,max,median or py:<name>",
+                raw
+            )
+        })?;
+        Ok(MapOpSpec::Builtin(op))
+    }
+}
+
+#[derive(Debug)]
+enum RuntimeAggOp<'py> {
+    Builtin(AggOp),
+    Python(bedder::py::CompiledMapPython<'py>),
+}
+
 fn format_number(v: f64) -> String {
     if v == v.trunc() && v.abs() < 1e15 {
         format!("{}", v as i64)
@@ -73,12 +99,12 @@ fn format_number(v: f64) -> String {
 /// Logs a warning (once per column) when a non-numeric value is encountered.
 fn extract_value(
     b_pos: &bedder::position::Position,
-    operation: &AggOp,
+    operation: &RuntimeAggOp<'_>,
     column: usize,
     warned_columns: &mut HashSet<usize>,
 ) -> Option<f64> {
     match operation {
-        AggOp::Count => Some(0.0), // dummy value for counting
+        RuntimeAggOp::Builtin(AggOp::Count) => Some(0.0), // dummy value for counting
         _ => {
             let val = b_pos.column_as_f64(column);
             if val.is_none() && warned_columns.insert(column) {
@@ -95,16 +121,236 @@ fn extract_value(
 ///   - len(c) == 1: replicate c to match len(o)
 ///   - len(o) == 1: replicate o to match len(c)
 ///   - otherwise: error
-fn expand_ops(columns: &[usize], operations: &[AggOp]) -> Result<Vec<(usize, AggOp)>, Box<dyn std::error::Error>> {
+fn expand_ops<T: Clone>(
+    columns: &[usize],
+    operations: &[T],
+) -> Result<Vec<(usize, T)>, Box<dyn std::error::Error>> {
     match (columns.len(), operations.len()) {
-        (c, o) if c == o => Ok(columns.iter().copied().zip(operations.iter().cloned()).collect()),
-        (1, _) => Ok(operations.iter().cloned().map(|op| (columns[0], op)).collect()),
-        (_, 1) => Ok(columns.iter().copied().map(|col| (col, operations[0].clone())).collect()),
-        (c, o) => Err(format!(
-            "number of columns ({}) and operations ({}) must match, or one must be 1",
-            c, o
-        ).into()),
+        (c, o) if c == o => Ok(columns
+            .iter()
+            .copied()
+            .zip(operations.iter().cloned())
+            .collect()),
+        (1, _) => Ok(operations
+            .iter()
+            .cloned()
+            .map(|op| (columns[0], op))
+            .collect()),
+        (_, 1) => Ok(columns
+            .iter()
+            .copied()
+            .map(|col| (col, operations[0].clone()))
+            .collect()),
+        (c, o) => Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!(
+                "number of columns ({}) and operations ({}) must match, or one must be 1",
+                c, o
+            ),
+        )
+        .into()),
     }
+}
+
+fn compute_operation(
+    operation: &RuntimeAggOp<'_>,
+    values: &[f64],
+) -> Result<String, Box<dyn std::error::Error>> {
+    match operation {
+        RuntimeAggOp::Builtin(op) => Ok(op.compute(values)),
+        RuntimeAggOp::Python(op) => op.eval_values(values).map_err(|e| {
+            std::io::Error::other(format!(
+                "python operation 'py:{}' failed: {}",
+                op.function_name(),
+                e
+            ))
+            .into()
+        }),
+    }
+}
+
+fn compile_builtin_ops(
+    specs: &[(usize, MapOpSpec)],
+) -> Result<Vec<(usize, RuntimeAggOp<'static>)>, Box<dyn std::error::Error>> {
+    let mut compiled = Vec::with_capacity(specs.len());
+    for (column, spec) in specs {
+        match spec {
+            MapOpSpec::Builtin(op) => compiled.push((*column, RuntimeAggOp::Builtin(op.clone()))),
+            MapOpSpec::Python(name) => {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    format!(
+                        "python operations require --python <file>; missing for py:{}",
+                        name
+                    ),
+                )
+                .into());
+            }
+        }
+    }
+    Ok(compiled)
+}
+
+fn compile_python_ops<'py>(
+    py: Python<'py>,
+    specs: &[(usize, MapOpSpec)],
+    python_file: Option<&PathBuf>,
+) -> Result<Vec<(usize, RuntimeAggOp<'py>)>, Box<dyn std::error::Error>> {
+    let python_file = python_file.ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "python operations require --python <file>",
+        )
+    })?;
+
+    // Initialize bedder Python symbols before running user code so scripts can reference them.
+    bedder::py::initialize_python(py)?;
+    let code = std::fs::read_to_string(python_file)?;
+    let c_code = CString::new(code).map_err(|_| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!(
+                "python file '{}' contains a NUL byte",
+                python_file.display()
+            ),
+        )
+    })?;
+    py.run(&c_code, None, None)?;
+
+    let main_module = py.import("__main__")?;
+    let globals_for_columns = main_module.dict();
+    let functions_map = bedder::py::introspect_python_functions(py, globals_for_columns)?;
+
+    let mut compiled = Vec::with_capacity(specs.len());
+    for (column, spec) in specs {
+        match spec {
+            MapOpSpec::Builtin(op) => compiled.push((*column, RuntimeAggOp::Builtin(op.clone()))),
+            MapOpSpec::Python(name) => {
+                let map_op =
+                    bedder::py::CompiledMapPython::new(name, &functions_map).map_err(|e| {
+                        std::io::Error::new(
+                            std::io::ErrorKind::InvalidInput,
+                            format!("failed to compile python operation 'py:{}': {}", name, e),
+                        )
+                    })?;
+                compiled.push((*column, RuntimeAggOp::Python(map_op)));
+            }
+        }
+    }
+
+    Ok(compiled)
+}
+
+fn run_map_with_ops<'a, 'py>(
+    ii: bedder::intersection::IntersectionIterator<'a>,
+    args: &MapCmdArgs,
+    ops: &[(usize, RuntimeAggOp<'py>)],
+    bed_writer: &mut bedder::bedder_bed::simplebed::BedWriter,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut warned_columns: HashSet<usize> = HashSet::new();
+
+    for intersection_result in ii {
+        let intersection = intersection_result?;
+        let base = intersection
+            .base_interval
+            .try_lock()
+            .expect("failed to lock base_interval");
+
+        let a_name: String = base.name().unwrap_or(".").to_string();
+
+        let bed_record = match &*base {
+            bedder::position::Position::Bed(bed) => &bed.0,
+            _ => return Err("map only supports BED input".into()),
+        };
+
+        if args.group_by_b {
+            // Group overlapping B intervals by B name.
+            // Each group accumulates one Vec<f64> per operation.
+            let mut groups: HashMap<String, Vec<Vec<f64>>> = HashMap::new();
+            let mut insertion_order: Vec<String> = Vec::new();
+
+            for overlap in &intersection.overlapping {
+                let b_pos = overlap
+                    .interval
+                    .try_lock()
+                    .expect("failed to lock b interval");
+
+                let b_name = b_pos.name().unwrap_or(".").to_string();
+
+                if args.name_match && b_name != a_name {
+                    continue;
+                }
+
+                // Keep first-seen order deterministic for stable output across runs.
+                if !groups.contains_key(&b_name) {
+                    insertion_order.push(b_name.clone());
+                    groups.insert(b_name.clone(), vec![Vec::new(); ops.len()]);
+                }
+                let vecs = groups.get_mut(&b_name).expect("group key inserted above");
+                for (i, (col, op)) in ops.iter().enumerate() {
+                    if let Some(val) = extract_value(&b_pos, op, *col, &mut warned_columns) {
+                        vecs[i].push(val);
+                    }
+                }
+            }
+
+            if groups.is_empty() {
+                let mut record = bed_record.clone();
+                record.push_field(bedder::bedder_bed::BedValue::String(".".to_string()));
+                for (_, op) in ops {
+                    record.push_field(bedder::bedder_bed::BedValue::String(compute_operation(
+                        op,
+                        &[],
+                    )?));
+                }
+                bed_writer.write_record(&record)?;
+            } else {
+                for b_name in &insertion_order {
+                    let vecs = groups.get_mut(b_name).expect("group key exists");
+                    let mut record = bed_record.clone();
+                    record.push_field(bedder::bedder_bed::BedValue::String(b_name.clone()));
+                    for (i, (_, op)) in ops.iter().enumerate() {
+                        let agg_result = compute_operation(op, &vecs[i])?;
+                        record.push_field(bedder::bedder_bed::BedValue::String(agg_result));
+                    }
+                    bed_writer.write_record(&record)?;
+                }
+            }
+        } else {
+            // Standard path: one row per A interval with one aggregate column per op
+            let mut value_vecs: Vec<Vec<f64>> = vec![Vec::new(); ops.len()];
+
+            for overlap in &intersection.overlapping {
+                let b_pos = overlap
+                    .interval
+                    .try_lock()
+                    .expect("failed to lock b interval");
+
+                if args.name_match {
+                    let b_name = b_pos.name().unwrap_or(".");
+                    if b_name != a_name {
+                        continue;
+                    }
+                }
+
+                for (i, (col, op)) in ops.iter().enumerate() {
+                    if let Some(val) = extract_value(&b_pos, op, *col, &mut warned_columns) {
+                        value_vecs[i].push(val);
+                    }
+                }
+            }
+
+            let mut record = bed_record.clone();
+            for (i, (_, op)) in ops.iter().enumerate() {
+                let agg_result = compute_operation(op, &value_vecs[i])?;
+                record.push_field(bedder::bedder_bed::BedValue::String(agg_result));
+            }
+            bed_writer.write_record(&record)?;
+        }
+    }
+
+    bed_writer.flush()?;
+    Ok(())
 }
 
 #[derive(Parser, Debug)]
@@ -166,7 +412,14 @@ EXAMPLES:
         chr1\t100\t200\tgeneA\t10\tgeneA\t8\t2
         chr1\t300\t400\tgeneB\t20\tgeneB\t4\t1
 
-        Groups by B name, but only keeps groups matching A's name."
+        Groups by B name, but only keeps groups matching A's name.
+
+    6. Python operation on mapped values:
+
+        # tests/map_ops.py defines: def bedder_sum_plus_one(values) -> float
+        $ bedder map -a tests/map_a.bed -b tests/map_b.bed -g tests/hg38.small.fai --python tests/map_ops.py -O py:sum_plus_one
+        chr1\t100\t200\tgeneA\t10\t16
+        chr1\t300\t400\tgeneB\t20\t5"
 )]
 pub struct MapCmdArgs {
     #[arg(help = "input A file (query)", short = 'a')]
@@ -193,14 +446,13 @@ pub struct MapCmdArgs {
     pub columns: Vec<usize>,
 
     #[arg(
-        help = "aggregation operation(s) to apply. Comma-separated for multiple.",
+        help = "aggregation operation(s): count,sum,mean,min,max,median, or py:<name>. Comma-separated for multiple.",
         short = 'O',
         long = "operation",
         default_value = "sum",
-        value_delimiter = ',',
-        value_enum
+        value_delimiter = ','
     )]
-    pub operations: Vec<AggOp>,
+    pub operations: Vec<MapOpSpec>,
 
     #[arg(
         help = "output file (default: stdout)",
@@ -223,6 +475,12 @@ pub struct MapCmdArgs {
         help = "Only summarize B intervals whose name matches A's name."
     )]
     pub name_match: bool,
+
+    #[arg(
+        long = "python",
+        help = "python file with bedder_<name> functions used by py:<name> operations"
+    )]
+    pub python_file: Option<PathBuf>,
 }
 
 pub fn map_command(args: MapCmdArgs) -> Result<(), Box<dyn std::error::Error>> {
@@ -233,6 +491,7 @@ pub fn map_command(args: MapCmdArgs) -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let ops = expand_ops(&args.columns, &args.operations)?;
+    let has_python_ops = ops.iter().any(|(_, op)| matches!(op, MapOpSpec::Python(_)));
 
     let chrom_order =
         bedder::chrom_ordering::parse_genome(std::fs::File::open(&args.genome_file)?)?;
@@ -265,112 +524,24 @@ pub fn map_command(args: MapCmdArgs) -> Result<(), Box<dyn std::error::Error>> {
     )?;
 
     let mut bed_writer = if args.output_path.to_str() == Some("-") {
-        bedder::bedder_bed::simplebed::BedWriter::from_writer(Box::new(std::io::BufWriter::new(std::io::stdout())))?
+        bedder::bedder_bed::simplebed::BedWriter::from_writer(Box::new(std::io::BufWriter::new(
+            std::io::stdout(),
+        )))?
     } else {
         bedder::bedder_bed::simplebed::BedWriter::new(&args.output_path)?
     };
 
-    let mut warned_columns: HashSet<usize> = HashSet::new();
-
-    for intersection_result in ii {
-        let intersection = intersection_result?;
-        let base = intersection
-            .base_interval
-            .try_lock()
-            .expect("failed to lock base_interval");
-
-        let a_name: String = base.name().unwrap_or(".").to_string();
-
-        let bed_record = match &*base {
-            bedder::position::Position::Bed(bed) => &bed.0,
-            _ => return Err("map only supports BED input".into()),
-        };
-
-        if args.group_by_b {
-            // Group overlapping B intervals by B name.
-            // Each group accumulates one Vec<f64> per operation.
-            let mut groups: HashMap<String, Vec<Vec<f64>>> = HashMap::new();
-            let mut insertion_order: Vec<String> = Vec::new();
-
-            for overlap in &intersection.overlapping {
-                let b_pos = overlap
-                    .interval
-                    .try_lock()
-                    .expect("failed to lock b interval");
-
-                let b_name = b_pos.name().unwrap_or(".").to_string();
-
-                if args.name_match && b_name != a_name {
-                    continue;
-                }
-
-                if !groups.contains_key(&b_name) {
-                    insertion_order.push(b_name.clone());
-                    groups.insert(b_name.clone(), vec![Vec::new(); ops.len()]);
-                }
-                let vecs = groups.get_mut(&b_name).unwrap();
-                for (i, (col, op)) in ops.iter().enumerate() {
-                    if let Some(val) = extract_value(&b_pos, op, *col, &mut warned_columns) {
-                        vecs[i].push(val);
-                    }
-                }
-            }
-
-            if groups.is_empty() {
-                let mut record = bed_record.clone();
-                record.push_field(bedder::bedder_bed::BedValue::String(".".to_string()));
-                for (_, op) in &ops {
-                    record.push_field(bedder::bedder_bed::BedValue::String(
-                        op.compute(&[]),
-                    ));
-                }
-                bed_writer.write_record(&record)?;
-            } else {
-                for b_name in &insertion_order {
-                    let vecs = groups.get_mut(b_name).unwrap();
-                    let mut record = bed_record.clone();
-                    record.push_field(bedder::bedder_bed::BedValue::String(b_name.clone()));
-                    for (i, (_, op)) in ops.iter().enumerate() {
-                        let agg_result = op.compute(&vecs[i]);
-                        record.push_field(bedder::bedder_bed::BedValue::String(agg_result));
-                    }
-                    bed_writer.write_record(&record)?;
-                }
-            }
-        } else {
-            // Standard path: one row per A interval with one aggregate column per op
-            let mut value_vecs: Vec<Vec<f64>> = vec![Vec::new(); ops.len()];
-
-            for overlap in &intersection.overlapping {
-                let b_pos = overlap
-                    .interval
-                    .try_lock()
-                    .expect("failed to lock b interval");
-
-                if args.name_match {
-                    let b_name = b_pos.name().unwrap_or(".");
-                    if b_name != a_name {
-                        continue;
-                    }
-                }
-
-                for (i, (col, op)) in ops.iter().enumerate() {
-                    if let Some(val) = extract_value(&b_pos, op, *col, &mut warned_columns) {
-                        value_vecs[i].push(val);
-                    }
-                }
-            }
-
-            let mut record = bed_record.clone();
-            for (i, (_, op)) in ops.iter().enumerate() {
-                let agg_result = op.compute(&value_vecs[i]);
-                record.push_field(bedder::bedder_bed::BedValue::String(agg_result));
-            }
-            bed_writer.write_record(&record)?;
-        }
+    if has_python_ops {
+        Python::initialize();
+        Python::attach(|py| -> Result<(), Box<dyn std::error::Error>> {
+            // Compile Python callables once and reuse per row to avoid per-record Python lookup cost.
+            let compiled_ops = compile_python_ops(py, &ops, args.python_file.as_ref())?;
+            run_map_with_ops(ii, &args, &compiled_ops, &mut bed_writer)
+        })?;
+    } else {
+        let compiled_ops = compile_builtin_ops(&ops)?;
+        run_map_with_ops(ii, &args, &compiled_ops, &mut bed_writer)?;
     }
-
-    bed_writer.flush()?;
 
     Ok(())
 }
@@ -432,5 +603,19 @@ mod tests {
 
         // mismatch is an error
         assert!(expand_ops(&[4, 5], &[AggOp::Sum, AggOp::Mean, AggOp::Count]).is_err());
+    }
+
+    #[test]
+    fn test_parse_map_op_spec() {
+        assert_eq!(
+            "sum".parse::<MapOpSpec>().unwrap(),
+            MapOpSpec::Builtin(AggOp::Sum)
+        );
+        assert_eq!(
+            "py:myop".parse::<MapOpSpec>().unwrap(),
+            MapOpSpec::Python("myop".to_string())
+        );
+        assert!("py:".parse::<MapOpSpec>().is_err());
+        assert!("not-an-op".parse::<MapOpSpec>().is_err());
     }
 }

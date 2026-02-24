@@ -1465,6 +1465,89 @@ impl<'py> CompiledPython<'py> {
     }
 }
 
+fn format_map_number(v: f64) -> String {
+    if v.is_finite() && v == v.trunc() && v.abs() < 1e15 {
+        format!("{}", v as i64)
+    } else {
+        format!("{}", v)
+    }
+}
+
+/// Compiled Python callable for `map` operations that consume `list[float]`.
+#[derive(Debug)]
+pub struct CompiledMapPython<'py> {
+    function_name: String,
+    f: Bound<'py, PyFunction>,
+    ftype: Type,
+}
+
+impl<'py> CompiledMapPython<'py> {
+    pub fn new(fname: &str, functions: &HashMap<String, PythonFunction<'py>>) -> PyResult<Self> {
+        let f = functions.get(fname).ok_or(PyValueError::new_err(format!(
+            "Function '{}' not found in the provided functions map.",
+            fname
+        )))?;
+
+        Ok(Self {
+            function_name: fname.to_string(),
+            f: f.pyfn.clone(),
+            ftype: Type::try_from(f.return_type.as_str())
+                .map_err(|e| PyValueError::new_err(format!("Invalid type: {}", e)))?,
+        })
+    }
+
+    pub fn function_name(&self) -> &str {
+        &self.function_name
+    }
+
+    pub fn eval_values(&self, values: &[f64]) -> PyResult<String> {
+        let result = self.f.call1((values.to_vec(),))?;
+        match self.ftype {
+            Type::Integer => {
+                let py_int = result.downcast_exact::<types::PyInt>().map_err(|_| {
+                    PyTypeError::new_err(format!(
+                        "Function '{}' returned non-integer value",
+                        self.function_name
+                    ))
+                })?;
+                Ok(py_int.extract::<i64>()?.to_string())
+            }
+            Type::Float => {
+                let py_float = result.downcast_exact::<types::PyFloat>().map_err(|_| {
+                    PyTypeError::new_err(format!(
+                        "Function '{}' returned non-float value",
+                        self.function_name
+                    ))
+                })?;
+                Ok(format_map_number(py_float.extract::<f64>()?))
+            }
+            Type::Character | Type::String => {
+                let py_str = result.downcast_exact::<types::PyString>().map_err(|_| {
+                    PyTypeError::new_err(format!(
+                        "Function '{}' returned non-string value",
+                        self.function_name
+                    ))
+                })?;
+                Ok(py_str.to_str()?.to_string())
+            }
+            Type::Flag => {
+                let py_bool = result.downcast_exact::<types::PyBool>().map_err(|_| {
+                    PyTypeError::new_err(format!(
+                        "Function '{}' returned non-boolean value",
+                        self.function_name
+                    ))
+                })?;
+                // Map writes string fields; bools follow existing bedder convention 1=true, 0=false.
+                if py_bool.extract::<bool>()? {
+                    Ok("1".to_string())
+                } else {
+                    Ok("0".to_string())
+                }
+            }
+        }
+    }
+}
+
 /// A compiled Python boolean expression (no wrapper function required)
 #[derive(Debug)]
 pub struct CompiledExpr<'py> {
