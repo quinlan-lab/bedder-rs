@@ -176,6 +176,41 @@ eval "export CARGO_TARGET_${TARGET_ENV_VAR}_RUSTFLAGS=\"${RUSTFLAGS_VALUE} \${CA
 
 CARGO_BIN="${CARGO_BIN:-/usr/local/cargo/bin/cargo}"
 
+has_no_default_features=false
+requests_mimalloc_feature=false
+next_is_features=false
+for arg in "$@"; do
+  if [ "${next_is_features}" = "true" ]; then
+    if [[ ",${arg}," == *",mimalloc_allocator,"* ]]; then
+      requests_mimalloc_feature=true
+    fi
+    next_is_features=false
+    continue
+  fi
+
+  if [ "${arg}" = "--no-default-features" ]; then
+    has_no_default_features=true
+  elif [ "${arg}" = "--features" ]; then
+    next_is_features=true
+  elif [[ "${arg}" == --features=* ]]; then
+    features_arg="${arg#--features=}"
+    if [[ ",${features_arg}," == *",mimalloc_allocator,"* ]]; then
+      requests_mimalloc_feature=true
+    fi
+  fi
+done
+
+if [ "${PYO3_STATIC:-0}" = "1" ] && [[ "${TARGET_TRIPLE}" == *-unknown-linux-gnu ]]; then
+  if [ "${requests_mimalloc_feature}" = "true" ]; then
+    echo "error: mimalloc_allocator cannot be used with embedded static Python on ${TARGET_TRIPLE} (duplicate mimalloc symbols)." >&2
+    exit 1
+  fi
+  if [ "${has_no_default_features}" = "false" ]; then
+    # Static embedded Python already includes mimalloc symbols via obmalloc; disable default mimalloc feature here.
+    set -- --no-default-features --features bed,csi,core,bam,sam,bgzf "$@"
+  fi
+fi
+
 echo "Building bedder (${TARGET_TRIPLE}) with static linking..."
 "${CARGO_BIN}" build --release --target "${TARGET_TRIPLE}" "$@"
 

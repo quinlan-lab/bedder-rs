@@ -144,7 +144,8 @@ jobs:
           PKG_CONFIG_ALL_STATIC: "1"
         run: |
           chmod +x docker/build-static.sh
-          docker/build-static.sh
+          # Embedded static Python already carries mimalloc symbols; disable default Rust mimalloc for this build.
+          docker/build-static.sh --no-default-features --features bed,csi,core,bam,sam,bgzf
 
       - name: Inspect binary
         run: |
