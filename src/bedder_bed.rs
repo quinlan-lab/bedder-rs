@@ -161,7 +161,12 @@ where
                 query.start() + 1,
                 self.name()
             );
-            if self.skip_to(query.chrom(), query.start().saturating_sub(1_u64)).is_ok() { log::info!("skipped to query: {}:{}", query.chrom(), query.start() + 1) }
+            if self
+                .skip_to(query.chrom(), query.start().saturating_sub(1_u64))
+                .is_ok()
+            {
+                log::info!("skipped to query: {}:{}", query.chrom(), query.start() + 1)
+            }
         }
         // If we have an active query iterator, use it
         if let Some(iter) = &mut self.query_iter {

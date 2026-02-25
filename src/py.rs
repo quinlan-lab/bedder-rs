@@ -950,6 +950,14 @@ pub struct PyPosition {
     inner: Arc<Mutex<Position>>, // Use the trait object
 }
 
+impl PyPosition {
+    pub fn from_position(position: Position) -> Self {
+        Self {
+            inner: Arc::new(Mutex::new(position)),
+        }
+    }
+}
+
 #[pymethods]
 impl PyPosition {
     /// Get the BED record if this position represents a BED interval
@@ -959,10 +967,7 @@ impl PyPosition {
     /// bed = position.bed()
     /// ```
     ///
-    /// # Raises
-    ///
-    /// TypeError: If the position is not a BED record.
-    fn bed(&self) -> PyResult<PyBedRecord> {
+    fn bed(&self) -> PyResult<Option<PyBedRecord>> {
         let is_bed = matches!(
             *self
                 .inner
@@ -971,11 +976,11 @@ impl PyPosition {
             Position::Bed(_)
         );
         if is_bed {
-            Ok(PyBedRecord {
+            Ok(Some(PyBedRecord {
                 inner: self.inner.clone(),
-            })
+            }))
         } else {
-            Err(PyTypeError::new_err("position is not a BED record"))
+            Ok(None)
         }
     }
 
@@ -986,10 +991,7 @@ impl PyPosition {
     /// vcf = position.vcf()
     /// ```
     ///
-    /// # Raises
-    ///
-    /// TypeError: If the position is not a VCF record.
-    fn vcf(&self) -> PyResult<PyVcfRecord> {
+    fn vcf(&self) -> PyResult<Option<PyVcfRecord>> {
         let is_vcf = matches!(
             *self
                 .inner
@@ -998,11 +1000,11 @@ impl PyPosition {
             Position::Vcf(_)
         );
         if is_vcf {
-            Ok(PyVcfRecord {
+            Ok(Some(PyVcfRecord {
                 inner: self.inner.clone(),
-            })
+            }))
         } else {
-            Err(PyTypeError::new_err("position is not a VCF record"))
+            Ok(None)
         }
     }
 
@@ -1511,7 +1513,9 @@ impl<'py> CompiledMapPython<'py> {
                         self.function_name
                     ))
                 })?;
-                Ok(crate::formatting::format_map_number(py_float.extract::<f64>()?))
+                Ok(crate::formatting::format_map_number(
+                    py_float.extract::<f64>()?,
+                ))
             }
             Type::Character | Type::String => {
                 let py_str = result.downcast_exact::<types::PyString>().map_err(|_| {
@@ -1537,6 +1541,59 @@ impl<'py> CompiledMapPython<'py> {
                 }
             }
         }
+    }
+}
+
+/// Compiled Python callable for `map` value extraction from a mapped interval.
+#[derive(Debug)]
+pub struct CompiledMapValuePython<'py> {
+    function_name: String,
+    f: Bound<'py, PyFunction>,
+}
+
+impl<'py> CompiledMapValuePython<'py> {
+    pub fn new(fname: &str, functions: &HashMap<String, PythonFunction<'py>>) -> PyResult<Self> {
+        let f = functions.get(fname).ok_or(PyValueError::new_err(format!(
+            "Function '{}' not found in the provided functions map.",
+            fname
+        )))?;
+
+        let return_type = Type::try_from(f.return_type.as_str())
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        if !matches!(return_type, Type::Integer | Type::Float) {
+            return Err(PyValueError::new_err(format!(
+                "Function '{}' used as map value extractor must return int or float",
+                fname
+            )));
+        }
+
+        Ok(Self {
+            function_name: fname.to_string(),
+            f: f.pyfn.clone(),
+        })
+    }
+
+    pub fn function_name(&self) -> &str {
+        &self.function_name
+    }
+
+    pub fn eval_position(&self, position: &Position) -> PyResult<Option<f64>> {
+        let py_position = PyPosition::from_position(position.clone_box());
+        let result = self.f.call1((py_position,))?;
+        if result.is_none() {
+            return Ok(None);
+        }
+
+        if let Ok(v) = result.extract::<f64>() {
+            return Ok(Some(v));
+        }
+        if let Ok(v) = result.extract::<i64>() {
+            return Ok(Some(v as f64));
+        }
+        Err(PyTypeError::new_err(format!(
+            "Function '{}' returned non-numeric value; expected float, int, or None",
+            self.function_name
+        )))
     }
 }
 

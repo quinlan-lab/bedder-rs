@@ -22,9 +22,9 @@ pub mod sniff;
 pub mod report;
 pub mod report_options;
 
+pub mod formatting;
 /// a std::String::String unless other string features are enabled.
 pub mod string;
-pub mod formatting;
 
 pub mod chrom_ordering;
 

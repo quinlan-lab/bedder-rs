@@ -63,7 +63,7 @@ fn filter_part_overlaps(result: &mut [ReportFragment]) {
                     .try_lock()
                     .expect("filter_part_overlaps: failed to lock b interval");
                 // Check for overlap: a.start <= b.stop && a.stop >= b.start
-                
+
                 // drop(b) happens here automatically when guard goes out of scope
                 // Keep b only if it overlaps with a
                 a.start() <= b.stop() && a.stop() >= b.start()
@@ -366,7 +366,9 @@ impl Intersections {
 
         let a_positions = match a_piece {
             // for None, we still need the a_interval to report the b_interval
-            IntersectionPart::None | IntersectionPart::WholeWide => vec![self.base_interval.clone()],
+            IntersectionPart::None | IntersectionPart::WholeWide => {
+                vec![self.base_interval.clone()]
+            }
             IntersectionPart::Piece => {
                 // Create and adjust a_position if a_piece is Part
                 overlaps

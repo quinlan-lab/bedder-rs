@@ -77,9 +77,7 @@ impl TryFrom<hts::htsExactFormat> for Format {
 impl From<FormatConversionError> for std::io::Error {
     fn from(error: FormatConversionError) -> Self {
         match error {
-            FormatConversionError::HtslibError(msg) => {
-                std::io::Error::other(msg)
-            }
+            FormatConversionError::HtslibError(msg) => std::io::Error::other(msg),
             FormatConversionError::UnsupportedFormat(fmt) => std::io::Error::new(
                 std::io::ErrorKind::Unsupported,
                 format!("Unsupported format: {:?}", fmt),

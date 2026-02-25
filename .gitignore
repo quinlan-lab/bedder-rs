@@ -5,7 +5,7 @@ logs/
 env
 /Cargo.lock
 docs/
-*.bed
+#*.bed
 *.bed.gz
 *.vcf
 *.bcf

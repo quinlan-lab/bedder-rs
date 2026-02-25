@@ -6,7 +6,9 @@ mod tests {
     use crate::hts_format::Format as BedderFormat;
     use crate::intersection::{Intersection, Intersections};
     use crate::position::Position;
-    use crate::py::{CompiledExpr, CompiledMapPython, CompiledPython, PyReportFragment};
+    use crate::py::{
+        CompiledExpr, CompiledMapPython, CompiledMapValuePython, CompiledPython, PyReportFragment,
+    };
     use crate::report_options::ReportOptions;
     use crate::writer::{InputHeader, Writer};
     use parking_lot::Mutex;
@@ -124,6 +126,54 @@ def bedder_map_join(values) -> str:
             Ok(())
         })
         .expect("map python conversion test failed");
+    }
+
+    #[test]
+    fn test_compiled_map_value_python_conversions() {
+        ensure_python_initialized();
+        Python::attach(|py| -> PyResult<()> {
+            let code = r#"
+def bedder_map_score(iv) -> float:
+    b = iv.bed()
+    if b is None:
+        return None
+    if b.score is None:
+        return None
+    return float(b.score)
+
+def bedder_map_start(iv) -> int:
+    return int(iv.start)
+
+def bedder_map_none(iv) -> float:
+    return None
+
+def bedder_map_bad_runtime(iv) -> float:
+    return "bad"
+
+def bedder_map_bad_decl(iv) -> str:
+    return "bad"
+"#;
+            crate::py::initialize_python(py)?;
+            let c_code = CString::new(code)?;
+            py.run(&c_code, None, None)?;
+            let globals = py.import("__main__")?.dict();
+            let functions_map = crate::py::introspect_python_functions(py, globals)?;
+
+            let score_fn = CompiledMapValuePython::new("map_score", &functions_map)?;
+            let start_fn = CompiledMapValuePython::new("map_start", &functions_map)?;
+            let none_fn = CompiledMapValuePython::new("map_none", &functions_map)?;
+            let bad_runtime_fn = CompiledMapValuePython::new("map_bad_runtime", &functions_map)?;
+            assert!(CompiledMapValuePython::new("map_bad_decl", &functions_map).is_err());
+
+            let pos = Position::Bed(BedRecord::new("chr1", 100, 200, None, Some(5.0), vec![]));
+            assert_eq!(score_fn.eval_position(&pos)?, Some(5.0));
+            assert_eq!(start_fn.eval_position(&pos)?, Some(100.0));
+            assert_eq!(none_fn.eval_position(&pos)?, None);
+            assert!(bad_runtime_fn.eval_position(&pos).is_err());
+
+            Ok(())
+        })
+        .expect("map value python conversion test failed");
     }
 
     #[test]
