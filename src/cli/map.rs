@@ -43,10 +43,9 @@ impl AggOp {
             ),
             AggOp::Median => {
                 let mut sorted = values.to_vec();
-                sorted
-                    .sort_unstable_by(|a, b| a.total_cmp(b));
+                sorted.sort_unstable_by(|a, b| a.total_cmp(b));
                 let mid = sorted.len() / 2;
-                let median = if sorted.len() % 2 == 0 {
+                let median = if sorted.len().is_multiple_of(2) {
                     (sorted[mid - 1] + sorted[mid]) / 2.0
                 } else {
                     sorted[mid]
@@ -85,10 +84,48 @@ impl std::str::FromStr for MapOpSpec {
     }
 }
 
+/// Value source spec accepted by CLI for `-c/--column`.
+/// Supports BED columns or python extractors (`py:<name>`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MapValueSelector {
+    BedColumn(usize),
+    PythonExtractor(String),
+}
+
+impl std::str::FromStr for MapValueSelector {
+    type Err = String;
+
+    fn from_str(raw: &str) -> Result<Self, Self::Err> {
+        if let Some(name) = raw.strip_prefix("py:") {
+            if name.trim().is_empty() {
+                return Err("python extractor name cannot be empty after 'py:'".to_string());
+            }
+            return Ok(MapValueSelector::PythonExtractor(name.to_string()));
+        }
+
+        let col = raw.parse::<usize>().map_err(|_| {
+            format!(
+                "invalid column selector '{}'; expected integer BED column or py:<name>",
+                raw
+            )
+        })?;
+        if col == 0 {
+            return Err("column index must be >= 1 (columns are 1-indexed)".to_string());
+        }
+        Ok(MapValueSelector::BedColumn(col))
+    }
+}
+
 #[derive(Debug)]
 enum RuntimeAggOp<'py> {
     Builtin(AggOp),
     Python(bedder::py::CompiledMapPython<'py>),
+}
+
+#[derive(Debug)]
+enum RuntimeValueSelector<'py> {
+    BedColumn(usize),
+    PythonExtractor(bedder::py::CompiledMapValuePython<'py>),
 }
 
 /// Extract a value from a B interval for aggregation.
@@ -96,18 +133,31 @@ enum RuntimeAggOp<'py> {
 fn extract_value(
     b_pos: &bedder::position::Position,
     operation: &RuntimeAggOp<'_>,
-    column: usize,
+    selector: &RuntimeValueSelector<'_>,
     warned_columns: &mut HashSet<usize>,
-) -> Option<f64> {
+) -> Result<Option<f64>, Box<dyn std::error::Error>> {
     match operation {
-        RuntimeAggOp::Builtin(AggOp::Count) => Some(0.0), // dummy value for counting
-        _ => {
-            let val = b_pos.column_as_f64(column);
-            if val.is_none() && warned_columns.insert(column) {
-                log::warn!("Non-numeric value in column {}.", column);
+        // Count follows map semantics: it counts overlaps regardless of selector/extractor value.
+        RuntimeAggOp::Builtin(AggOp::Count) => Ok(Some(0.0)),
+        _ => match selector {
+            RuntimeValueSelector::BedColumn(column) => {
+                let val = b_pos.column_as_f64(*column);
+                if val.is_none() && warned_columns.insert(*column) {
+                    log::warn!("Non-numeric value in column {}.", column);
+                }
+                Ok(val)
             }
-            val
-        }
+            RuntimeValueSelector::PythonExtractor(extractor) => {
+                extractor.eval_position(b_pos).map_err(|e| {
+                    std::io::Error::other(format!(
+                        "python column extractor 'py:{}' failed: {}",
+                        extractor.function_name(),
+                        e
+                    ))
+                    .into()
+                })
+            }
+        },
     }
 }
 
@@ -117,24 +167,24 @@ fn extract_value(
 ///   - len(c) == 1: replicate c to match len(o)
 ///   - len(o) == 1: replicate o to match len(c)
 ///   - otherwise: error
-fn expand_ops<T: Clone>(
-    columns: &[usize],
-    operations: &[T],
-) -> Result<Vec<(usize, T)>, Box<dyn std::error::Error>> {
+fn expand_ops<C: Clone, O: Clone>(
+    columns: &[C],
+    operations: &[O],
+) -> Result<Vec<(C, O)>, Box<dyn std::error::Error>> {
     match (columns.len(), operations.len()) {
         (c, o) if c == o => Ok(columns
             .iter()
-            .copied()
+            .cloned()
             .zip(operations.iter().cloned())
             .collect()),
         (1, _) => Ok(operations
             .iter()
             .cloned()
-            .map(|op| (columns[0], op))
+            .map(|op| (columns[0].clone(), op))
             .collect()),
         (_, 1) => Ok(columns
             .iter()
-            .copied()
+            .cloned()
             .map(|col| (col, operations[0].clone()))
             .collect()),
         (c, o) => Err(std::io::Error::new(
@@ -165,13 +215,78 @@ fn compute_operation(
     }
 }
 
+fn load_python_functions<'py>(
+    py: Python<'py>,
+    python_file: Option<&PathBuf>,
+) -> Result<HashMap<String, bedder::py::PythonFunction<'py>>, Box<dyn std::error::Error>> {
+    let python_file = python_file.ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "python operations/extractors require --python <file>",
+        )
+    })?;
+
+    bedder::py::initialize_python(py)?;
+    let code = std::fs::read_to_string(python_file)?;
+    let c_code = CString::new(code).map_err(|_| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!(
+                "python file '{}' contains a NUL byte",
+                python_file.display()
+            ),
+        )
+    })?;
+    py.run(&c_code, None, None)?;
+    let main_module = py.import("__main__")?;
+    let globals_for_columns = main_module.dict();
+    bedder::py::introspect_python_functions(py, globals_for_columns).map_err(Into::into)
+}
+
+fn compile_selector<'py>(
+    selector: &MapValueSelector,
+    functions_map: Option<&HashMap<String, bedder::py::PythonFunction<'py>>>,
+) -> Result<RuntimeValueSelector<'py>, Box<dyn std::error::Error>> {
+    match selector {
+        MapValueSelector::BedColumn(col) => Ok(RuntimeValueSelector::BedColumn(*col)),
+        MapValueSelector::PythonExtractor(name) => {
+            if let Some(functions_map) = functions_map {
+                let extractor = bedder::py::CompiledMapValuePython::new(name, functions_map)
+                    .map_err(|e| {
+                        std::io::Error::new(
+                            std::io::ErrorKind::InvalidInput,
+                            format!(
+                                "failed to compile python column extractor 'py:{}': {}",
+                                name, e
+                            ),
+                        )
+                    })?;
+                Ok(RuntimeValueSelector::PythonExtractor(extractor))
+            } else {
+                Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    format!(
+                        "python column extractors require --python <file>; missing for -c py:{}",
+                        name
+                    ),
+                )
+                .into())
+            }
+        }
+    }
+}
+
 fn compile_builtin_ops(
-    specs: &[(usize, MapOpSpec)],
-) -> Result<Vec<(usize, RuntimeAggOp<'static>)>, Box<dyn std::error::Error>> {
+    specs: &[(MapValueSelector, MapOpSpec)],
+) -> Result<Vec<(RuntimeValueSelector<'static>, RuntimeAggOp<'static>)>, Box<dyn std::error::Error>>
+{
     let mut compiled = Vec::with_capacity(specs.len());
-    for (column, spec) in specs {
+    for (selector, spec) in specs {
+        let compiled_selector: RuntimeValueSelector<'static> = compile_selector(selector, None)?;
         match spec {
-            MapOpSpec::Builtin(op) => compiled.push((*column, RuntimeAggOp::Builtin(op.clone()))),
+            MapOpSpec::Builtin(op) => {
+                compiled.push((compiled_selector, RuntimeAggOp::Builtin(op.clone())))
+            }
             MapOpSpec::Python(name) => {
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::InvalidInput,
@@ -189,38 +304,18 @@ fn compile_builtin_ops(
 
 fn compile_python_ops<'py>(
     py: Python<'py>,
-    specs: &[(usize, MapOpSpec)],
+    specs: &[(MapValueSelector, MapOpSpec)],
     python_file: Option<&PathBuf>,
-) -> Result<Vec<(usize, RuntimeAggOp<'py>)>, Box<dyn std::error::Error>> {
-    let python_file = python_file.ok_or_else(|| {
-        std::io::Error::new(
-            std::io::ErrorKind::InvalidInput,
-            "python operations require --python <file>",
-        )
-    })?;
-
-    // Initialize bedder Python symbols before running user code so scripts can reference them.
-    bedder::py::initialize_python(py)?;
-    let code = std::fs::read_to_string(python_file)?;
-    let c_code = CString::new(code).map_err(|_| {
-        std::io::Error::new(
-            std::io::ErrorKind::InvalidData,
-            format!(
-                "python file '{}' contains a NUL byte",
-                python_file.display()
-            ),
-        )
-    })?;
-    py.run(&c_code, None, None)?;
-
-    let main_module = py.import("__main__")?;
-    let globals_for_columns = main_module.dict();
-    let functions_map = bedder::py::introspect_python_functions(py, globals_for_columns)?;
+) -> Result<Vec<(RuntimeValueSelector<'py>, RuntimeAggOp<'py>)>, Box<dyn std::error::Error>> {
+    let functions_map = load_python_functions(py, python_file)?;
 
     let mut compiled = Vec::with_capacity(specs.len());
-    for (column, spec) in specs {
+    for (selector, spec) in specs {
+        let compiled_selector = compile_selector(selector, Some(&functions_map))?;
         match spec {
-            MapOpSpec::Builtin(op) => compiled.push((*column, RuntimeAggOp::Builtin(op.clone()))),
+            MapOpSpec::Builtin(op) => {
+                compiled.push((compiled_selector, RuntimeAggOp::Builtin(op.clone())))
+            }
             MapOpSpec::Python(name) => {
                 let map_op =
                     bedder::py::CompiledMapPython::new(name, &functions_map).map_err(|e| {
@@ -229,7 +324,7 @@ fn compile_python_ops<'py>(
                             format!("failed to compile python operation 'py:{}': {}", name, e),
                         )
                     })?;
-                compiled.push((*column, RuntimeAggOp::Python(map_op)));
+                compiled.push((compiled_selector, RuntimeAggOp::Python(map_op)));
             }
         }
     }
@@ -240,7 +335,7 @@ fn compile_python_ops<'py>(
 fn run_map_with_ops<'a, 'py>(
     ii: bedder::intersection::IntersectionIterator<'a>,
     args: &MapCmdArgs,
-    ops: &[(usize, RuntimeAggOp<'py>)],
+    ops: &[(RuntimeValueSelector<'py>, RuntimeAggOp<'py>)],
     bed_writer: &mut bedder::bedder_bed::simplebed::BedWriter,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut warned_columns: HashSet<usize> = HashSet::new();
@@ -283,8 +378,8 @@ fn run_map_with_ops<'a, 'py>(
                     groups.insert(b_name.clone(), vec![Vec::new(); ops.len()]);
                 }
                 let vecs = groups.get_mut(&b_name).expect("group key inserted above");
-                for (i, (col, op)) in ops.iter().enumerate() {
-                    if let Some(val) = extract_value(&b_pos, op, *col, &mut warned_columns) {
+                for (i, (selector, op)) in ops.iter().enumerate() {
+                    if let Some(val) = extract_value(&b_pos, op, selector, &mut warned_columns)? {
                         vecs[i].push(val);
                     }
                 }
@@ -329,8 +424,8 @@ fn run_map_with_ops<'a, 'py>(
                     }
                 }
 
-                for (i, (col, op)) in ops.iter().enumerate() {
-                    if let Some(val) = extract_value(&b_pos, op, *col, &mut warned_columns) {
+                for (i, (selector, op)) in ops.iter().enumerate() {
+                    if let Some(val) = extract_value(&b_pos, op, selector, &mut warned_columns)? {
                         value_vecs[i].push(val);
                     }
                 }
@@ -415,7 +510,14 @@ EXAMPLES:
         # tests/map_ops.py defines: def bedder_sum_plus_one(values) -> float
         $ bedder map -a tests/map_a.bed -b tests/map_b.bed -g tests/hg38.small.fai --python tests/map_ops.py -O py:sum_plus_one
         chr1\t100\t200\tgeneA\t10\t16
-        chr1\t300\t400\tgeneB\t20\t5"
+        chr1\t300\t400\tgeneB\t20\t5
+
+    7. Python value extraction from mapped VCF records:
+
+        # tests/map_ops.py defines: def bedder_vcf_dp(iv) -> float
+        $ bedder map -a tests/map_a.bed -b tests/map_b.vcf -g tests/hg38.small.fai --python tests/map_ops.py -c py:vcf_dp -O sum,mean,count
+        chr1\t100\t200\tgeneA\t10\t15\t5\t3
+        chr1\t300\t400\tgeneB\t20\t4\t4\t1"
 )]
 pub struct MapCmdArgs {
     #[arg(help = "input A file (query)", short = 'a')]
@@ -433,13 +535,13 @@ pub struct MapCmdArgs {
     pub genome_file: PathBuf,
 
     #[arg(
-        help = "1-indexed column(s) of B to aggregate (default: 5 = score). Comma-separated for multiple.",
+        help = "Value selector(s) for mapped B intervals. Use 1-indexed BED column(s) (default: 5 = score) or py:<name> extractors. Comma-separated for multiple.",
         short = 'c',
         long = "column",
         default_value = "5",
         value_delimiter = ','
     )]
-    pub columns: Vec<usize>,
+    pub columns: Vec<MapValueSelector>,
 
     #[arg(
         help = "aggregation operation(s): count,sum,mean,min,max,median, or py:<name>. Comma-separated for multiple.",
@@ -480,14 +582,11 @@ pub struct MapCmdArgs {
 }
 
 pub fn map_command(args: MapCmdArgs) -> Result<(), Box<dyn std::error::Error>> {
-    for &col in &args.columns {
-        if col == 0 {
-            return Err("column index must be >= 1 (columns are 1-indexed)".into());
-        }
-    }
-
     let ops = expand_ops(&args.columns, &args.operations)?;
-    let has_python_ops = ops.iter().any(|(_, op)| matches!(op, MapOpSpec::Python(_)));
+    let has_python_specs = ops.iter().any(|(selector, op)| {
+        matches!(selector, MapValueSelector::PythonExtractor(_))
+            || matches!(op, MapOpSpec::Python(_))
+    });
 
     let chrom_order =
         bedder::chrom_ordering::parse_genome(std::fs::File::open(&args.genome_file)?)?;
@@ -496,17 +595,13 @@ pub fn map_command(args: MapCmdArgs) -> Result<(), Box<dyn std::error::Error>> {
     let (a_reader, a_file_type) = bedder::sniff::open(a_file, &args.query_path)?;
 
     if !matches!(a_file_type, bedder::sniff::FileType::Bed) {
-        return Err("map currently only supports BED files for -a".into());
+        return Err("map currently only supports BED files for -a (output is BED-based)".into());
     }
 
     let a_iter = a_reader.into_positioned_iterator();
 
     let b_file = std::io::BufReader::new(std::fs::File::open(&args.other_path)?);
-    let (b_reader, b_file_type) = bedder::sniff::open(b_file, &args.other_path)?;
-
-    if !matches!(b_file_type, bedder::sniff::FileType::Bed) {
-        return Err("map currently only supports BED files for -b".into());
-    }
+    let (b_reader, _b_file_type) = bedder::sniff::open(b_file, &args.other_path)?;
 
     let b_iter = b_reader.into_positioned_iterator();
 
@@ -527,7 +622,7 @@ pub fn map_command(args: MapCmdArgs) -> Result<(), Box<dyn std::error::Error>> {
         bedder::bedder_bed::simplebed::BedWriter::new(&args.output_path)?
     };
 
-    if has_python_ops {
+    if has_python_specs {
         Python::initialize();
         Python::attach(|py| -> Result<(), Box<dyn std::error::Error>> {
             // Compile Python callables once and reuse per row to avoid per-record Python lookup cost.
@@ -583,22 +678,64 @@ mod tests {
     #[test]
     fn test_expand_ops() {
         // zip when equal length
-        let ops = expand_ops(&[4, 5], &[AggOp::Sum, AggOp::Mean]).unwrap();
+        let ops = expand_ops(
+            &[
+                MapValueSelector::BedColumn(4),
+                MapValueSelector::BedColumn(5),
+            ],
+            &[AggOp::Sum, AggOp::Mean],
+        )
+        .unwrap();
         assert_eq!(ops.len(), 2);
-        assert_eq!(ops[0].0, 4);
-        assert_eq!(ops[1].0, 5);
+        assert_eq!(ops[0].0, MapValueSelector::BedColumn(4));
+        assert_eq!(ops[1].0, MapValueSelector::BedColumn(5));
 
         // replicate single column
-        let ops = expand_ops(&[5], &[AggOp::Sum, AggOp::Count]).unwrap();
+        let ops = expand_ops(
+            &[MapValueSelector::BedColumn(5)],
+            &[AggOp::Sum, AggOp::Count],
+        )
+        .unwrap();
         assert_eq!(ops.len(), 2);
-        assert!(ops.iter().all(|(c, _)| *c == 5));
+        assert!(ops
+            .iter()
+            .all(|(c, _)| *c == MapValueSelector::BedColumn(5)));
 
         // replicate single operation
-        let ops = expand_ops(&[4, 5], &[AggOp::Sum]).unwrap();
+        let ops = expand_ops(
+            &[
+                MapValueSelector::BedColumn(4),
+                MapValueSelector::BedColumn(5),
+            ],
+            &[AggOp::Sum],
+        )
+        .unwrap();
         assert_eq!(ops.len(), 2);
 
         // mismatch is an error
-        assert!(expand_ops(&[4, 5], &[AggOp::Sum, AggOp::Mean, AggOp::Count]).is_err());
+        assert!(expand_ops(
+            &[
+                MapValueSelector::BedColumn(4),
+                MapValueSelector::BedColumn(5)
+            ],
+            &[AggOp::Sum, AggOp::Mean, AggOp::Count]
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn test_parse_map_value_selector() {
+        assert_eq!(
+            "5".parse::<MapValueSelector>().unwrap(),
+            MapValueSelector::BedColumn(5)
+        );
+        assert_eq!(
+            "py:dp".parse::<MapValueSelector>().unwrap(),
+            MapValueSelector::PythonExtractor("dp".to_string())
+        );
+        assert!("0".parse::<MapValueSelector>().is_err());
+        assert!("py:".parse::<MapValueSelector>().is_err());
+        assert!("nope".parse::<MapValueSelector>().is_err());
     }
 
     #[test]

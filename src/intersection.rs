@@ -208,7 +208,9 @@ impl Iterator for IntersectionIterator<'_> {
         let base_stop = base_interval_locked.stop();
         if self.n_closest <= 0 && self.max_distance <= 0 {
             for q in self.dequeue.iter() {
-                if q.chrom_index < base_chrom_idx || (q.chrom_index == base_chrom_idx && q.stop <= base_start) {
+                if q.chrom_index < base_chrom_idx
+                    || (q.chrom_index == base_chrom_idx && q.stop <= base_start)
+                {
                     continue;
                 }
                 if q.chrom_index > base_chrom_idx || q.start >= base_stop {
@@ -1693,8 +1695,8 @@ mod tests {
             Box::new(base_ivs),
             vec![Box::new(db_ivs)],
             &chrom_order,
-            0,  // max_distance
-            2,  // n_closest
+            0, // max_distance
+            2, // n_closest
             false,
         )
         .expect("error getting iterator");
@@ -1766,8 +1768,8 @@ mod tests {
             Box::new(base_ivs),
             vec![Box::new(db_ivs)],
             &chrom_order,
-            0,  // max_distance
-            2,  // n_closest - asking for 2, but only 1 on same chrom
+            0, // max_distance
+            2, // n_closest - asking for 2, but only 1 on same chrom
             false,
         )
         .expect("error getting iterator");
@@ -1816,8 +1818,8 @@ mod tests {
             Box::new(base_ivs),
             vec![Box::new(db_ivs)],
             &chrom_order,
-            0,  // max_distance
-            3,  // n_closest - asking for 3, but only 1 exists
+            0, // max_distance
+            3, // n_closest - asking for 3, but only 1 exists
             false,
         )
         .expect("error getting iterator");
@@ -1876,8 +1878,8 @@ mod tests {
             Box::new(base_ivs),
             vec![Box::new(db_ivs)],
             &chrom_order,
-            0,  // max_distance
-            2,  // n_closest
+            0, // max_distance
+            2, // n_closest
             false,
         )
         .expect("error getting iterator");

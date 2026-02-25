@@ -212,9 +212,10 @@ pub fn process_bedder(
         })
         .collect::<Result<Vec<_>, _>>()?;
 
-    let can_skip_ahead =
-        !matches!(a_piece, IntersectionPart::WholeWide | IntersectionPart::Whole)
-        && !common_args.dont_use_indexes;
+    let can_skip_ahead = !matches!(
+        a_piece,
+        IntersectionPart::WholeWide | IntersectionPart::Whole
+    ) && !common_args.dont_use_indexes;
 
     let ii = bedder::intersection::IntersectionIterator::new(
         a_iter,

@@ -40,12 +40,10 @@ impl BedderVCF {
 
     pub fn from_path(p: &str) -> io::Result<BedderVCF> {
         if p == "-" || p == "stdin" || p == "/dev/stdin" {
-            let r =
-                bcf::Reader::from_stdin().map_err(io::Error::other)?;
+            let r = bcf::Reader::from_stdin().map_err(io::Error::other)?;
             BedderVCF::new(r, String::from("stdin"))
         } else {
-            let r =
-                bcf::Reader::from_path(p).map_err(io::Error::other)?;
+            let r = bcf::Reader::from_path(p).map_err(io::Error::other)?;
             BedderVCF::new(r, String::from(p))
         }
     }
@@ -64,7 +62,6 @@ impl BedderVCF {
         let name = std::str::from_utf8(name).map_err(io::Error::other)?;
         Ok(Arc::<str>::from(name))
     }
-
 }
 
 use rust_htslib::errors::Error;

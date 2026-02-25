@@ -258,6 +258,116 @@ fn test_map_python_mixed_with_builtins() {
 }
 
 #[test]
+fn test_map_python_column_extractor_bed() {
+    let lines = run_map(&[
+        "--python",
+        "tests/map_ops.py",
+        "-c",
+        "py:bed_score",
+        "-O",
+        "sum,mean,count",
+    ]);
+    assert_eq!(lines[0], "chr1\t100\t200\tgeneA\t10\t15\t5\t3");
+    assert_eq!(lines[1], "chr1\t300\t400\tgeneB\t20\t4\t4\t1");
+}
+
+#[test]
+fn test_map_python_column_extractor_vcf_dp() {
+    let output = run_map_output(
+        "tests/map_a.bed",
+        "tests/map_b.vcf",
+        &[
+            "--python",
+            "tests/map_ops.py",
+            "-c",
+            "py:vcf_dp",
+            "-O",
+            "sum,mean,count",
+        ],
+    );
+    assert!(
+        output.status.success(),
+        "bedder map failed:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let lines = stdout_lines(&output);
+    assert_eq!(lines[0], "chr1\t100\t200\tgeneA\t10\t15\t5\t3");
+    assert_eq!(lines[1], "chr1\t300\t400\tgeneB\t20\t4\t4\t1");
+}
+
+#[test]
+fn test_map_python_column_extractor_vcf_missing_info_skips_value() {
+    let output = run_map_output(
+        "tests/map_a.bed",
+        "tests/map_b_missing_dp.vcf",
+        &[
+            "--python",
+            "tests/map_ops.py",
+            "-c",
+            "py:vcf_dp",
+            "-O",
+            "sum,mean,count",
+        ],
+    );
+    assert!(
+        output.status.success(),
+        "bedder map failed:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let lines = stdout_lines(&output);
+    // sum/mean skip the missing DP at chr1:161, while count still counts overlaps.
+    assert_eq!(lines[0], "chr1\t100\t200\tgeneA\t10\t15\t5\t4");
+    assert_eq!(lines[1], "chr1\t300\t400\tgeneB\t20\t4\t4\t1");
+}
+
+#[test]
+fn test_map_python_column_extractor_vcf_multivalue_info() {
+    let output = run_map_output(
+        "tests/map_a.bed",
+        "tests/map_b.vcf",
+        &[
+            "--python",
+            "tests/map_ops.py",
+            "-c",
+            "py:vcf_af_first",
+            "-O",
+            "sum,mean,count",
+        ],
+    );
+    assert!(
+        output.status.success(),
+        "bedder map failed:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let lines = stdout_lines(&output);
+    let first: Vec<&str> = lines[0].split('\t').collect();
+    assert_eq!(first.len(), 8);
+    assert_eq!(&first[..5], ["chr1", "100", "200", "geneA", "10"]);
+    let sum1 = first[5]
+        .parse::<f64>()
+        .expect("first AF sum should parse as float");
+    let mean1 = first[6]
+        .parse::<f64>()
+        .expect("first AF mean should parse as float");
+    assert!((sum1 - 0.6).abs() < 1e-6, "unexpected AF sum: {}", sum1);
+    assert!((mean1 - 0.2).abs() < 1e-6, "unexpected AF mean: {}", mean1);
+    assert_eq!(first[7], "3");
+
+    let second: Vec<&str> = lines[1].split('\t').collect();
+    assert_eq!(second.len(), 8);
+    assert_eq!(&second[..5], ["chr1", "300", "400", "geneB", "20"]);
+    let sum2 = second[5]
+        .parse::<f64>()
+        .expect("second AF sum should parse as float");
+    let mean2 = second[6]
+        .parse::<f64>()
+        .expect("second AF mean should parse as float");
+    assert!((sum2 - 0.4).abs() < 1e-6, "unexpected AF sum: {}", sum2);
+    assert!((mean2 - 0.4).abs() < 1e-6, "unexpected AF mean: {}", mean2);
+    assert_eq!(second[7], "1");
+}
+
+#[test]
 fn test_map_group_by_b_python_operation() {
     let lines = run_map(&[
         "-G",
@@ -319,7 +429,26 @@ fn test_map_python_operation_requires_python_file() {
     );
     assert!(
         String::from_utf8_lossy(&output.stderr)
-            .contains("python operations require --python <file>"),
+            .contains("python operations/extractors require --python <file>"),
+        "unexpected stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn test_map_python_column_extractor_requires_python_file() {
+    let output = run_map_output(
+        "tests/map_a.bed",
+        "tests/map_b.bed",
+        &["-c", "py:bed_score"],
+    );
+    assert!(
+        !output.status.success(),
+        "bedder map should fail without --python"
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stderr)
+            .contains("python operations/extractors require --python <file>"),
         "unexpected stderr:\n{}",
         String::from_utf8_lossy(&output.stderr)
     );
@@ -339,6 +468,43 @@ fn test_map_python_missing_function_error() {
     assert!(
         String::from_utf8_lossy(&output.stderr)
             .contains("failed to compile python operation 'py:not_defined'"),
+        "unexpected stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn test_map_python_column_extractor_missing_function_error() {
+    let output = run_map_output(
+        "tests/map_a.bed",
+        "tests/map_b.bed",
+        &["--python", "tests/map_ops.py", "-c", "py:not_defined"],
+    );
+    assert!(
+        !output.status.success(),
+        "bedder map should fail for missing extractor function"
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stderr)
+            .contains("failed to compile python column extractor 'py:not_defined'"),
+        "unexpected stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn test_map_python_column_extractor_non_numeric_error() {
+    let output = run_map_output(
+        "tests/map_a.bed",
+        "tests/map_b.bed",
+        &["--python", "tests/map_ops.py", "-c", "py:bad_numeric"],
+    );
+    assert!(
+        !output.status.success(),
+        "bedder map should fail for non-numeric extractor return"
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("returned non-numeric value"),
         "unexpected stderr:\n{}",
         String::from_utf8_lossy(&output.stderr)
     );
