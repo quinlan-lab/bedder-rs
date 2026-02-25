@@ -177,12 +177,13 @@ impl Position {
     }
 
     /// Get a 1-indexed BED column as f64.
-    /// 1=chrom (None), 2=start, 3=end, 4=name (None), 5=score, 6+=other_fields
+    /// 1=chrom (None), 2=start, 3=end, 4=name(parsed), 5=score, 6+=other_fields
     pub fn column_as_f64(&self, col: usize) -> Option<f64> {
         match self {
             Position::Bed(b) => match col {
                 2 => Some(b.0.start() as f64),
                 3 => Some(b.0.end() as f64),
+                4 => b.0.name().and_then(|s| s.parse::<f64>().ok()),
                 5 => b.0.score(),
                 n if n >= 6 => {
                     let idx = n - 6;

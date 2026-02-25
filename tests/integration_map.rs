@@ -84,6 +84,24 @@ fn test_map_multiple_ops() {
 }
 
 #[test]
+fn test_map_numeric_name_column_four() {
+    let output = run_map_output(
+        "tests/map_a.bed",
+        "tests/map_b_numeric_name.bed",
+        &["-c", "4", "-O", "sum,mean,count"],
+    );
+    assert!(
+        output.status.success(),
+        "bedder map failed:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let lines = stdout_lines(&output);
+    assert_eq!(lines.len(), 2);
+    assert_eq!(lines[0], "chr1\t100\t200\tgeneA\t10\t15\t5\t3");
+    assert_eq!(lines[1], "chr1\t300\t400\tgeneB\t20\t4\t4\t1");
+}
+
+#[test]
 fn test_map_name_match() {
     // geneA: only geneA-named B (5+3=8), geneB: only geneB-named B (4)
     let lines = run_map(&["-n"]);
