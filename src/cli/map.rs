@@ -30,24 +30,28 @@ impl AggOp {
         }
         match self {
             AggOp::Count => values.len().to_string(),
-            AggOp::Sum => format_number(values.iter().sum()),
+            AggOp::Sum => bedder::formatting::format_map_number(values.iter().sum()),
             AggOp::Mean => {
                 let sum: f64 = values.iter().sum();
-                format_number(sum / values.len() as f64)
+                bedder::formatting::format_map_number(sum / values.len() as f64)
             }
-            AggOp::Min => format_number(values.iter().cloned().fold(f64::INFINITY, f64::min)),
-            AggOp::Max => format_number(values.iter().cloned().fold(f64::NEG_INFINITY, f64::max)),
+            AggOp::Min => bedder::formatting::format_map_number(
+                values.iter().cloned().fold(f64::INFINITY, f64::min),
+            ),
+            AggOp::Max => bedder::formatting::format_map_number(
+                values.iter().cloned().fold(f64::NEG_INFINITY, f64::max),
+            ),
             AggOp::Median => {
                 let mut sorted = values.to_vec();
                 sorted
-                    .sort_unstable_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+                    .sort_unstable_by(|a, b| a.total_cmp(b));
                 let mid = sorted.len() / 2;
                 let median = if sorted.len() % 2 == 0 {
                     (sorted[mid - 1] + sorted[mid]) / 2.0
                 } else {
                     sorted[mid]
                 };
-                format_number(median)
+                bedder::formatting::format_map_number(median)
             }
         }
     }
@@ -85,14 +89,6 @@ impl std::str::FromStr for MapOpSpec {
 enum RuntimeAggOp<'py> {
     Builtin(AggOp),
     Python(bedder::py::CompiledMapPython<'py>),
-}
-
-fn format_number(v: f64) -> String {
-    if v == v.trunc() && v.abs() < 1e15 {
-        format!("{}", v as i64)
-    } else {
-        format!("{}", v)
-    }
 }
 
 /// Extract a value from a B interval for aggregation.
@@ -577,11 +573,11 @@ mod tests {
 
     #[test]
     fn test_format_number() {
-        assert_eq!(format_number(42.0), "42");
-        assert_eq!(format_number(-3.0), "-3");
-        assert_eq!(format_number(0.0), "0");
-        assert_eq!(format_number(2.5), "2.5");
-        assert_eq!(format_number(1.333), "1.333");
+        assert_eq!(bedder::formatting::format_map_number(42.0), "42");
+        assert_eq!(bedder::formatting::format_map_number(-3.0), "-3");
+        assert_eq!(bedder::formatting::format_map_number(0.0), "0");
+        assert_eq!(bedder::formatting::format_map_number(2.5), "2.5");
+        assert_eq!(bedder::formatting::format_map_number(1.333), "1.333");
     }
 
     #[test]

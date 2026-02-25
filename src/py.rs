@@ -1465,14 +1465,6 @@ impl<'py> CompiledPython<'py> {
     }
 }
 
-fn format_map_number(v: f64) -> String {
-    if v.is_finite() && v == v.trunc() && v.abs() < 1e15 {
-        format!("{}", v as i64)
-    } else {
-        format!("{}", v)
-    }
-}
-
 /// Compiled Python callable for `map` operations that consume `list[float]`.
 #[derive(Debug)]
 pub struct CompiledMapPython<'py> {
@@ -1519,7 +1511,7 @@ impl<'py> CompiledMapPython<'py> {
                         self.function_name
                     ))
                 })?;
-                Ok(format_map_number(py_float.extract::<f64>()?))
+                Ok(crate::formatting::format_map_number(py_float.extract::<f64>()?))
             }
             Type::Character | Type::String => {
                 let py_str = result.downcast_exact::<types::PyString>().map_err(|_| {
