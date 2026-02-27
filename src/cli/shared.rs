@@ -283,18 +283,26 @@ pub fn process_bedder(
 
         let py_columns: Vec<Column<'_>> = columns
             .into_iter()
-            .map(|mut col| {
+            .map(|mut col| -> Result<Column<'_>, std::io::Error> {
                 if let Some(bedder::column::ValueParser::PythonExpression(function_name)) =
                     &col.value_parser
                 {
                     let compiled =
                         bedder::py::CompiledPython::new(py, function_name, &functions_map)
-                            .expect("error compiling Python expression");
+                            .map_err(|e| {
+                                std::io::Error::new(
+                                    std::io::ErrorKind::InvalidInput,
+                                    format!(
+                                        "failed to compile python expression 'py:{}': {}",
+                                        function_name, e
+                                    ),
+                                )
+                            })?;
                     col.py = Some(compiled);
                 }
-                col
+                Ok(col)
             })
-            .collect();
+            .collect::<Result<Vec<_>, _>>()?;
 
         let compiled_filter = if let Some(filter_expr) = &common_args.filter {
             let compiled = bedder::py::CompiledExpr::new(py, filter_expr)?;

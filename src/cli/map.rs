@@ -342,6 +342,56 @@ fn compile_python_ops<'py>(
     Ok(compiled)
 }
 
+fn file_type_name(file_type: &bedder::sniff::FileType) -> &'static str {
+    match file_type {
+        bedder::sniff::FileType::Bed => "BED",
+        bedder::sniff::FileType::Vcf => "VCF",
+        bedder::sniff::FileType::Bcf => "BCF",
+    }
+}
+
+fn operation_name(op: &MapOpSpec) -> String {
+    match op {
+        // Built-ins are parsed case-insensitively from lowercase tokens (sum/mean/...).
+        // Keep error text aligned with CLI spellings rather than enum variant casing.
+        MapOpSpec::Builtin(builtin) => format!("{:?}", builtin).to_lowercase(),
+        MapOpSpec::Python(name) => format!("py:{}", name),
+    }
+}
+
+/// Non-BED B inputs (VCF/BCF) cannot satisfy BED numeric selectors (`-c <int>`).
+/// Without this guard, non-count ops would silently receive no values and emit ".".
+fn validate_b_type_for_ops(
+    b_file_type: &bedder::sniff::FileType,
+    ops: &[(MapValueSelector, MapOpSpec)],
+) -> Result<(), Box<dyn std::error::Error>> {
+    if matches!(b_file_type, bedder::sniff::FileType::Bed) {
+        return Ok(());
+    }
+
+    for (selector, op) in ops {
+        if let MapValueSelector::BedColumn(column) = selector {
+            // `count` is overlap cardinality only; it does not read selected values, so it is
+            // valid even when `-b` is VCF/BCF and BED numeric selectors are otherwise invalid.
+            if matches!(op, MapOpSpec::Builtin(AggOp::Count)) {
+                continue;
+            }
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!(
+                    "non-BED -b input ({}) cannot use BED column selector -c {} with -O {}; use -c py:<name> for VCF/BCF value extraction",
+                    file_type_name(b_file_type),
+                    column,
+                    operation_name(op)
+                ),
+            )
+            .into());
+        }
+    }
+
+    Ok(())
+}
+
 fn run_map_with_ops<'a, 'py>(
     ii: bedder::intersection::IntersectionIterator<'a>,
     args: &MapCmdArgs,
@@ -619,7 +669,8 @@ pub fn map_command(args: MapCmdArgs) -> Result<(), Box<dyn std::error::Error>> {
     let a_iter = a_reader.into_positioned_iterator();
 
     let b_file = std::io::BufReader::new(std::fs::File::open(&args.other_path)?);
-    let (b_reader, _b_file_type) = bedder::sniff::open(b_file, &args.other_path)?;
+    let (b_reader, b_file_type) = bedder::sniff::open(b_file, &args.other_path)?;
+    validate_b_type_for_ops(&b_file_type, &ops)?;
 
     let b_iter = b_reader.into_positioned_iterator();
 
