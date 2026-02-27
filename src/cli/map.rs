@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{hash_map::Entry, HashMap, HashSet};
 use std::ffi::CString;
 use std::path::PathBuf;
 
@@ -132,33 +132,32 @@ enum RuntimeValueSelector<'py> {
 /// Logs a warning (once per column) when a non-numeric value is encountered.
 fn extract_value(
     b_pos: &bedder::position::Position,
-    operation: &RuntimeAggOp<'_>,
     selector: &RuntimeValueSelector<'_>,
     warned_columns: &mut HashSet<usize>,
 ) -> Result<Option<f64>, Box<dyn std::error::Error>> {
-    match operation {
-        // Count follows map semantics: it counts overlaps regardless of selector/extractor value.
-        RuntimeAggOp::Builtin(AggOp::Count) => Ok(Some(0.0)),
-        _ => match selector {
-            RuntimeValueSelector::BedColumn(column) => {
-                let val = b_pos.column_as_f64(*column);
-                if val.is_none() && warned_columns.insert(*column) {
-                    log::warn!("Non-numeric value in column {}.", column);
-                }
-                Ok(val)
+    match selector {
+        RuntimeValueSelector::BedColumn(column) => {
+            let val = b_pos.column_as_f64(*column);
+            if val.is_none() && warned_columns.insert(*column) {
+                log::warn!("Non-numeric value in column {}.", column);
             }
-            RuntimeValueSelector::PythonExtractor(extractor) => {
-                extractor.eval_position(b_pos).map_err(|e| {
-                    std::io::Error::other(format!(
-                        "python column extractor 'py:{}' failed: {}",
-                        extractor.function_name(),
-                        e
-                    ))
-                    .into()
-                })
-            }
-        },
+            Ok(val)
+        }
+        RuntimeValueSelector::PythonExtractor(extractor) => {
+            extractor.eval_position(b_pos).map_err(|e| {
+                std::io::Error::other(format!(
+                    "python column extractor 'py:{}' failed: {}",
+                    extractor.function_name(),
+                    e
+                ))
+                .into()
+            })
+        }
     }
+}
+
+fn is_builtin_count(operation: &RuntimeAggOp<'_>) -> bool {
+    matches!(operation, RuntimeAggOp::Builtin(AggOp::Count))
 }
 
 /// Expand columns and operations into paired (column, operation) tuples.
@@ -213,6 +212,17 @@ fn compute_operation(
             .into()
         }),
     }
+}
+
+fn compute_aggregate_result(
+    operation: &RuntimeAggOp<'_>,
+    values: &[f64],
+    count: usize,
+) -> Result<String, Box<dyn std::error::Error>> {
+    if is_builtin_count(operation) {
+        return Ok(count.to_string());
+    }
+    compute_operation(operation, values)
 }
 
 fn load_python_functions<'py>(
@@ -356,8 +366,8 @@ fn run_map_with_ops<'a, 'py>(
 
         if args.group_by_b {
             // Group overlapping B intervals by B name.
-            // Each group accumulates one Vec<f64> per operation.
-            let mut groups: HashMap<String, Vec<Vec<f64>>> = HashMap::new();
+            // Each group accumulates numeric values and overlap counts per operation.
+            let mut groups: HashMap<String, (Vec<Vec<f64>>, Vec<usize>)> = HashMap::new();
             let mut insertion_order: Vec<String> = Vec::new();
 
             for overlap in &intersection.overlapping {
@@ -373,14 +383,19 @@ fn run_map_with_ops<'a, 'py>(
                 }
 
                 // Keep first-seen order deterministic for stable output across runs.
-                if !groups.contains_key(&b_name) {
-                    insertion_order.push(b_name.clone());
-                    groups.insert(b_name.clone(), vec![Vec::new(); ops.len()]);
-                }
-                let vecs = groups.get_mut(&b_name).expect("group key inserted above");
+                let (value_vecs, counts) = match groups.entry(b_name.clone()) {
+                    Entry::Occupied(entry) => entry.into_mut(),
+                    Entry::Vacant(entry) => {
+                        insertion_order.push(b_name.clone());
+                        entry.insert((vec![Vec::new(); ops.len()], vec![0; ops.len()]))
+                    }
+                };
                 for (i, (selector, op)) in ops.iter().enumerate() {
-                    if let Some(val) = extract_value(&b_pos, op, selector, &mut warned_columns)? {
-                        vecs[i].push(val);
+                    if is_builtin_count(op) {
+                        counts[i] += 1;
+                    } else if let Some(val) = extract_value(&b_pos, selector, &mut warned_columns)?
+                    {
+                        value_vecs[i].push(val);
                     }
                 }
             }
@@ -389,19 +404,18 @@ fn run_map_with_ops<'a, 'py>(
                 let mut record = bed_record.clone();
                 record.push_field(bedder::bedder_bed::BedValue::String(".".to_string()));
                 for (_, op) in ops {
-                    record.push_field(bedder::bedder_bed::BedValue::String(compute_operation(
-                        op,
-                        &[],
-                    )?));
+                    record.push_field(bedder::bedder_bed::BedValue::String(
+                        compute_aggregate_result(op, &[], 0)?,
+                    ));
                 }
                 bed_writer.write_record(&record)?;
             } else {
                 for b_name in &insertion_order {
-                    let vecs = groups.get_mut(b_name).expect("group key exists");
+                    let (value_vecs, counts) = groups.get(b_name).expect("group key exists");
                     let mut record = bed_record.clone();
                     record.push_field(bedder::bedder_bed::BedValue::String(b_name.clone()));
                     for (i, (_, op)) in ops.iter().enumerate() {
-                        let agg_result = compute_operation(op, &vecs[i])?;
+                        let agg_result = compute_aggregate_result(op, &value_vecs[i], counts[i])?;
                         record.push_field(bedder::bedder_bed::BedValue::String(agg_result));
                     }
                     bed_writer.write_record(&record)?;
@@ -410,6 +424,7 @@ fn run_map_with_ops<'a, 'py>(
         } else {
             // Standard path: one row per A interval with one aggregate column per op
             let mut value_vecs: Vec<Vec<f64>> = vec![Vec::new(); ops.len()];
+            let mut counts: Vec<usize> = vec![0; ops.len()];
 
             for overlap in &intersection.overlapping {
                 let b_pos = overlap
@@ -425,7 +440,10 @@ fn run_map_with_ops<'a, 'py>(
                 }
 
                 for (i, (selector, op)) in ops.iter().enumerate() {
-                    if let Some(val) = extract_value(&b_pos, op, selector, &mut warned_columns)? {
+                    if is_builtin_count(op) {
+                        counts[i] += 1;
+                    } else if let Some(val) = extract_value(&b_pos, selector, &mut warned_columns)?
+                    {
                         value_vecs[i].push(val);
                     }
                 }
@@ -433,7 +451,7 @@ fn run_map_with_ops<'a, 'py>(
 
             let mut record = bed_record.clone();
             for (i, (_, op)) in ops.iter().enumerate() {
-                let agg_result = compute_operation(op, &value_vecs[i])?;
+                let agg_result = compute_aggregate_result(op, &value_vecs[i], counts[i])?;
                 record.push_field(bedder::bedder_bed::BedValue::String(agg_result));
             }
             bed_writer.write_record(&record)?;
