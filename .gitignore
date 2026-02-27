@@ -7,7 +7,7 @@ env
 docs/
 #*.bed
 *.bed.gz
-*.vcf
+#*.vcf
 *.bcf
 *.bgz
 *.csi

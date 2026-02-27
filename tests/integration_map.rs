@@ -368,6 +368,34 @@ fn test_map_python_column_extractor_vcf_multivalue_info() {
 }
 
 #[test]
+fn test_map_vcf_default_numeric_selector_errors() {
+    let output = run_map_output("tests/map_a.bed", "tests/map_b.vcf", &[]);
+    assert!(
+        !output.status.success(),
+        "bedder map should fail for VCF -b with default numeric selector and non-count op"
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stderr)
+            .contains("non-BED -b input (VCF) cannot use BED column selector -c 5 with -O sum"),
+        "unexpected stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn test_map_vcf_count_allows_numeric_selector() {
+    let output = run_map_output("tests/map_a.bed", "tests/map_b.vcf", &["-O", "count"]);
+    assert!(
+        output.status.success(),
+        "bedder map failed:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let lines = stdout_lines(&output);
+    assert_eq!(lines[0], "chr1\t100\t200\tgeneA\t10\t3");
+    assert_eq!(lines[1], "chr1\t300\t400\tgeneB\t20\t1");
+}
+
+#[test]
 fn test_map_group_by_b_python_operation() {
     let lines = run_map(&[
         "-G",
