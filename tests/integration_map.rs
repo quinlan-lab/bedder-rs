@@ -511,6 +511,30 @@ fn test_map_python_column_extractor_non_numeric_error() {
 }
 
 #[test]
+fn test_map_count_does_not_invoke_python_extractor() {
+    let output = run_map_output(
+        "tests/map_a.bed",
+        "tests/map_b.bed",
+        &[
+            "--python",
+            "tests/map_ops.py",
+            "-c",
+            "py:bad_numeric",
+            "-O",
+            "count",
+        ],
+    );
+    assert!(
+        output.status.success(),
+        "bedder map failed:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let lines = stdout_lines(&output);
+    assert_eq!(lines[0], "chr1\t100\t200\tgeneA\t10\t3");
+    assert_eq!(lines[1], "chr1\t300\t400\tgeneB\t20\t1");
+}
+
+#[test]
 fn test_map_column_zero_error() {
     // -c 0 should be rejected (columns are 1-indexed)
     let output = Command::new("cargo")
