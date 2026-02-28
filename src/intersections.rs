@@ -535,11 +535,10 @@ mod tests {
     #[test]
     fn test_whole_long_reports_full_a_per_overlap() {
         let intersections = make_example("a: 1-10\nb: 3-6, 8-12");
-        let mut ro = ReportOptions::default();
-        ro.a_piece = IntersectionPart::Whole;
-        ro.b_piece = IntersectionPart::WholeWide;
-        ro.a_requirements = OverlapAmount::Bases(1);
-        ro.b_requirements = OverlapAmount::Bases(1);
+        let ro = ReportOptions {
+            b_piece: IntersectionPart::WholeWide,
+            ..Default::default()
+        };
 
         let r = intersections.report(&ro);
         assert_eq!(r.len(), 2);
@@ -572,10 +571,11 @@ mod tests {
     #[test]
     fn test_simple() {
         let intersections = make_example("a: 1-10\nb: 3-6, 8-12");
-        let mut ro = ReportOptions::default();
-        ro.a_piece = IntersectionPart::WholeWide;
-        ro.a_requirements = OverlapAmount::Bases(5);
-        ro.b_requirements = OverlapAmount::Bases(1);
+        let ro = ReportOptions {
+            a_piece: IntersectionPart::WholeWide,
+            a_requirements: OverlapAmount::Bases(5),
+            ..Default::default()
+        };
 
         let r = intersections.report(&ro);
         eprintln!("{:?}", r);
@@ -637,13 +637,13 @@ mod tests {
     fn test_not() {
         let intersections = make_example("a: 1-10\nb: 3-6, 8-12");
 
-        let mut ro = ReportOptions::default();
-        ro.a_mode = IntersectionMode::Not;
-        ro.b_mode = IntersectionMode::Default;
-        ro.a_piece = IntersectionPart::WholeWide;
-        ro.b_piece = IntersectionPart::WholeWide;
-        ro.a_requirements = OverlapAmount::Bases(5);
-        ro.b_requirements = OverlapAmount::Bases(1);
+        let mut ro = ReportOptions {
+            a_mode: IntersectionMode::Not,
+            a_piece: IntersectionPart::WholeWide,
+            b_piece: IntersectionPart::WholeWide,
+            a_requirements: OverlapAmount::Bases(5),
+            ..Default::default()
+        };
         let r = intersections.report(&ro);
         assert_eq!(r.len(), 0);
 
@@ -687,13 +687,12 @@ mod tests {
     #[test]
     fn test_a_not() {
         let intersections = make_example("a: 1-10\nb: 3-4, 6-7, 8-12\nb:9-20");
-        let mut ro = ReportOptions::default();
-        ro.a_mode = IntersectionMode::Not;
-        ro.b_mode = IntersectionMode::Default;
-        ro.a_piece = IntersectionPart::WholeWide;
-        ro.b_piece = IntersectionPart::WholeWide;
-        ro.a_requirements = OverlapAmount::Bases(1);
-        ro.b_requirements = OverlapAmount::Bases(1);
+        let mut ro = ReportOptions {
+            a_mode: IntersectionMode::Not,
+            a_piece: IntersectionPart::WholeWide,
+            b_piece: IntersectionPart::WholeWide,
+            ..Default::default()
+        };
         let r = intersections.report(&ro);
         assert!(r.is_empty());
         ro.a_requirements = OverlapAmount::Bases(6);
@@ -704,11 +703,11 @@ mod tests {
     #[test]
     fn test_a_piece() {
         let intersections = make_example("a: 2-23\nb: 8-12, 14-15");
-        let mut ro = ReportOptions::default();
-        ro.a_mode = IntersectionMode::Default;
-        ro.b_mode = IntersectionMode::Default;
-        ro.a_piece = IntersectionPart::Piece;
-        ro.b_piece = IntersectionPart::None;
+        let ro = ReportOptions {
+            a_piece: IntersectionPart::Piece,
+            b_piece: IntersectionPart::None,
+            ..Default::default()
+        };
 
         let r = intersections.report(&ro);
         eprintln!("{:?}", r);
@@ -722,13 +721,12 @@ mod tests {
     #[test]
     fn test_a_not_with_empty() {
         let intersections = make_example("a: 1-10");
-        let mut ro = ReportOptions::default();
-        ro.a_mode = IntersectionMode::Not;
-        ro.b_mode = IntersectionMode::Default;
-        ro.a_piece = IntersectionPart::WholeWide;
-        ro.b_piece = IntersectionPart::WholeWide;
-        ro.a_requirements = OverlapAmount::Bases(1);
-        ro.b_requirements = OverlapAmount::Bases(1);
+        let ro = ReportOptions {
+            a_mode: IntersectionMode::Not,
+            a_piece: IntersectionPart::WholeWide,
+            b_piece: IntersectionPart::WholeWide,
+            ..Default::default()
+        };
         let r = intersections.report(&ro);
         assert_eq!(1, r.len());
         assert_eq!(r[0].id, usize::MAX);
@@ -737,13 +735,11 @@ mod tests {
     #[test]
     fn test_b_inverse() {
         let intersections = make_example("a: 1-10\nb: 3-4, 6-7, 8-12\nb:9-20");
-        let mut ro = ReportOptions::default();
-        ro.a_mode = IntersectionMode::Default;
-        ro.b_mode = IntersectionMode::Default;
-        ro.a_piece = IntersectionPart::WholeWide;
-        ro.b_piece = IntersectionPart::Inverse;
-        ro.a_requirements = OverlapAmount::Bases(1);
-        ro.b_requirements = OverlapAmount::Bases(1);
+        let ro = ReportOptions {
+            a_piece: IntersectionPart::WholeWide,
+            b_piece: IntersectionPart::Inverse,
+            ..Default::default()
+        };
         let r = intersections.report(&ro);
         assert_eq!(r.len(), 2);
 
@@ -761,13 +757,11 @@ mod tests {
         // Test case from user bug report: a: 25-27, b: 20-30
         // Expected inverse: b pieces 20-25 and 27-30
         let intersections = make_example("a: 25-27\nb: 20-30");
-        let mut ro = ReportOptions::default();
-        ro.a_mode = IntersectionMode::Default;
-        ro.b_mode = IntersectionMode::Default;
-        ro.a_piece = IntersectionPart::WholeWide;
-        ro.b_piece = IntersectionPart::Inverse;
-        ro.a_requirements = OverlapAmount::Bases(1);
-        ro.b_requirements = OverlapAmount::Bases(1);
+        let ro = ReportOptions {
+            a_piece: IntersectionPart::WholeWide,
+            b_piece: IntersectionPart::Inverse,
+            ..Default::default()
+        };
         let r = intersections.report(&ro);
         assert_eq!(r.len(), 1);
 
@@ -786,13 +780,10 @@ mod tests {
         // a: 25-27, b: 20-30
         // Expected inverse: b pieces 20-25 and 27-30
         let intersections = make_example("a: 25-27\nb: 20-30");
-        let mut ro = ReportOptions::default();
-        ro.a_mode = IntersectionMode::Default;
-        ro.b_mode = IntersectionMode::Default;
-        ro.a_piece = IntersectionPart::Whole; // long output (default)
-        ro.b_piece = IntersectionPart::Inverse;
-        ro.a_requirements = OverlapAmount::Bases(1);
-        ro.b_requirements = OverlapAmount::Bases(1);
+        let ro = ReportOptions {
+            b_piece: IntersectionPart::Inverse,
+            ..Default::default()
+        };
         let r = intersections.report(&ro);
         // With Whole (long output), we get one fragment per B overlap
         assert_eq!(r.len(), 1);
@@ -809,11 +800,11 @@ mod tests {
     #[test]
     fn test_multiple_bs() {
         let intersections = make_example("a: 1-10\nb: 3-6, 8-12\nb:9-20");
-        let mut ro = ReportOptions::default();
-        ro.a_piece = IntersectionPart::Piece;
-        ro.b_piece = IntersectionPart::WholeWide;
-        ro.a_requirements = OverlapAmount::Bases(1);
-        ro.b_requirements = OverlapAmount::Bases(1);
+        let ro = ReportOptions {
+            a_piece: IntersectionPart::Piece,
+            b_piece: IntersectionPart::WholeWide,
+            ..Default::default()
+        };
         let r = intersections.report(&ro);
         eprintln!("{:?}", r[0]);
         eprintln!("{:?}", r[1]);
@@ -841,13 +832,12 @@ mod tests {
     #[test]
     fn test_a_pieces() {
         let intersections = make_example("a: 1-10\nb: 3-6, 8-12");
-        let mut ro = ReportOptions::default();
-        ro.a_mode = IntersectionMode::PerPiece;
-        ro.b_mode = IntersectionMode::Default;
-        ro.a_piece = IntersectionPart::WholeWide;
-        ro.b_piece = IntersectionPart::WholeWide;
-        ro.a_requirements = OverlapAmount::Bases(1);
-        ro.b_requirements = OverlapAmount::Bases(1);
+        let ro = ReportOptions {
+            a_mode: IntersectionMode::PerPiece,
+            a_piece: IntersectionPart::WholeWide,
+            b_piece: IntersectionPart::WholeWide,
+            ..Default::default()
+        };
         let r = intersections.report(&ro);
         assert_eq!(r.len(), 1);
         let rf = &r[0];
@@ -866,13 +856,12 @@ mod tests {
     #[test]
     fn test_a_pieces_ab_part() {
         let intersections = make_example("a: 1-10\nb: 3-6, 8-12");
-        let mut ro = ReportOptions::default();
-        ro.a_mode = IntersectionMode::PerPiece;
-        ro.b_mode = IntersectionMode::Default;
-        ro.a_piece = IntersectionPart::Piece;
-        ro.b_piece = IntersectionPart::Piece;
-        ro.a_requirements = OverlapAmount::Bases(1);
-        ro.b_requirements = OverlapAmount::Bases(1);
+        let ro = ReportOptions {
+            a_mode: IntersectionMode::PerPiece,
+            a_piece: IntersectionPart::Piece,
+            b_piece: IntersectionPart::Piece,
+            ..Default::default()
+        };
         let r = intersections.report(&ro);
         eprintln!("r: {:?}", r);
         // a: 3-6, b: 3-6
@@ -899,17 +888,15 @@ mod tests {
     #[test]
     fn test_b_part() {
         let intersections = make_example("a: 4-10\nb: 3-6, 8-12");
-        let mut ro = ReportOptions::default();
-        ro.a_mode = IntersectionMode::Default;
-        ro.b_mode = IntersectionMode::Default;
-        ro.a_piece = IntersectionPart::WholeWide;
-        ro.b_piece = IntersectionPart::Piece;
-        ro.a_requirements = OverlapAmount::Bases(5);
-        ro.b_requirements = OverlapAmount::Bases(1);
+        let mut ro = ReportOptions {
+            a_piece: IntersectionPart::WholeWide,
+            b_piece: IntersectionPart::Piece,
+            a_requirements: OverlapAmount::Bases(5),
+            ..Default::default()
+        };
         let r = intersections.report(&ro);
         assert_eq!(r.len(), 0);
         ro.a_requirements = OverlapAmount::Bases(4);
-        ro.b_requirements = OverlapAmount::Bases(1);
         let r = intersections.report(&ro);
         assert_eq!(r.len(), 1);
         let rf = &r[0];
@@ -928,13 +915,11 @@ mod tests {
     #[test]
     fn test_b_none() {
         let intersections = make_example("a: 4-10\nb: 3-6, 8-12");
-        let mut ro = ReportOptions::default();
-        ro.a_mode = IntersectionMode::Default;
-        ro.b_mode = IntersectionMode::Default;
-        ro.a_piece = IntersectionPart::WholeWide;
-        ro.b_piece = IntersectionPart::None;
-        ro.a_requirements = OverlapAmount::Bases(1);
-        ro.b_requirements = OverlapAmount::Bases(1);
+        let ro = ReportOptions {
+            a_piece: IntersectionPart::WholeWide,
+            b_piece: IntersectionPart::None,
+            ..Default::default()
+        };
         let r = intersections.report(&ro);
         assert_eq!(r.len(), 1);
         assert_eq!(r[0].a.as_ref().unwrap().lock().start(), 4);
@@ -945,13 +930,11 @@ mod tests {
     #[test]
     fn test_a_none() {
         let intersections = make_example("a: 4-10\nb: 3-6, 8-12");
-        let mut ro = ReportOptions::default();
-        ro.a_mode = IntersectionMode::Default;
-        ro.b_mode = IntersectionMode::Default;
-        ro.a_piece = IntersectionPart::None;
-        ro.b_piece = IntersectionPart::Piece;
-        ro.a_requirements = OverlapAmount::Bases(1);
-        ro.b_requirements = OverlapAmount::Bases(1);
+        let ro = ReportOptions {
+            a_piece: IntersectionPart::None,
+            b_piece: IntersectionPart::Piece,
+            ..Default::default()
+        };
         let r = intersections.report(&ro);
         assert_eq!(r.len(), 1);
         assert!(r[0].a.is_none());

@@ -30,7 +30,7 @@ mod tests {
 
     fn ensure_python_initialized() {
         static INIT: Once = Once::new();
-        INIT.call_once(|| Python::initialize());
+        INIT.call_once(Python::initialize);
     }
 
     fn create_test_intersection() -> Intersections {
@@ -165,7 +165,14 @@ def bedder_map_bad_decl(iv) -> str:
             let bad_runtime_fn = CompiledMapValuePython::new("map_bad_runtime", &functions_map)?;
             assert!(CompiledMapValuePython::new("map_bad_decl", &functions_map).is_err());
 
-            let pos = Position::Bed(BedRecord::new("chr1", 100, 200, None, Some(5.0), vec![]));
+            let pos = std::sync::Arc::new(parking_lot::Mutex::new(Position::Bed(BedRecord::new(
+                "chr1",
+                100,
+                200,
+                None,
+                Some(5.0),
+                vec![],
+            ))));
             assert_eq!(score_fn.eval_position(&pos)?, Some(5.0));
             assert_eq!(start_fn.eval_position(&pos)?, Some(100.0));
             assert_eq!(none_fn.eval_position(&pos)?, None);

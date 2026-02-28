@@ -3,11 +3,12 @@ use std::{num::ParseFloatError, str::FromStr};
 
 /// IntersectionMode indicates requirements for the intersection.
 /// And extra fields that might be reported.
-#[derive(Eq, PartialEq, Debug, Clone, ValueEnum)]
+#[derive(Eq, PartialEq, Debug, Clone, Default, ValueEnum)]
 pub enum IntersectionMode {
     // https://bedtools.readthedocs.io/en/latest/content/tools/intersect.html#usage-and-option-summary
     /// Default without extra requirements.
     #[value(name = "default")]
+    #[default]
     Default,
 
     /// Return A(B) if it does *not* overlap B(A). Bedtools -v
@@ -36,7 +37,7 @@ impl FromStr for IntersectionMode {
 }
 
 /// IntersectionPart indicates what to report for the intersection.
-#[derive(Eq, PartialEq, Debug, Clone, ValueEnum)]
+#[derive(Eq, PartialEq, Debug, Clone, Default, ValueEnum)]
 pub enum IntersectionPart {
     /// Don't report the intersection.
     /// This is commonly used for -b to not report b intervals.
@@ -50,6 +51,7 @@ pub enum IntersectionPart {
     WholeWide,
     /// Report the whole interval, but once per overlap ("long" output).
     #[value(name = "whole", alias = "whole-long", alias = "whole_long")]
+    #[default]
     Whole,
     /// Report each portion of A that does *NOT* overlap B
     #[value(name = "inverse")]
@@ -90,21 +92,9 @@ impl FromStr for IntersectionPart {
     }
 }
 
-impl Default for IntersectionPart {
-    fn default() -> Self {
-        Self::Whole
-    }
-}
-
 impl Default for &IntersectionPart {
     fn default() -> Self {
         &IntersectionPart::Whole
-    }
-}
-
-impl Default for IntersectionMode {
-    fn default() -> Self {
-        Self::Default
     }
 }
 

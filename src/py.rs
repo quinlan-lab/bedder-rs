@@ -1321,10 +1321,12 @@ pub fn initialize_python(py: Python<'_>) -> PyResult<()> {
 
 #[derive(Debug)]
 pub struct PythonFunction<'py> {
+    #[allow(dead_code)]
     name: String,
     return_type: String,
     pyfn: pyo3::Bound<'py, pyo3::types::PyFunction>,
     // description is from the docstring of the function
+    #[allow(dead_code)]
     description: String,
 }
 
@@ -1545,6 +1547,10 @@ impl<'py> CompiledMapPython<'py> {
 }
 
 /// Compiled Python callable for `map` value extraction from a mapped interval.
+///
+/// The extractor receives a `PyPosition` backed by the same `Arc<Mutex<Position>>`
+/// held by the intersection iterator, so Python code can mutate shared interval
+/// state (e.g. caching parsed fields across calls).
 #[derive(Debug)]
 pub struct CompiledMapValuePython<'py> {
     function_name: String,
@@ -1577,8 +1583,14 @@ impl<'py> CompiledMapValuePython<'py> {
         &self.function_name
     }
 
-    pub fn eval_position(&self, position: &Position) -> PyResult<Option<f64>> {
-        let py_position = PyPosition::from_position(position.clone_box());
+    /// Evaluate the Python extractor on a B interval, returning an optional f64.
+    ///
+    /// The `PyPosition` passed to Python shares the `Arc` with the caller, so the
+    /// Python function can mutate the underlying interval state.
+    pub fn eval_position(&self, position: &Arc<Mutex<Position>>) -> PyResult<Option<f64>> {
+        let py_position = PyPosition {
+            inner: position.clone(),
+        };
         let result = self.f.call1((py_position,))?;
         if result.is_none() {
             return Ok(None);
