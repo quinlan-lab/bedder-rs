@@ -25,7 +25,7 @@ pub enum BedderReader<R>
 where
     R: io::BufRead + io::Seek + 'static,
 {
-    BedderBed(BedderBed<'static, R>),
+    BedderBed(Box<BedderBed<'static, R>>),
     BedderVcf(BedderVCF),
 }
 
@@ -41,7 +41,7 @@ where
 
     pub fn into_positioned_iterator(self) -> Box<dyn PositionedIterator> {
         match self {
-            BedderReader::BedderBed(rdr) => Box::new(rdr),
+            BedderReader::BedderBed(rdr) => Box::new(*rdr),
             BedderReader::BedderVcf(rdr) => Box::new(rdr),
         }
     }
@@ -54,7 +54,7 @@ pub fn open<P: AsRef<Path>, R: io::BufRead + io::Seek + 'static>(
     let (ft, c) = sniff(&mut reader).map_err(|e| io::Error::other(e.to_string()))?;
     info!("sniffed file type: {:?}, compression: {:?}", ft, c);
     let rdr = match ft {
-        FileType::Bed => BedderReader::BedderBed(BedderBed::new(reader, Some(p))),
+        FileType::Bed => BedderReader::BedderBed(Box::new(BedderBed::new(reader, Some(p)))),
         FileType::Vcf | FileType::Bcf => {
             BedderReader::BedderVcf(BedderVCF::from_path(p.as_ref().to_str().unwrap())?)
         }

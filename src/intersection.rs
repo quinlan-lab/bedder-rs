@@ -65,6 +65,9 @@ impl Clone for Intersection {
     }
 }
 
+/// Cached report keyed by report options.
+pub(crate) type CachedReport = Arc<Mutex<Option<(ReportOptions, Arc<Report>)>>>;
+
 /// An Intersections wraps the base interval and a vector of overlapping intervals.
 #[derive(Debug, Clone)]
 pub struct Intersections {
@@ -72,7 +75,7 @@ pub struct Intersections {
     pub overlapping: Vec<Intersection>,
 
     // report cache, keyed by report_options. Use Arc Mutex for interior mutability.
-    pub(crate) cached_report: Arc<Mutex<Option<(ReportOptions, Arc<Report>)>>>,
+    pub(crate) cached_report: CachedReport,
 }
 
 #[derive(Debug)]
@@ -782,7 +785,7 @@ mod tests {
     }
     impl PositionedIterator for Intervals {
         fn name(&self) -> String {
-            format!("{}:{}", self.name, self.i).into()
+            format!("{}:{}", self.name, self.i)
         }
 
         fn next_position(&mut self, _o: Option<&Position>) -> Option<io::Result<Position>> {

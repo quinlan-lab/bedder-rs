@@ -130,13 +130,18 @@ enum RuntimeValueSelector<'py> {
 
 /// Extract a value from a B interval for aggregation.
 /// Logs a warning (once per column) when a non-numeric value is encountered.
+///
+/// Accepts the B interval's `Arc` directly. For BedColumn selectors it locks
+/// internally; for Python extractors it passes the Arc (cheap clone) so
+/// the Python side can wrap it in a PyPosition without deep-copying.
 fn extract_value(
-    b_pos: &bedder::position::Position,
+    b_arc: &std::sync::Arc<parking_lot::Mutex<bedder::position::Position>>,
     selector: &RuntimeValueSelector<'_>,
     warned_columns: &mut HashSet<usize>,
 ) -> Result<Option<f64>, Box<dyn std::error::Error>> {
     match selector {
         RuntimeValueSelector::BedColumn(column) => {
+            let b_pos = b_arc.try_lock().expect("failed to lock b interval");
             let val = b_pos.column_as_f64(*column);
             if val.is_none() && warned_columns.insert(*column) {
                 log::warn!("Non-numeric value in column {}.", column);
@@ -144,7 +149,7 @@ fn extract_value(
             Ok(val)
         }
         RuntimeValueSelector::PythonExtractor(extractor) => {
-            extractor.eval_position(b_pos).map_err(|e| {
+            extractor.eval_position(b_arc).map_err(|e| {
                 std::io::Error::other(format!(
                     "python column extractor 'py:{}' failed: {}",
                     extractor.function_name(),
@@ -421,12 +426,13 @@ fn run_map_with_ops<'a, 'py>(
             let mut insertion_order: Vec<String> = Vec::new();
 
             for overlap in &intersection.overlapping {
-                let b_pos = overlap
-                    .interval
-                    .try_lock()
-                    .expect("failed to lock b interval");
-
-                let b_name = b_pos.name().unwrap_or(".").to_string();
+                let b_name = {
+                    let b_pos = overlap
+                        .interval
+                        .try_lock()
+                        .expect("failed to lock b interval");
+                    b_pos.name().unwrap_or(".").to_string()
+                };
 
                 if args.name_match && b_name != a_name {
                     continue;
@@ -443,7 +449,8 @@ fn run_map_with_ops<'a, 'py>(
                 for (i, (selector, op)) in ops.iter().enumerate() {
                     if is_builtin_count(op) {
                         counts[i] += 1;
-                    } else if let Some(val) = extract_value(&b_pos, selector, &mut warned_columns)?
+                    } else if let Some(val) =
+                        extract_value(&overlap.interval, selector, &mut warned_columns)?
                     {
                         value_vecs[i].push(val);
                     }
@@ -477,12 +484,11 @@ fn run_map_with_ops<'a, 'py>(
             let mut counts: Vec<usize> = vec![0; ops.len()];
 
             for overlap in &intersection.overlapping {
-                let b_pos = overlap
-                    .interval
-                    .try_lock()
-                    .expect("failed to lock b interval");
-
                 if args.name_match {
+                    let b_pos = overlap
+                        .interval
+                        .try_lock()
+                        .expect("failed to lock b interval");
                     let b_name = b_pos.name().unwrap_or(".");
                     if b_name != a_name {
                         continue;
@@ -492,7 +498,8 @@ fn run_map_with_ops<'a, 'py>(
                 for (i, (selector, op)) in ops.iter().enumerate() {
                     if is_builtin_count(op) {
                         counts[i] += 1;
-                    } else if let Some(val) = extract_value(&b_pos, selector, &mut warned_columns)?
+                    } else if let Some(val) =
+                        extract_value(&overlap.interval, selector, &mut warned_columns)?
                     {
                         value_vecs[i].push(val);
                     }

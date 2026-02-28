@@ -109,7 +109,7 @@ fn test_skip_position_integration_with_max_distance() {
 
     // Should find some intervals within max_distance
     assert!(
-        data_lines.len() > 0,
+        !data_lines.is_empty(),
         "Expected to find some intervals within max_distance"
     );
 
@@ -304,5 +304,5 @@ fn test_skip_position_with_closest_intervals() {
         .collect();
 
     // Should find multiple closest intervals
-    assert!(data_lines.len() > 0, "Expected to find closest intervals");
+    assert!(!data_lines.is_empty(), "Expected to find closest intervals");
 }
