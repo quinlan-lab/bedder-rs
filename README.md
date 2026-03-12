@@ -8,6 +8,9 @@ cargo test --release --target $target \
 
 [![status](https://github.com/quinlan-lab/bedder-rs/actions/workflows/rust.yml/badge.svg)](https://github.com/quinlan-lab/bedder-rs/actions/) [![documentation](https://img.shields.io/badge/documentation-blue?style=plastic&logoSize=auto)](https://brentp.github.io/bedder-docs/)
 
+[![Static Badge](https://img.shields.io/badge/manuscript-OA?style=plastic&link=https%3A%2F%2Fdocs.google.com%2Fdocument%2Fd%2F1thL6YmzuERSqS2B81M9B62i998ctvTh4WsYfnI9FblY%2Fedit%3Fusp%3Dsharing)](https://docs.google.com/document/d/1thL6YmzuERSqS2B81M9B62i998ctvTh4WsYfnI9FblY/edit?usp=sharing)
+
+
 # bedder (tools)
 
 This is an early release of the library for feedback, especially from rust practitioners.
