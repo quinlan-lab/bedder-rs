@@ -14,6 +14,14 @@ use crate::position::{Position, PositionedIterator};
 
 const COMPACTION_THRESHOLD: usize = 4_096;
 
+/// Immutable A coordinates, resolved once for the current iterator step.
+#[derive(Clone, Copy)]
+struct IntervalCoordinates {
+    chrom_index: usize,
+    start: u64,
+    stop: u64,
+}
+
 /// An iterator that returns the intersection of multiple iterators.
 pub struct IntersectionIterator<'a> {
     base_iterator: Box<dyn PositionedIterator>,
@@ -150,9 +158,11 @@ impl Iterator for IntersectionIterator<'_> {
             Err(e) => return Some(Err(e)),
             Ok(p) => p,
         };
-        if let Some(chrom) = self.chromosome_order.get(base_interval.chrom()) {
+        let base_start = base_interval.start();
+        let base_stop = base_interval.stop();
+        let base_chrom_idx = if let Some(chrom) = self.chromosome_order.get(base_interval.chrom()) {
             if let Some(chrom_len) = chrom.length {
-                if base_interval.stop() > chrom_len as u64 {
+                if base_stop > chrom_len as u64 {
                     let msg = format!(
                         "interval beyond end of chromosome: {}",
                         region_str(&base_interval)
@@ -160,12 +170,18 @@ impl Iterator for IntersectionIterator<'_> {
                     return Some(Err(Error::other(msg)));
                 }
             }
+            chrom.index
         } else {
             let msg = format!("invalid chromosome: {}", region_str(&base_interval));
             return Some(Err(Error::other(msg)));
-        }
+        };
+        let base = IntervalCoordinates {
+            chrom_index: base_chrom_idx,
+            start: base_start,
+            stop: base_stop,
+        };
 
-        if self.out_of_order(&base_interval) {
+        if self.out_of_order(&base_interval, base) {
             let p = self
                 .previous_interval
                 .as_ref()
@@ -179,7 +195,7 @@ impl Iterator for IntersectionIterator<'_> {
             return Some(Err(Error::other(msg)));
         }
         // drop intervals from Q that are strictly before the base interval.
-        self.pop_front(&base_interval);
+        self.pop_front(base);
 
         let base_interval = Arc::new(Mutex::new(base_interval));
         self.previous_interval = Some(base_interval.clone());
@@ -187,31 +203,20 @@ impl Iterator for IntersectionIterator<'_> {
         // pull intervals through the min-heap until the base interval is strictly less than the
         // last pulled interval.
         // we want all intervals to pass through the min_heap so that they are ordered across files
-        if let Err(e) = self.pull_through_heap(base_interval.clone()) {
+        if let Err(e) = self.pull_through_heap(base_interval.clone(), base) {
             return Some(Err(e));
         }
         // In closest/max-distance modes, pull_through_heap can enqueue additional
         // behind-base intervals that are already outside the retention window for
         // this same base interval. Prune again to keep queue scans bounded.
         if self.n_closest > 0 || self.max_distance > 0 {
-            self.pop_front(
-                &base_interval
-                    .try_lock()
-                    .expect("failed to lock base_interval after pull_through_heap"),
-            );
+            self.pop_front(base);
         }
 
         let mut overlapping_positions = Vec::new();
         // de-Q contains all intervals that can overlap with the base interval.
         // de-Q is sorted.
         // We iterate through (again) and add those to overlapping positions.
-        let base_interval_locked = base_interval
-            .try_lock()
-            .expect("failed to lock base_interval");
-        let base_chrom = base_interval_locked.chrom();
-        let base_chrom_idx = self.chromosome_order[base_chrom].index;
-        let base_start = base_interval_locked.start();
-        let base_stop = base_interval_locked.stop();
         if self.n_closest <= 0 && self.max_distance <= 0 {
             let mut stale_count = 0;
             for q in self.dequeue.iter() {
@@ -359,7 +364,6 @@ impl Iterator for IntersectionIterator<'_> {
                 }
             }
         }
-        drop(base_interval_locked);
         if !overlapping_positions.is_empty() {
             log::trace!("overlapping_positions: {:?}", overlapping_positions);
         }
@@ -534,14 +538,10 @@ impl<'a> IntersectionIterator<'a> {
         None
     }
 
-    fn init_heap(&mut self, base_interval: Arc<Mutex<Position>>) -> io::Result<()> {
+    fn init_heap(&mut self, base_interval: &Position) -> io::Result<()> {
         assert!(!self.heap_initialized);
         for (i, iter) in self.other_iterators.iter_mut().enumerate() {
-            if let Some(positioned) = iter.next_position(Some(
-                &base_interval
-                    .try_lock()
-                    .expect("failed to lock base_interval"),
-            )) {
+            if let Some(positioned) = iter.next_position(Some(base_interval)) {
                 let positioned = positioned?;
                 let chromosome_index = match self.chromosome_order.get(positioned.chrom()) {
                     Some(c) => c.index,
@@ -576,9 +576,9 @@ impl<'a> IntersectionIterator<'a> {
     ///
     /// For unbounded closest mode (`n_closest > 0` and `max_distance <= 0`), keep
     /// historical intervals because they may still be among the closest.
-    fn pop_front(&mut self, base_interval: &Position) {
-        let base_chrom_idx = self.chromosome_order[base_interval.chrom()].index;
-        let base_start = base_interval.start();
+    fn pop_front(&mut self, base: IntervalCoordinates) {
+        let base_chrom_idx = base.chrom_index;
+        let base_start = base.start;
         loop {
             let should_pop = if let Some(interval) = self.dequeue.front() {
                 if interval.chrom_index != base_chrom_idx {
@@ -607,7 +607,7 @@ impl<'a> IntersectionIterator<'a> {
         }
     }
 
-    fn out_of_order(&self, interval: &Position) -> bool {
+    fn out_of_order(&self, interval: &Position, base: IntervalCoordinates) -> bool {
         match &self.previous_interval {
             None => false, // first interval in file.
             Some(previous_interval) => {
@@ -616,12 +616,11 @@ impl<'a> IntersectionIterator<'a> {
                     .expect("failed to lock previous interval");
                 if previous_interval.chrom() != interval.chrom() {
                     let pci = self.chromosome_order[previous_interval.chrom()].index;
-                    let ici = self.chromosome_order[interval.chrom()].index;
-                    pci > ici
+                    pci > base.chrom_index
                 } else {
-                    previous_interval.start() > interval.start()
-                        || (previous_interval.start() == interval.start()
-                            && previous_interval.stop() > interval.stop())
+                    previous_interval.start() > base.start
+                        || (previous_interval.start() == base.start
+                            && previous_interval.stop() > base.stop)
                 }
             }
         }
@@ -633,28 +632,36 @@ impl<'a> IntersectionIterator<'a> {
         unsafe { ptr.write_bytes(0, self.called.len()) };
     }
 
-    fn pull_through_heap(&mut self, base_interval: Arc<Mutex<Position>>) -> io::Result<()> {
+    fn pull_through_heap(
+        &mut self,
+        base_interval: Arc<Mutex<Position>>,
+        base: IntervalCoordinates,
+    ) -> io::Result<()> {
+        let base_chrom_idx = base.chrom_index;
+        let base_start = base.start;
+        let base_stop = base.stop;
         // A queued lookahead proves that all B records that could overlap this
         // A have already passed through the start-ordered heap. Reuse it until
         // A catches up, including when a wide A is followed by a narrower one.
         if self.n_closest <= 0 && self.max_distance <= 0 {
             if let Some(last) = self.dequeue.back() {
-                let base = base_interval
-                    .try_lock()
-                    .expect("failed to lock base_interval");
-                let base_chrom_idx = self.chromosome_order[base.chrom()].index;
                 if last.chrom_index > base_chrom_idx
-                    || (last.chrom_index == base_chrom_idx && last.start >= base.stop())
+                    || (last.chrom_index == base_chrom_idx && last.start >= base_stop)
                 {
                     return Ok(());
                 }
             }
         }
+        // The full record is needed only for index queries; borrow it once for
+        // this pull rather than locking it for each B record and metadata read.
+        let base_locked = base_interval
+            .try_lock()
+            .expect("failed to lock base_interval");
         self.zero_called();
         if !self.heap_initialized {
             // we wait til first iteration here to call init heap
             // because we need the base interval.
-            self.init_heap(base_interval.clone())?;
+            self.init_heap(&base_locked)?;
         }
 
         let other_iterators = self.other_iterators.as_mut_slice();
@@ -672,15 +679,12 @@ impl<'a> IntersectionIterator<'a> {
                 .expect("expected interval iterator at file index");
             // for a given base_interval, we make sure to call next_position with Some, only once.
             // subsequent calls will be with None.
-            let l = base_interval
-                .try_lock()
-                .expect("failed to lock base_interval");
             let arg: Option<&Position> = if !self.called[file_index] {
                 self.called[file_index] = true;
-                if self.max_distance <= 0 && position.start() > l.stop() {
+                if self.max_distance <= 0 && position.start() > base_stop {
                     // if the position interval is after the base interval, then we can use it for the query.
                     // NOTE: we can do other things here instead like require some distance to minimize expensive queries.
-                    Some(&l)
+                    Some(&base_locked)
                 } else {
                     None
                 }
@@ -734,18 +738,6 @@ impl<'a> IntersectionIterator<'a> {
                     id: file_index,
                 });
             }
-            drop(l);
-
-            let (base_chrom_idx, base_start, base_stop) = {
-                let base_locked = base_interval
-                    .try_lock()
-                    .expect("failed to lock base_interval");
-                (
-                    self.chromosome_order[base_locked.chrom()].index,
-                    base_locked.start(),
-                    base_locked.stop(),
-                )
-            };
 
             // In plain overlap mode, an interval strictly before the current
             // base cannot overlap this or any later sorted base interval. This
@@ -1265,7 +1257,11 @@ mod tests {
             stop: 201,
             ..Default::default()
         });
-        iter.pop_front(&base_interval1);
+        iter.pop_front(IntervalCoordinates {
+            chrom_index: iter.chromosome_order[base_interval1.chrom()].index,
+            start: base_interval1.start(),
+            stop: base_interval1.stop(),
+        });
         assert_eq!(iter.dequeue.len(), 2);
         let starts: Vec<u64> = iter
             .dequeue
@@ -1323,7 +1319,11 @@ mod tests {
             stop: 11,
             ..Default::default()
         });
-        iter.pop_front(&base_interval2);
+        iter.pop_front(IntervalCoordinates {
+            chrom_index: iter.chromosome_order[base_interval2.chrom()].index,
+            start: base_interval2.start(),
+            stop: base_interval2.stop(),
+        });
         assert_eq!(iter.dequeue.len(), 2);
         let chroms: Vec<String> = iter
             .dequeue
@@ -2282,6 +2282,177 @@ mod tests {
             }
             assert!(iter.next().is_none());
         }
+    }
+
+    #[test]
+    fn test_base_coordinates_refresh_for_nested_queries_and_chromosomes() {
+        // Chromosome order is deliberately non-lexical. A's stop decreases
+        // between the first two queries; no cached field may leak across steps.
+        let chrom_order = parse_genome("chr2\nchr1\n".as_bytes()).unwrap();
+        let interval = |chrom: &str, start, stop| Interval {
+            chrom: String::from(chrom),
+            start,
+            stop,
+            ..Default::default()
+        };
+        let queries = vec![
+            interval("chr2", 10, 100),
+            interval("chr2", 20, 21),
+            interval("chr1", 0, 10),
+        ];
+        let targets = vec![
+            interval("chr2", 15, 16),
+            interval("chr2", 20, 21),
+            interval("chr2", 80, 81),
+            interval("chr1", 1, 2),
+        ];
+        let iter = IntersectionIterator::new(
+            Box::new(Intervals::new(String::from("A"), queries)),
+            vec![Box::new(Intervals::new(String::from("B"), targets))],
+            &chrom_order,
+            0,
+            0,
+            false,
+        )
+        .unwrap();
+        let starts: Vec<Vec<u64>> = iter
+            .map(|result| {
+                result
+                    .unwrap()
+                    .overlapping
+                    .iter()
+                    .map(|hit| hit.interval.try_lock().unwrap().start())
+                    .collect()
+            })
+            .collect();
+        assert_eq!(starts, vec![vec![15, 20, 80], vec![20], vec![1]]);
+    }
+
+    #[test]
+    fn test_cached_coordinates_match_brute_force_overlaps() {
+        let chromosomes = ["chrZ", "chr2", "chr10"];
+        let chrom_order = parse_genome("chrZ\nchr2\nchr10\n".as_bytes()).unwrap();
+        for seed in 0..32_u64 {
+            let mut state = seed + 1;
+            let mut random = || {
+                state = state.wrapping_mul(6364136223846793005).wrapping_add(1);
+                state >> 32
+            };
+            let mut make_intervals = |count| {
+                let mut intervals: Vec<_> = (0..count)
+                    .map(|_| {
+                        let chrom = chromosomes[(random() % 3) as usize];
+                        let start = random() % 1_000;
+                        Interval {
+                            chrom: String::from(chrom),
+                            start,
+                            stop: start + 1 + random() % 500,
+                            ..Default::default()
+                        }
+                    })
+                    .collect();
+                // Force nesting and duplicate coordinates in every generated set.
+                intervals.extend([
+                    Interval {
+                        chrom: String::from("chrZ"),
+                        start: 0,
+                        stop: 2_000,
+                        ..Default::default()
+                    },
+                    Interval {
+                        chrom: String::from("chrZ"),
+                        start: 20,
+                        stop: 21,
+                        ..Default::default()
+                    },
+                    Interval {
+                        chrom: String::from("chrZ"),
+                        start: 20,
+                        stop: 21,
+                        ..Default::default()
+                    },
+                ]);
+                intervals.sort_by_key(|iv| (chrom_order[&iv.chrom].index, iv.start, iv.stop));
+                intervals
+            };
+            let queries = make_intervals(120);
+            let databases = [make_intervals(80), vec![], make_intervals(80)];
+            let iter = IntersectionIterator::new(
+                Box::new(Intervals::new(String::from("A"), queries.clone())),
+                databases
+                    .iter()
+                    .map(|records| {
+                        Box::new(Intervals::new(String::from("B"), records.clone()))
+                            as Box<dyn PositionedIterator>
+                    })
+                    .collect(),
+                &chrom_order,
+                0,
+                0,
+                false,
+            )
+            .unwrap();
+            let results: Vec<_> = iter.collect::<io::Result<_>>().unwrap();
+            assert_eq!(results.len(), queries.len());
+            for (query, result) in queries.iter().zip(results) {
+                let mut expected = Vec::new();
+                for (id, records) in databases.iter().enumerate() {
+                    for target in records {
+                        if target.chrom == query.chrom
+                            && target.start < query.stop
+                            && query.start < target.stop
+                        {
+                            expected.push((id as u32, target.start, target.stop));
+                        }
+                    }
+                }
+                let mut actual: Vec<_> = result
+                    .overlapping
+                    .iter()
+                    .map(|hit| {
+                        let position = hit.interval.try_lock().unwrap();
+                        assert_eq!(position.chrom(), query.chrom.as_str());
+                        (hit.id, position.start(), position.stop())
+                    })
+                    .collect();
+                expected.sort_unstable();
+                actual.sort_unstable();
+                assert_eq!(actual, expected, "seed={seed}, query={query:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn test_cached_coordinates_preserve_shared_previous_record_order_check() {
+        let chrom_order = parse_genome("chr1\n".as_bytes()).unwrap();
+        let queries = [10, 30]
+            .into_iter()
+            .map(|start| Interval {
+                chrom: String::from("chr1"),
+                start,
+                stop: start + 10,
+                ..Default::default()
+            })
+            .collect();
+        let mut iter = IntersectionIterator::new(
+            Box::new(Intervals::new(String::from("A"), queries)),
+            vec![],
+            &chrom_order,
+            0,
+            0,
+            false,
+        )
+        .unwrap();
+        let first = iter.next().unwrap().unwrap();
+        {
+            let mut previous = first.base_interval.try_lock().unwrap();
+            previous.set_start(40);
+            previous.set_stop(50);
+        }
+        // The cache is local to one step, not a stale replacement for the
+        // externally shared previous record used in input-order validation.
+        let error = iter.next().unwrap().unwrap_err();
+        assert!(error.to_string().contains("out of order"));
     }
 
     #[test]
