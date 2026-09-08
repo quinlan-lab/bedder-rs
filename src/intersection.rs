@@ -704,32 +704,43 @@ impl<'a> IntersectionIterator<'a> {
             }
             drop(l);
 
-            // and we must always add the position to the Q
-            let position_start = position.start();
-            let position_stop = position.stop();
-            let rc_pos = Arc::new(Mutex::new(position));
-            let intersection = Intersection {
-                interval: rc_pos.clone(),
-                id: file_index as u32,
-            };
-            self.dequeue.push_back(QueueEntry {
-                intersection,
-                chrom_index: chromosome_index,
-                start: position_start,
-                stop: position_stop,
-            });
-
-            // if this position is after base_interval, we can stop pulling through heap
-            // (but for n_closest, we need to keep pulling to get enough "after" intervals)
-            let (base_chrom_idx, base_stop) = {
+            let (base_chrom_idx, base_start, base_stop) = {
                 let base_locked = base_interval
                     .try_lock()
                     .expect("failed to lock base_interval");
                 (
                     self.chromosome_order[base_locked.chrom()].index,
+                    base_locked.start(),
                     base_locked.stop(),
                 )
             };
+
+            // In plain overlap mode, an interval strictly before the current
+            // base cannot overlap this or any later sorted base interval. This
+            // matters when a query starts on a later chromosome: otherwise all
+            // preceding database records are materialized in the queue before
+            // next() gets another chance to call pop_front().
+            let position_start = position.start();
+            let position_stop = position.stop();
+            let strictly_before_base = chromosome_index < base_chrom_idx
+                || (chromosome_index == base_chrom_idx && position_stop <= base_start);
+            let keep_for_distance_or_closest = self.max_distance > 0 || self.n_closest > 0;
+            if keep_for_distance_or_closest || !strictly_before_base {
+                let rc_pos = Arc::new(Mutex::new(position));
+                let intersection = Intersection {
+                    interval: rc_pos.clone(),
+                    id: file_index as u32,
+                };
+                self.dequeue.push_back(QueueEntry {
+                    intersection,
+                    chrom_index: chromosome_index,
+                    start: position_start,
+                    stop: position_stop,
+                });
+            }
+
+            // if this position is after base_interval, we can stop pulling through heap
+            // (but for n_closest, we need to keep pulling to get enough "after" intervals)
             let should_break = if (base_chrom_idx < chromosome_index)
                 || (base_chrom_idx == chromosome_index && base_stop <= position_start)
             {
@@ -1971,6 +1982,75 @@ mod tests {
             "queue grew larger than expected in overlap-only mode: {}",
             max_queue_len
         );
+    }
+
+    #[test]
+    fn test_strictly_before_database_intervals_are_never_enqueued() {
+        let genome_str = "chr1\nchr2\n";
+        let chrom_order = parse_genome(genome_str.as_bytes()).unwrap();
+
+        let base_ivs = Intervals::new(
+            String::from("base"),
+            vec![Interval {
+                chrom: String::from("chr2"),
+                start: 500,
+                stop: 510,
+                ..Default::default()
+            }],
+        );
+
+        let mut db_vec = Vec::new();
+        for i in 0..100u64 {
+            db_vec.push(Interval {
+                chrom: String::from("chr1"),
+                start: i * 10,
+                stop: i * 10 + 5,
+                ..Default::default()
+            });
+        }
+        for i in 0..50u64 {
+            db_vec.push(Interval {
+                chrom: String::from("chr2"),
+                start: i * 10,
+                stop: i * 10 + 5,
+                ..Default::default()
+            });
+        }
+        db_vec.push(Interval {
+            chrom: String::from("chr2"),
+            start: 505,
+            stop: 507,
+            ..Default::default()
+        });
+        db_vec.push(Interval {
+            chrom: String::from("chr2"),
+            start: 520,
+            stop: 530,
+            ..Default::default()
+        });
+
+        let db_ivs = Intervals::new(String::from("db"), db_vec);
+        let mut iter = IntersectionIterator::new(
+            Box::new(base_ivs),
+            vec![Box::new(db_ivs)],
+            &chrom_order,
+            0,
+            0,
+            false,
+        )
+        .expect("error getting iterator");
+
+        let intersections = iter.next().unwrap().unwrap();
+        assert_eq!(intersections.overlapping.len(), 1);
+        assert_eq!(
+            iter.dequeue.len(),
+            2,
+            "only the overlap and lookahead belong in Q"
+        );
+        assert!(iter
+            .dequeue
+            .iter()
+            .all(|entry| { entry.chrom_index == chrom_order["chr2"].index && entry.stop > 500 }));
     }
 
     #[test]
