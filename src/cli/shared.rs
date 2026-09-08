@@ -259,6 +259,27 @@ pub fn process_bedder(
             .build(),
     );
 
+    // Plain interval operations do not need an interpreter. Keep Python setup
+    // for columns, filters, or user files, including files with side effects.
+    if common_args.columns.is_empty()
+        && common_args.filter.is_none()
+        && common_args.python_file.is_none()
+    {
+        let columns: &[Column<'_>] = &[];
+        let mut output = Writer::init(
+            common_args.output_path.to_str().unwrap(),
+            Some(output_format),
+            None,
+            input_header_for_writer,
+            columns,
+        )?;
+        for intersection in ii {
+            let mut intersection = intersection.expect("error getting intersection");
+            output.write(&mut intersection, report_options.clone(), columns, None)?;
+        }
+        return Ok(());
+    }
+
     Python::initialize();
     Python::attach(|py| -> Result<(), Box<dyn std::error::Error>> {
         if let Some(python_file) = &common_args.python_file {

@@ -634,6 +634,22 @@ impl<'a> IntersectionIterator<'a> {
     }
 
     fn pull_through_heap(&mut self, base_interval: Arc<Mutex<Position>>) -> io::Result<()> {
+        // A queued lookahead proves that all B records that could overlap this
+        // A have already passed through the start-ordered heap. Reuse it until
+        // A catches up, including when a wide A is followed by a narrower one.
+        if self.n_closest <= 0 && self.max_distance <= 0 {
+            if let Some(last) = self.dequeue.back() {
+                let base = base_interval
+                    .try_lock()
+                    .expect("failed to lock base_interval");
+                let base_chrom_idx = self.chromosome_order[base.chrom()].index;
+                if last.chrom_index > base_chrom_idx
+                    || (last.chrom_index == base_chrom_idx && last.start >= base.stop())
+                {
+                    return Ok(());
+                }
+            }
+        }
         self.zero_called();
         if !self.heap_initialized {
             // we wait til first iteration here to call init heap
@@ -2193,6 +2209,79 @@ mod tests {
             .dequeue
             .iter()
             .all(|entry| { entry.chrom_index == chrom_order["chr2"].index && entry.stop > 500 }));
+    }
+
+    #[test]
+    fn test_dense_queries_reuse_future_database_lookahead() {
+        use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
+
+        struct CountingIntervals {
+            inner: Intervals,
+            reads: Arc<AtomicUsize>,
+        }
+        impl PositionedIterator for CountingIntervals {
+            fn name(&self) -> String {
+                self.inner.name()
+            }
+            fn next_position(&mut self, query: Option<&Position>) -> Option<io::Result<Position>> {
+                let result = self.inner.next_position(query);
+                if result.is_some() {
+                    self.reads.fetch_add(1, AtomicOrdering::Relaxed);
+                }
+                result
+            }
+        }
+
+        let chrom_order = parse_genome("chr1\nchr2\n".as_bytes()).unwrap();
+        for target_chrom in ["chr1", "chr2"] {
+            let interval = |chrom: &str, start| Interval {
+                chrom: String::from(chrom),
+                start,
+                stop: start + 1,
+                ..Default::default()
+            };
+            let mut base: Vec<_> = (0..1_000).map(|i| interval("chr1", i)).collect();
+            base.extend([
+                interval(target_chrom, 10_000),
+                interval(target_chrom, 10_005),
+            ]);
+            let reads = Arc::new(AtomicUsize::new(0));
+            let databases: Vec<Box<dyn PositionedIterator>> = (0..2)
+                .map(|stream| {
+                    let records = (0..1_000)
+                        .map(|i| interval(target_chrom, 10_000 + i * 10 + stream * 5))
+                        .collect();
+                    Box::new(CountingIntervals {
+                        inner: Intervals::new(String::from("db"), records),
+                        reads: reads.clone(),
+                    }) as Box<dyn PositionedIterator>
+                })
+                .collect();
+            let mut iter = IntersectionIterator::new(
+                Box::new(Intervals::new(String::from("base"), base)),
+                databases,
+                &chrom_order,
+                0,
+                0,
+                false,
+            )
+            .unwrap();
+            for _ in 0..1_000 {
+                assert!(iter.next().unwrap().unwrap().overlapping.is_empty());
+            }
+            assert_eq!(
+                reads.load(AtomicOrdering::Relaxed),
+                3,
+                "only one queued lookahead plus one heap entry per B stream should be read"
+            );
+            assert_eq!(iter.dequeue.len(), 1);
+            for expected_id in [0, 1] {
+                let result = iter.next().unwrap().unwrap();
+                assert_eq!(result.overlapping.len(), 1);
+                assert_eq!(result.overlapping[0].id, expected_id);
+            }
+            assert!(iter.next().is_none());
+        }
     }
 
     #[test]

@@ -4,7 +4,7 @@ use crate::intersection::Intersections;
 use crate::position::Position;
 use crate::py::PyReportFragment;
 use crate::report::Report;
-use crate::report_options::ReportOptions;
+use crate::report_options::{IntersectionMode, OverlapAmount, ReportOptions};
 use rust_htslib::bam;
 use rust_htslib::bcf::{self, header::HeaderView};
 use rust_htslib::htslib as hts;
@@ -404,6 +404,15 @@ impl Writer {
         filter: Option<&crate::py::CompiledExpr<'_>>,
     ) -> Result<(), std::io::Error> {
         let format = self.format;
+        // Positive overlap requirements cannot produce a fragment for a query
+        // with no hits. Avoid allocating and caching a report for every such A.
+        if intersections.overlapping.is_empty()
+            && report_options.a_mode == IntersectionMode::Default
+            && matches!(report_options.a_requirements, OverlapAmount::Bases(n) if n > 0)
+            && matches!(format, Format::Bed | Format::Vcf | Format::Bcf)
+        {
+            return Ok(());
+        }
         match format {
             Format::Vcf | Format::Bcf => {
                 let report = self.apply_report(format, intersections, report_options, crs)?;
