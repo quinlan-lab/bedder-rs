@@ -12,6 +12,8 @@ use std::sync::Arc;
 
 use crate::position::{Position, PositionedIterator};
 
+const COMPACTION_THRESHOLD: usize = 4_096;
+
 /// An iterator that returns the intersection of multiple iterators.
 pub struct IntersectionIterator<'a> {
     base_iterator: Box<dyn PositionedIterator>,
@@ -20,8 +22,9 @@ pub struct IntersectionIterator<'a> {
     chromosome_order: &'a HashMap<String, Chromosome>,
     // because multiple intervals from each stream can overlap a single base interval
     // and each interval from others may overlap many base intervals, we must keep a cache (Q)
-    // we always add intervals in order with push_back and therefore remove with pop_front.
-    // As soon as the front interval in cache is stricly less than the query interval, then we can pop it.
+    // Entries are start-sorted, so expired prefixes can be removed with pop_front.
+    // Nested intervals can trap expired entries behind a live one; plain overlap
+    // enumeration counts these entries and periodically compacts the cache.
     dequeue: VecDeque<QueueEntry>,
 
     // this is only kept for error checking so we can track if intervals are out of order.
@@ -210,16 +213,29 @@ impl Iterator for IntersectionIterator<'_> {
         let base_start = base_interval_locked.start();
         let base_stop = base_interval_locked.stop();
         if self.n_closest <= 0 && self.max_distance <= 0 {
+            let mut stale_count = 0;
             for q in self.dequeue.iter() {
                 if q.chrom_index < base_chrom_idx
                     || (q.chrom_index == base_chrom_idx && q.stop <= base_start)
                 {
+                    stale_count += 1;
                     continue;
                 }
                 if q.chrom_index > base_chrom_idx || q.start >= base_stop {
                     break;
                 }
                 overlapping_positions.push(q.intersection.clone());
+            }
+            // Reuse the required overlap scan to detect trapped expired entries.
+            // Reclaim only when at least half the queue is stale, so the cleanup
+            // cost is proportional to the number removed, even for large queues.
+            if stale_count >= COMPACTION_THRESHOLD
+                && stale_count >= self.dequeue.len() - stale_count
+            {
+                self.dequeue.retain(|q| {
+                    q.chrom_index > base_chrom_idx
+                        || (q.chrom_index == base_chrom_idx && q.stop > base_start)
+                });
             }
         } else {
             // logic for closest `n` and/or `max_distance` without extra allocations.
@@ -1981,6 +1997,132 @@ mod tests {
             max_queue_len <= 1,
             "queue grew larger than expected in overlap-only mode: {}",
             max_queue_len
+        );
+    }
+
+    #[test]
+    fn test_long_b_interval_does_not_pin_expired_entries() {
+        let genome_str = "chr1\n";
+        let chrom_order = parse_genome(genome_str.as_bytes()).unwrap();
+        let record_count = 5_000u64;
+
+        let base_vec = (1..=record_count)
+            .map(|i| {
+                let start = i * 10;
+                Interval {
+                    chrom: String::from("chr1"),
+                    start,
+                    stop: start + 1,
+                    ..Default::default()
+                }
+            })
+            .collect();
+
+        let mut db_vec = vec![Interval {
+            chrom: String::from("chr1"),
+            start: 0,
+            stop: 1_000_000,
+            ..Default::default()
+        }];
+        db_vec.extend((1..=record_count).map(|i| {
+            let start = i * 10;
+            Interval {
+                chrom: String::from("chr1"),
+                start,
+                stop: start + 1,
+                ..Default::default()
+            }
+        }));
+
+        let base_ivs = Intervals::new(String::from("base"), base_vec);
+        let db_ivs = Intervals::new(String::from("db"), db_vec);
+        let mut iter = IntersectionIterator::new(
+            Box::new(base_ivs),
+            vec![Box::new(db_ivs)],
+            &chrom_order,
+            0,
+            0,
+            false,
+        )
+        .expect("error creating intersection iterator");
+
+        let mut max_queue_len = 0usize;
+        let mut max_stale = 0usize;
+        while let Some(result) = iter.next() {
+            let intersections = result.expect("intersection error");
+
+            // The long B interval and the corresponding short B interval.
+            assert_eq!(intersections.overlapping.len(), 2);
+
+            let base_start = intersections.base_interval.try_lock().unwrap().start();
+            max_queue_len = max_queue_len.max(iter.dequeue.len());
+            max_stale = max_stale.max(
+                iter.dequeue
+                    .iter()
+                    .filter(|entry| entry.stop <= base_start)
+                    .count(),
+            );
+        }
+
+        assert!(
+            max_queue_len <= COMPACTION_THRESHOLD + 2,
+            "queue grew without periodic compaction: {max_queue_len}"
+        );
+        assert!(
+            max_stale <= COMPACTION_THRESHOLD,
+            "too many expired entries retained behind the long interval: {max_stale}"
+        );
+    }
+
+    #[test]
+    fn test_compaction_after_wide_query_preserves_lookahead_and_order() {
+        let chrom_order = parse_genome("chr1\nchr2\n".as_bytes()).unwrap();
+        let interval = |chrom: &str, start, stop| Interval {
+            chrom: String::from(chrom),
+            start,
+            stop,
+            ..Default::default()
+        };
+        // The first wide A loads the short records while they are all live.
+        // The next A expires them without requiring any queue growth trigger.
+        let base = vec![
+            interval("chr1", 0, 50_001),
+            interval("chr1", 50_000, 50_001),
+            interval("chr1", 60_000, 60_001),
+            interval("chr2", 5, 6),
+        ];
+        let mut db = vec![interval("chr1", 0, 1_000_000)];
+        db.extend((1..=5_000).map(|i| interval("chr1", i * 10, i * 10 + 1)));
+        db.push(interval("chr1", 60_000, 60_001));
+        db.push(interval("chr2", 5, 6));
+        let mut iter = IntersectionIterator::new(
+            Box::new(Intervals::new(String::from("base"), base)),
+            vec![Box::new(Intervals::new(String::from("db"), db))],
+            &chrom_order,
+            0,
+            0,
+            false,
+        )
+        .unwrap();
+
+        // Hold the first result across cleanup to check shared records survive.
+        let first = iter.next().unwrap().unwrap();
+        assert_eq!(first.overlapping.len(), 5_001);
+        assert_eq!(iter.dequeue.len(), 5_002);
+        for expected_starts in [vec![0, 50_000], vec![0, 60_000], vec![5]] {
+            let result = iter.next().unwrap().unwrap();
+            let starts: Vec<_> = result
+                .overlapping
+                .iter()
+                .map(|o| o.interval.try_lock().unwrap().start())
+                .collect();
+            assert_eq!(starts, expected_starts);
+            assert!(iter.dequeue.len() <= 4);
+        }
+        assert!(iter.next().is_none());
+        assert_eq!(
+            first.overlapping[1].interval.try_lock().unwrap().start(),
+            10
         );
     }
 

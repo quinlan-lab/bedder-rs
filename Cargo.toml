@@ -70,6 +70,10 @@ clap = { version = "4.5.21", features = ["derive"] }
 name = "random_intervals"
 harness = false
 
+[[bench]]
+name = "queue_compaction"
+harness = false
+
 [build-dependencies]
 pyo3-build-config = { version = "0.26.0", features = ["resolve-config"] }
 
