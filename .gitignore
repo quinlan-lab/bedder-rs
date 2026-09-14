@@ -1,4 +1,8 @@
 *.o
+.cargo
+.cache
+.cursorignore
+.python-musl
 target/
 dist/
 logs/
