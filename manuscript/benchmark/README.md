@@ -1,7 +1,11 @@
 # bedder comparative benchmark
 
-This directory contains a modular, correctness-first comparison of bedder,
-BEDTools, bedtk, BEDOPS, AIList, and COITrees.
+This directory contains two correctness-first benchmark workflows:
+
+* `run-vcf-smolvm.sh` compares bedder and BEDTools on the original VCF input,
+  matching the manuscript's native VCF comparison.
+* `run-smolvm.sh` compares six tools on a shared BED4 projection, allowing tools
+  without VCF support to participate in the same interval-membership panel.
 
 Every tool adapter implements the same interface:
 
@@ -76,10 +80,34 @@ BENCH_RUNS=10 manuscript/benchmark/scripts/run-smolvm.sh simple-repeats-full
 ```
 
 Preparation copies the source VCF, index, repeat track, and genome file to the
-external drive; creates a shared BED4 projection for tools without VCF input;
-and generates membership truth with the independent sweep-line oracle. The
-cross-tool timing therefore measures interval membership on identical BED4
-records. Native VCF/BCF annotation remains a separate workflow-level module.
+external drive; creates the chromosome 19 VCF subset and shared BED4
+projections; and generates membership truth with the independent sweep-line
+oracle. The six-tool timing therefore measures interval membership on identical
+BED4 records. The native VCF timing is separate and includes VCF input parsing
+and VCF output for bedder and BEDTools only.
+
+## Native VCF comparison
+
+Run the manuscript's two VCF workloads after preparation:
+
+```bash
+BENCH_RUNS=10 manuscript/benchmark/scripts/run-vcf-smolvm.sh chr19
+BENCH_RUNS=10 manuscript/benchmark/scripts/run-vcf-smolvm.sh full
+```
+
+The runner uses the original `HG002_*.vcf.gz` (or its prepared `chr19`
+subset) and `simple-repeats.source.bed.gz`. It checks that bedder and BEDTools
+produce the same overlapping VCF records and that their unique query intervals
+match the independent BED truth set. Native VCF output can contain multiple
+records for a variant overlapping multiple repeat intervals; this is distinct
+from the BED4 panel's one-record-per-query membership contract. Results are
+written under `$BEDDER_CMP_ROOT/results/$BENCH_RESULT_DIR/`.
+
+BEDTools runs with `-sorted -header -g hg38.fai`; both tools write uncompressed
+VCF files during timing. Input decompression, parsing, intersection, and output
+writing are included; preparation and validation are excluded. Earlier native
+VCF runs without `-sorted` and with Python-buffered BEDTools output are not
+comparable to this protocol.
 
 ## Adding an evaluation
 

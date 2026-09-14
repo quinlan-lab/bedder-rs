@@ -37,12 +37,42 @@ six adapters; its near-zero timings are unsuitable for performance claims.
 manuscript/benchmark/scripts/run-smoke-smolvm.sh
 ```
 
-## Simple repeats: chromosome 19
+## Native VCF versus BEDTools
+
+This is the comparison described in manuscript Section 3.2. Bedder and
+BEDTools read the original compressed HG002 VCF directly and intersect it with
+the compressed UCSC simple-repeat BED track. Only these two tools are included
+because they support VCF input. The output is the set of overlapping VCF
+records (one record per overlap); the runner validates that their unique query
+intervals equal the independent truth set.
+
+Prepare the VCF and BED inputs as described below, then run both manuscript
+workloads in SmolVM:
+
+```bash
+BENCH_BEDDER_BIN=/workspace/target/release/bedder \
+  manuscript/benchmark/scripts/run-vcf-smolvm.sh chr19
+BENCH_BEDDER_BIN=/workspace/target/release/bedder \
+  manuscript/benchmark/scripts/run-vcf-smolvm.sh full
+```
+
+Use `BENCH_RUNS` and `BENCH_WARMUPS` to change replication and
+`BENCH_RESULT_DIR` to choose a new output directory. The runner alternates
+bedder and BEDTools, validates every output, and records VCF timings and peak
+RSS. BEDTools uses `-sorted`; decompression, parsing, and VCF output writing
+are timed for both tools. It does not run the optional Python `repeat_sequence`
+annotation.
+
+The commands in [simple-repeats.sh](simple-repeats.sh) are the direct,
+one-shot form of this native VCF workflow, including the optional VCF/BCF
+annotation example.
+
+## BED4 cross-tool panel: chromosome 19
 
 Compare 89,648 HG002 chromosome 19 variants against the complete UCSC hg38
 simpleRepeat track (967,506 intervals). The expected output has 6,882 records.
 
-First prepare inputs for both simple-repeat benchmarks. Supply the HG002 VCF
+Prepare inputs for both the native VCF benchmark and this BED4 panel. Supply the HG002 VCF
 and adjacent `.tbi`, `simple-repeats.bed.gz`, and `hg38.fai` in the repository
 root; [simple-repeats.sh](simple-repeats.sh) contains the download commands.
 Alternatively, set `HG002_VCF`, `SIMPLE_REPEATS_BED`, and `HG38_FAI` to their paths.
@@ -55,7 +85,7 @@ BENCH_RUNS=10 BENCH_RESULT_DIR=chr19-rerun-01 \
   manuscript/benchmark/scripts/run-smolvm.sh simple-repeats-chr19
 ```
 
-## Simple repeats: full genome
+## BED4 cross-tool panel: full genome
 
 Use the same prepared repeat track with all 4,048,427 HG002 variant records;
 175,403 records should match.
@@ -65,9 +95,9 @@ BENCH_RUNS=10 BENCH_RESULT_DIR=full-rerun-01 \
   manuscript/benchmark/scripts/run-smolvm.sh simple-repeats-full
 ```
 
-These two cases measure BED membership. The native VCF/BCF and Python
-repeat-sequence annotation commands in [simple-repeats.sh](simple-repeats.sh)
-are separate workflow examples, without a replicated cross-tool benchmark.
+These two cases project the VCF and repeat track to shared BED4 records so all
+six tools can be compared on identical interval-membership work. They are
+separate from the native VCF-versus-BEDTools benchmark above.
 
 ## Results and reruns
 

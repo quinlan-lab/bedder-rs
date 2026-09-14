@@ -18,10 +18,17 @@ for required in "$vcf_source" "$vcf_source.tbi" "$repeat_source" "$genome_source
 done
 
 mkdir -p "$data_root"
-cp --reflink=auto --preserve=timestamps "$vcf_source" "$data_root/$vcf_name"
-cp --reflink=auto --preserve=timestamps "$vcf_source.tbi" "$data_root/$vcf_name.tbi"
-cp --reflink=auto --preserve=timestamps "$repeat_source" "$data_root/simple-repeats.source.bed.gz"
-cp --reflink=auto --preserve=timestamps "$genome_source" "$data_root/hg38.fai"
+copy_if_needed() {
+  local source=$1
+  local destination=$2
+  if [[ "$(readlink -f "$source")" != "$(readlink -f "$destination")" ]]; then
+    cp --reflink=auto --preserve=timestamps "$source" "$destination"
+  fi
+}
+copy_if_needed "$vcf_source" "$data_root/$vcf_name"
+copy_if_needed "$vcf_source.tbi" "$data_root/$vcf_name.tbi"
+copy_if_needed "$repeat_source" "$data_root/simple-repeats.source.bed.gz"
+copy_if_needed "$genome_source" "$data_root/hg38.fai"
 
 bcftools query -f '%CHROM\t%POS0\t%END\t%ID\n' "$vcf_source" \
   | awk 'BEGIN { OFS="\t" } { name = ($4 == "." ? "variant" : $4); print $1, $2, $3, name "-" NR }' \
@@ -42,11 +49,17 @@ python3 "$script_dir/oracle-membership.py" \
 awk -F '\t' '$1 == "chr19"' "$data_root/expected.full.bed" \
   > "$data_root/expected.chr19.bed"
 
+bcftools view -r chr19 -Oz \
+  -o "$data_root/hg002.chr19.vcf.gz" "$data_root/$vcf_name"
+bcftools index -f -t "$data_root/hg002.chr19.vcf.gz"
+
 {
   printf 'role\tbytes\tsha256\tpath\n'
   for path in \
     "$data_root/$vcf_name" \
     "$data_root/$vcf_name.tbi" \
+    "$data_root/hg002.chr19.vcf.gz" \
+    "$data_root/hg002.chr19.vcf.gz.tbi" \
     "$data_root/simple-repeats.source.bed.gz" \
     "$data_root/hg38.fai" \
     "$data_root/hg002.bed" \
