@@ -1,0 +1,4 @@
+case_id	query	target	genome	expected	description
+smoke	fixtures/smoke/query.bed	fixtures/smoke/target.bed	fixtures/smoke/genome.fai	fixtures/smoke/expected.bed	Exact, duplicate, adjacent, both containment directions, partial, multi-hit, and no-hit intervals
+simple-repeats-chr19	/results/data/simple-repeats/hg002.chr19.bed	/results/data/simple-repeats/simple-repeats.bed	/results/data/simple-repeats/hg38.fai	/results/data/simple-repeats/expected.chr19.bed	HG002 chromosome 19 variants against the complete UCSC hg38 simpleRepeat track
+simple-repeats-full	/results/data/simple-repeats/hg002.bed	/results/data/simple-repeats/simple-repeats.bed	/results/data/simple-repeats/hg38.fai	/results/data/simple-repeats/expected.full.bed	All HG002 manuscript variants against the UCSC hg38 simpleRepeat track

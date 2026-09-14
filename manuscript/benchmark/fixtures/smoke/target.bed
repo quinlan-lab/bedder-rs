@@ -1,0 +1,7 @@
+chr1	10	20	t_exact
+chr1	42	48	t_inside
+chr1	65	70	t_multi_1
+chr1	75	90	t_multi_2
+chr1	110	130	t_contains_query
+chr1	215	225	t_partial
+chr2	10	12	t_chr2

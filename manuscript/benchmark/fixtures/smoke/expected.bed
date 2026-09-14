@@ -1,0 +1,7 @@
+chr1	10	20	q_exact
+chr1	10	20	q_duplicate_coordinate
+chr1	40	50	q_contained
+chr1	60	100	q_multi
+chr1	120	125	q_inside_target
+chr1	200	220	q_partial
+chr2	10	11	q_hit

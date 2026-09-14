@@ -1,0 +1,17 @@
+# The local OCI archive is created by scripts/build-image.sh.
+image = "/media/brentp/elements/bedder-cmp/bedder-benchmark-image.tar"
+cpus = 1
+memory = 4096
+storage = 20
+overlay = 2
+net = false
+workdir = "/workspace/manuscript/benchmark"
+env = [
+  "LC_ALL=C",
+  "LANG=C",
+  "OMP_NUM_THREADS=1",
+  "OPENBLAS_NUM_THREADS=1",
+  "MKL_NUM_THREADS=1",
+  "RAYON_NUM_THREADS=1"
+]
+

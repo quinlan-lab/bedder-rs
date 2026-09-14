@@ -1,0 +1,8 @@
+tool	version_or_revision	role	output_contract
+bedder	v0.1.14 / 1329b9d109a229e4a673d01c627b0fdaac9a5bb2	primary tool	query membership BED4
+bedtools	v2.31.1 / 705ccfdf2c9a77d71560c8adcece0663c2f5e18e	established baseline	query membership BED4
+bedtk	fa2cc15a8ab61d28bf6a4cfd50f36f883021a385	implicit interval tree	query membership BED4
+bedops	v2.4.42	sorted streaming	query membership BED4
+ailist	366fe0a6f5c77cdd165c1452f49adf0ecbbef4e6	augmented interval list	query membership BED4 via upstream -P 1 output
+coitrees	0.4.0 / 05a282d6be9923d01120fb6eda45c03051d3bd93	cache-oblivious Rust interval tree	query membership BED4 via upstream example
+
