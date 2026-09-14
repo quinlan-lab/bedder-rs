@@ -1352,11 +1352,11 @@ pub fn introspect_python_functions<'py>(
         }
         // Check if the object is a Python function
         if obj.is_instance_of::<pyo3::types::PyFunction>() {
-            let pyfn = obj.downcast::<pyo3::types::PyFunction>()?;
+            let pyfn = obj.cast::<pyo3::types::PyFunction>()?;
             let mut return_type_str = "No return annotation".to_string();
             let mut description_str = "".to_string();
             if let Ok(annotations) = obj.getattr("__annotations__") {
-                if let Ok(dict) = annotations.downcast::<pyo3::types::PyDict>() {
+                if let Ok(dict) = annotations.cast::<pyo3::types::PyDict>() {
                     if let Some(return_type) = dict.get_item("return")? {
                         if let Ok(type_name) = return_type.getattr("__name__") {
                             return_type_str = format!("{}", type_name);
@@ -1445,23 +1445,23 @@ impl<'py> CompiledPython<'py> {
         } else {
             match self.ftype {
                 Type::Integer => result
-                    .downcast_exact::<types::PyInt>()
+                    .cast_exact::<types::PyInt>()
                     .map(|py_int| Value::Int(py_int.extract::<i32>().unwrap()))
                     .map_err(|_| PyTypeError::new_err("Result is not an integer")),
                 Type::Float => result
-                    .downcast_exact::<types::PyFloat>()
+                    .cast_exact::<types::PyFloat>()
                     .map(|py_float| Value::Float(py_float.extract::<f32>().unwrap()))
                     .map_err(|_| PyTypeError::new_err("Result is not a float")),
                 Type::Character => result
-                    .downcast_exact::<types::PyString>()
+                    .cast_exact::<types::PyString>()
                     .map(|py_str| Value::String(py_str.to_str().unwrap().to_string()))
                     .map_err(|_| PyTypeError::new_err("Result is not a string")),
                 Type::String => result
-                    .downcast_exact::<types::PyString>()
+                    .cast_exact::<types::PyString>()
                     .map(|py_str| Value::String(py_str.to_str().unwrap().to_string()))
                     .map_err(|_| PyTypeError::new_err("Result is not a string")),
                 Type::Flag => result
-                    .downcast_exact::<types::PyBool>()
+                    .cast_exact::<types::PyBool>()
                     .map(|py_bool| Value::Flag(py_bool.extract::<bool>().unwrap()))
                     .map_err(|_| PyTypeError::new_err("Result is not a boolean")),
             }
@@ -1500,7 +1500,7 @@ impl<'py> CompiledMapPython<'py> {
         let result = self.f.call1((values.to_vec(),))?;
         match self.ftype {
             Type::Integer => {
-                let py_int = result.downcast_exact::<types::PyInt>().map_err(|_| {
+                let py_int = result.cast_exact::<types::PyInt>().map_err(|_| {
                     PyTypeError::new_err(format!(
                         "Function '{}' returned non-integer value",
                         self.function_name
@@ -1509,7 +1509,7 @@ impl<'py> CompiledMapPython<'py> {
                 Ok(py_int.extract::<i64>()?.to_string())
             }
             Type::Float => {
-                let py_float = result.downcast_exact::<types::PyFloat>().map_err(|_| {
+                let py_float = result.cast_exact::<types::PyFloat>().map_err(|_| {
                     PyTypeError::new_err(format!(
                         "Function '{}' returned non-float value",
                         self.function_name
@@ -1520,7 +1520,7 @@ impl<'py> CompiledMapPython<'py> {
                 ))
             }
             Type::Character | Type::String => {
-                let py_str = result.downcast_exact::<types::PyString>().map_err(|_| {
+                let py_str = result.cast_exact::<types::PyString>().map_err(|_| {
                     PyTypeError::new_err(format!(
                         "Function '{}' returned non-string value",
                         self.function_name
@@ -1529,7 +1529,7 @@ impl<'py> CompiledMapPython<'py> {
                 Ok(py_str.to_str()?.to_string())
             }
             Type::Flag => {
-                let py_bool = result.downcast_exact::<types::PyBool>().map_err(|_| {
+                let py_bool = result.cast_exact::<types::PyBool>().map_err(|_| {
                     PyTypeError::new_err(format!(
                         "Function '{}' returned non-boolean value",
                         self.function_name
