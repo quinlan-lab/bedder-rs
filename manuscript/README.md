@@ -67,6 +67,20 @@ The commands in [simple-repeats.sh](simple-repeats.sh) are the direct,
 one-shot form of this native VCF workflow, including the optional VCF/BCF
 annotation example.
 
+### Verified full-genome VCF result
+
+The full-genome run used one warm-up and ten measured runs.
+
+| Tool | Median wall seconds (IQR) | Median peak RSS (KiB) |
+| --- | ---: | ---: |
+| bedder | 6.715 (6.6625–6.8325) | 43,634 |
+| BEDTools `-sorted` | 4.685 (4.615–4.785) | 41,094 |
+
+All runs passed validation. Both tools emitted 258,629 VCF records covering
+175,403 expected query intervals, and their output files were byte-identical.
+Full provenance and measurements are in
+`$BEDDER_CMP_ROOT/results/vcf-full-main-20260915/`.
+
 ## BED4 cross-tool panel: chromosome 19
 
 Compare 89,648 HG002 chromosome 19 variants against the complete UCSC hg38
@@ -102,18 +116,14 @@ separate from the native VCF-versus-BEDTools benchmark above.
 ## Results and reruns
 
 Results go to `$BEDDER_CMP_ROOT/results/$BENCH_RESULT_DIR/` (the case name is
-the default directory). Use a fresh name for each rerun to preserve prior results.
+the default directory). Use a fresh name for each rerun to keep result sets separate.
 Inspect `summary.tsv` for wall time and peak RSS, `raw/measurements.jsonl` for
 individual runs, and `validation.json`, `inputs.tsv`, and `versions.tsv` for
 correctness and provenance.
 
-The runner defaults to one warm-up and three measured runs; the commands above
-use ten measurements for the manuscript cases. Tool order rotates between runs.
-Set `BENCH_TOOLS=bedder,bedtools` to select a subset and `BENCH_WARMUPS` to change
-warm-ups. Preparation and validation are outside timing; BEDOPS sorting costs
-are recorded separately in `preparation.json`. Keep the host otherwise idle.
-
-For comparisons between saved bedder binaries, including optimization and CPU
-build experiments, see [EXPERIMENTS.md](benchmark/EXPERIMENTS.md),
-[CACHE-A-EXPERIMENT.md](benchmark/CACHE-A-EXPERIMENT.md), and
-[REMOVE-LAST-EXPERIMENT.md](benchmark/REMOVE-LAST-EXPERIMENT.md).
+The BED4 runner defaults to one warm-up and three measured runs; the native VCF
+runner defaults to one warm-up and ten measured runs. Tool order rotates between
+runs. Set `BENCH_TOOLS=bedder,bedtools` to select a BED4 subset and
+`BENCH_WARMUPS` to change warm-ups. Preparation and validation are outside
+timing; BEDOPS sorting costs are recorded separately in `preparation.json`.
+Keep the host otherwise idle.
