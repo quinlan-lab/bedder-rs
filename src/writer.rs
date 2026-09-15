@@ -86,38 +86,12 @@ pub struct Writer {
 }
 
 #[allow(dead_code)]
-struct RustHtslibBcfWriterLayout {
-    inner: *mut hts::htsFile,
+struct BCFWriter {
+    _inner: *mut hts::htsFile,
     _header: Rc<HeaderView>,
     _subset: Option<bcf::header::SampleSubset>,
 }
-const _: () = assert!(mem::size_of::<RustHtslibBcfWriterLayout>() == mem::size_of::<bcf::Writer>());
-const _: () =
-    assert!(mem::align_of::<RustHtslibBcfWriterLayout>() == mem::align_of::<bcf::Writer>());
-
-const VCF_OUTPUT_BUFFER_SIZE: i32 = 1024 * 1024;
-
-fn buffer_uncompressed_vcf(writer: &mut bcf::Writer) -> Result<(), FormatConversionError> {
-    // rust-htslib exposes hts_set_opt but not the htsFile owned by bcf::Writer.
-    // SAFETY: rust-htslib is pinned, and this type mirrors the field order and
-    // types of that revision's bcf::Writer. The assertions above catch size and
-    // alignment changes when the dependency is updated.
-    let inner = unsafe { (*(writer as *mut bcf::Writer as *mut RustHtslibBcfWriterLayout)).inner };
-    let result = unsafe {
-        hts::hts_set_opt(
-            inner,
-            hts::hts_fmt_option_HTS_OPT_BLOCK_SIZE,
-            VCF_OUTPUT_BUFFER_SIZE,
-        )
-    };
-    if result == 0 {
-        Ok(())
-    } else {
-        Err(FormatConversionError::HtslibError(
-            "failed to set the VCF output buffer size".to_string(),
-        ))
-    }
-}
+const _: () = assert!(mem::size_of::<BCFWriter>() == mem::size_of::<bcf::Writer>());
 
 // This helper function converts a given `Value` into one or more `BedValue`s and
 // pushes them onto the provided mutable bed record.
@@ -234,7 +208,7 @@ impl Writer {
                 eprintln!("header: {:?}", s);
                 */
 
-                let mut writer = bcf::Writer::from_path(
+                let writer = bcf::Writer::from_path(
                     path,
                     &header,
                     compression == Compression::None,
@@ -245,12 +219,7 @@ impl Writer {
                     },
                 )
                 .map_err(|e| FormatConversionError::HtslibError(e.to_string()))?;
-                if format == Format::Vcf && compression == Compression::None {
-                    buffer_uncompressed_vcf(&mut writer)?;
-                    GenomicWriter::Vcf(writer)
-                } else {
-                    GenomicWriter::Bcf(writer)
-                }
+                GenomicWriter::Bcf(writer)
             }
             Format::Bam => {
                 unimplemented!("BAM writing not yet implemented");
