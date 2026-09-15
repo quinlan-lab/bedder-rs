@@ -109,6 +109,30 @@ writing are included; preparation and validation are excluded. Earlier native
 VCF runs without `-sorted` and with Python-buffered BEDTools output are not
 comparable to this protocol.
 
+### Verified buffered full-genome run
+
+On 2026-09-15, the full-genome case ran in SmolVM with one warm-up and ten
+measured runs. The bedder build sets `HTS_OPT_BLOCK_SIZE` to 1 MiB for
+uncompressed VCF output. This is a bedder-only change using the HTSlib API
+already exposed by the pinned rust-htslib dependency.
+
+| Tool | Median wall seconds (IQR) | Median peak RSS (KiB) | Correct |
+| --- | ---: | ---: | --- |
+| bedder | 6.720 (6.5025–7.0025) | 43,606 | yes |
+| BEDTools `-sorted` | 4.860 (4.675–4.955) | 41,100 | yes |
+
+The comparable unbuffered run measured 10.315 s for bedder and 4.715 s for
+BEDTools. Buffering reduced bedder's median by 34.9% and narrowed its time from
+2.19x to 1.38x the BEDTools median. Both tools emitted 258,629 records covering
+the 175,403 expected unique query intervals. Their validation VCFs were
+byte-identical to each other, and buffered bedder output was byte-identical to
+the earlier unbuffered output.
+
+Results are under
+`/media/brentp/elements/bedder-cmp/results/vcf-full-buffered-20260915/`.
+The tested bedder binary SHA-256 is
+`c39f956015ddfa4f89cb0e955a51a64f2d9689ae02fd87d885e373ae1b9b54e5`.
+
 ## Adding an evaluation
 
 1. Add sorted BED4 query and target files, a two-column FAI-compatible genome

@@ -67,6 +67,23 @@ The commands in [simple-repeats.sh](simple-repeats.sh) are the direct,
 one-shot form of this native VCF workflow, including the optional VCF/BCF
 annotation example.
 
+### Verified full-genome VCF result
+
+The 2026-09-15 SmolVM run used one warm-up and ten measured runs. The tested
+bedder build sets HTSlib's uncompressed VCF output buffer to 1 MiB; no
+rust-htslib or HTSlib source changes are required.
+
+| Tool | Median wall seconds (IQR) | Median peak RSS (KiB) |
+| --- | ---: | ---: |
+| bedder | 6.720 (6.5025–7.0025) | 43,606 |
+| BEDTools `-sorted` | 4.860 (4.675–4.955) | 41,100 |
+
+Bedder's median decreased from 10.315 s in the comparable unbuffered run to
+6.720 s, a 34.9% reduction. Both tools emitted the same 258,629 VCF records,
+covering all 175,403 expected query intervals, and their output files were
+byte-identical. Full provenance and measurements are in
+`$BEDDER_CMP_ROOT/results/vcf-full-buffered-20260915/`.
+
 ## BED4 cross-tool panel: chromosome 19
 
 Compare 89,648 HG002 chromosome 19 variants against the complete UCSC hg38
@@ -107,11 +124,12 @@ Inspect `summary.tsv` for wall time and peak RSS, `raw/measurements.jsonl` for
 individual runs, and `validation.json`, `inputs.tsv`, and `versions.tsv` for
 correctness and provenance.
 
-The runner defaults to one warm-up and three measured runs; the commands above
-use ten measurements for the manuscript cases. Tool order rotates between runs.
-Set `BENCH_TOOLS=bedder,bedtools` to select a subset and `BENCH_WARMUPS` to change
-warm-ups. Preparation and validation are outside timing; BEDOPS sorting costs
-are recorded separately in `preparation.json`. Keep the host otherwise idle.
+The BED4 runner defaults to one warm-up and three measured runs; the native VCF
+runner defaults to one warm-up and ten measured runs. Tool order rotates between
+runs. Set `BENCH_TOOLS=bedder,bedtools` to select a BED4 subset and
+`BENCH_WARMUPS` to change warm-ups. Preparation and validation are outside
+timing; BEDOPS sorting costs are recorded separately in `preparation.json`.
+Keep the host otherwise idle.
 
 For comparisons between saved bedder binaries, including optimization and CPU
 build experiments, see [EXPERIMENTS.md](benchmark/EXPERIMENTS.md),
