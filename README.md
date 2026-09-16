@@ -19,6 +19,8 @@ This is an early release of the library for feedback, especially from rust pract
 
 Please find documentation [here](https://brentp.github.io/bedder-docs/).
 
+See [Embedding bedder](EMBEDDING.md) for small Rust API examples and optional Python integration.
+
 ## Problem statement
 
 BEDTools is extremely useful but adding features and maintaining existing ones is a challenge.
@@ -32,7 +34,7 @@ We want a library (in bedder) that is:
 
 To do this, we provide the machinery to intersect common genomics file formats (and more can be added by implementing a simple trait)
 and we allow the user to write python functions that then write columns to the output.
-As a silly example, the user may want to count overlaps but only if the start position of the overlapping interval is even; that could be
+As a contrived example, the user may want to count overlaps but only if the start position of the overlapping interval is even; that could be
 done with this expression:
 
 ```python
