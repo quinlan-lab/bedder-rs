@@ -1,0 +1,31 @@
+{
+  "sources": {
+    "vcf": {
+      "name": "HG002_GRCh38_MosaicSNVv1.0_GermlineV4.2.1.vcf.gz",
+      "sha256": "e4420e7090e546341164e486d6f21ac992f16e272dcf5d144981f0f1ab829a71"
+    },
+    "segdups": {
+      "name": "genomicSuperDups.txt.gz",
+      "sha256": "3f4388ed3eb7462034e89c1f45314160bdb14558502092326063105c095061df"
+    },
+    "schema": {
+      "name": "genomicSuperDups.sql",
+      "sha256": "612dc99415181645da17d7710d69e212b5f8901799ef2f130cb0bf68ba6b1342"
+    }
+  },
+  "counts": {
+    "chr19_sd_rows": 1381,
+    "primary_partner_sd_rows": 1326,
+    "chr19_variant_records": 89648,
+    "eligible_snvs": 74987,
+    "retained_snvs": 6205,
+    "retained_sd_rows": 817
+  },
+  "files": {
+    "genome.tsv": "f7c2a01f46c9f99112fd2c94e4ca11f26f573c22c8a91ec4bbf6e2300b63ad02",
+    "genomicSuperDups.sql": "612dc99415181645da17d7710d69e212b5f8901799ef2f130cb0bf68ba6b1342",
+    "segdups.bed": "5e76577c2644064a679efe6316abf93c2cd9c17cb8c64327908fa78f75308312",
+    "source-rows.tsv": "8613b643223779c6ad97cefb69537527011a49005f398a900b303eb6bc7eb23a",
+    "variants.vcf": "e53113f2403c3a43a70cb419c6dbd61a60b7e2f9bbda6ffedfbfc2e9236f1632"
+  }
+}

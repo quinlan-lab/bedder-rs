@@ -1,5 +1,12 @@
 # Manuscript benchmarks
 
+For a reproducible biological Python example using the same HG002 variants,
+see [repeat-interruption annotation](repeat-interruptions/README.md). It includes
+frozen chr19 inputs, independent validation, and observed sequence-level effects.
+The [segmental-duplication example](segdup-identity/README.md) selects the
+highest-identity overlapping SD and its partner, with an interchromosomal-only
+variant of the same calculation and frozen HG002 inputs.
+
 The [benchmark harness](benchmark/README.md) compares bedder, BEDTools, bedtk,
 BEDOPS, AIList, and COITrees on interval membership: emit each BED4 query record
 once if it overlaps any target. Outputs must match the truth set before timings

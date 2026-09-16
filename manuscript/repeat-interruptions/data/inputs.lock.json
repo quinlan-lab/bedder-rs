@@ -1,0 +1,29 @@
+{
+  "scope": "chr19; PASS biallelic SNVs carrying ALT in HG002; primitive 2-6bp repeats",
+  "counts": {
+    "chr19_records": 89648,
+    "eligible_snvs": 74987,
+    "overlapping_snvs": 551,
+    "eligible_repeat_intervals": 6298,
+    "retained_repeat_intervals": 420
+  },
+  "sources": {
+    "vcf": {
+      "name": "HG002_GRCh38_MosaicSNVv1.0_GermlineV4.2.1.vcf.gz",
+      "sha256": "e4420e7090e546341164e486d6f21ac992f16e272dcf5d144981f0f1ab829a71"
+    },
+    "repeats": {
+      "name": "simple-repeats.bed.gz",
+      "sha256": "de86a595b72042613750ae6f9e85cb988bc606739dcc7d0dcd846dd8f19bff50"
+    },
+    "reference": {
+      "name": "chr19.fa.gz",
+      "sha256": "e56423c5fb8d06fd34f6c9ddd7b7cb40aa97cd73c8f3e5b6a3a41ea4556cd4e8"
+    }
+  },
+  "files": {
+    "variants.vcf": "566003c3789a68bd29d0cf7cc1d34aeb6c748454eb1785bfb3bc0475c81ae073",
+    "repeats.bed": "536bbb1ae8f1719ad908eb8b55891c083c2561d336c964db1bb76c28190de858",
+    "genome.tsv": "f7c2a01f46c9f99112fd2c94e4ca11f26f573c22c8a91ec4bbf6e2300b63ad02"
+  }
+}
