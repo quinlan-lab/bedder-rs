@@ -397,7 +397,11 @@ impl TryFrom<(&str, &HashMap<String, PythonFunction<'_>>)> for Column<'_> {
                 function_name.clone(),
                 Type::try_from(compiled.return_type())
                     .map_err(|e| ColumnError::InvalidType(e.to_string()))?,
-                function_name.clone(),
+                if compiled.description().is_empty() {
+                    function_name.clone()
+                } else {
+                    compiled.description().to_string()
+                },
                 Number::One,
                 Some(ValueParser::PythonExpression(function_name)),
             ));
