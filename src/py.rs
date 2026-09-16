@@ -1325,14 +1325,17 @@ pub struct PythonFunction<'py> {
     name: String,
     return_type: String,
     pyfn: pyo3::Bound<'py, pyo3::types::PyFunction>,
-    // description is from the docstring of the function
-    #[allow(dead_code)]
+    // Description is the first non-empty line of the function docstring.
     description: String,
 }
 
 impl<'py> PythonFunction<'py> {
     pub fn return_type(&self) -> &str {
         &self.return_type
+    }
+
+    pub fn description(&self) -> &str {
+        &self.description
     }
 }
 
@@ -1365,11 +1368,14 @@ pub fn introspect_python_functions<'py>(
                             return_type_str = format!("{}", return_type.repr()?);
                         }
                     }
-                    if let Ok(description) = obj.getattr("__doc__") {
-                        description_str = description.to_string();
-                        // get first non-empty line of docstring
-                        description_str = description_str
-                            .split('\n')
+                    if let Some(description) =
+                        obj.getattr("__doc__")?.extract::<Option<String>>()?
+                    {
+                        // Use the first non-empty line; functions without a docstring fall
+                        // back to the column name when the VCF header is built.
+                        description_str = description
+                            .lines()
+                            .map(str::trim)
                             .find(|line| !line.is_empty())
                             .unwrap_or("")
                             .to_string();
