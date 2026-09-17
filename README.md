@@ -32,7 +32,7 @@ We want a library (in bedder) that is:
 
 ### Solution
 
-To do this, we provide the machinery to intersect common genomics file formats (and more can be added by implementing a simple trait)
+To do this, *bedder* performs the intersection among common genomics file formats (and more can be added by implementing a simple trait)
 and we allow the user to write python functions that then write columns to the output.
 As a contrived example, the user may want to count overlaps but only if the start position of the overlapping interval is even; that could be
 done with this expression:
