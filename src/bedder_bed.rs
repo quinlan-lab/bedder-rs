@@ -170,7 +170,6 @@ where
         }
         // If we have an active query iterator, use it
         if let Some(iter) = &mut self.query_iter {
-            eprintln!("query iter");
             match iter.next() {
                 Some(Ok(record)) => return Some(Ok(Position::Bed(BedRecord(record)))),
                 Some(Err(e)) => {

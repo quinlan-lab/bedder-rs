@@ -68,7 +68,17 @@ use rust_htslib::errors::Error;
 
 impl Skip for BedderVCF {
     fn skip_to(&mut self, chrom: &str, pos0: u64) -> io::Result<()> {
-        let rid = self.reader.header().name2rid(chrom.as_bytes()).unwrap();
+        self.last_record = None;
+        let rid = self
+            .reader
+            .header()
+            .name2rid(chrom.as_bytes())
+            .map_err(|_| {
+                io::Error::new(
+                    io::ErrorKind::NotFound,
+                    format!("contig {chrom} not in VCF header: {}", self.path),
+                )
+            })?;
 
         match self.reader.fetch(rid, pos0, None) {
             Ok(()) => Ok(()),
@@ -76,7 +86,7 @@ impl Skip for BedderVCF {
                 // iterate over the vcf until we get to the chrom, pos0
                 // and then fetch the record
                 for r in self.reader.records() {
-                    let r = r.unwrap();
+                    let r = r.map_err(io::Error::other)?;
                     if r.rid().unwrap_or(u32::MAX) > rid {
                         self.last_record = Some(r);
                         break;
@@ -196,8 +206,10 @@ impl crate::position::PositionedIterator for BedderVCF {
         q: Option<&crate::position::Position>,
     ) -> Option<std::result::Result<Position, std::io::Error>> {
         if let Some(q) = q {
-            match self.skip_to(q.chrom(), q.start() - 1_u64) {
-                Ok(_) => (),
+            match self.skip_to(q.chrom(), q.start().saturating_sub(1)) {
+                Ok(()) => (),
+                // A contig absent from the header has no records here.
+                Err(e) if e.kind() == io::ErrorKind::NotFound => return None,
                 Err(e) => return Some(Err(e)),
             }
         }
@@ -249,4 +261,36 @@ impl crate::position::PositionedIterator for BedderVCF {
 
 // tests
 #[cfg(test)]
-mod tests {}
+mod tests {
+    use super::*;
+    use crate::interval::Interval;
+    use rust_htslib::bcf::{Format, Header, Writer};
+    use tempfile::NamedTempFile;
+
+    #[test]
+    fn missing_query_contig_returns_no_records() {
+        let mut header = Header::new();
+        header.push_record(b"##fileformat=VCFv4.2");
+        header.push_record(b"##contig=<ID=chr1,length=1000>");
+        let file = NamedTempFile::new().unwrap();
+        let writer = Writer::from_path(file.path(), &header, true, Format::Vcf).unwrap();
+        drop(writer);
+
+        let reader = bcf::Reader::from_path(file.path()).unwrap();
+        let mut vcf = BedderVCF::new(reader, file.path().to_string_lossy().into()).unwrap();
+        let mut stale = vcf.reader.empty_record();
+        stale.set_rid(Some(0));
+        vcf.last_record = Some(stale);
+        let query = Position::Interval(Interval {
+            chrom: String::from("chrY"),
+            start: 10,
+            stop: 20,
+            ..Default::default()
+        });
+
+        assert!(
+            crate::position::PositionedIterator::next_position(&mut vcf, Some(&query)).is_none()
+        );
+        assert!(vcf.last_record.is_none());
+    }
+}

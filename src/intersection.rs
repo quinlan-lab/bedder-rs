@@ -42,6 +42,11 @@ pub struct IntersectionIterator<'a> {
     // so that calls after the first are called with None.
     called: Vec<bool>,
 
+    // Indexed queries are chromosome-scoped. A stream that returns None after
+    // a seek is parked until the base advances to a later chromosome.
+    parked_chroms: Vec<Option<usize>>,
+    min_parked_chrom: usize,
+
     // we call this on the first iteration of pull_through_heap
     heap_initialized: bool,
 
@@ -383,6 +388,34 @@ impl Iterator for IntersectionIterator<'_> {
     }
 }
 
+/// The region used to seek a database stream for `base`. Plain overlap mode
+/// queries at the base itself; distance and closest modes must also see
+/// records before it, so they query from `start - max_distance` or from the
+/// chromosome start. The synthetic region is built at most once per pull.
+fn seek_query<'q>(
+    base: &'q Position,
+    synthetic: &'q mut Option<Position>,
+    max_distance: i64,
+    n_closest: i64,
+) -> &'q Position {
+    if max_distance <= 0 && n_closest <= 0 {
+        return base;
+    }
+    synthetic.get_or_insert_with(|| {
+        let start = if max_distance > 0 {
+            base.start().saturating_sub(max_distance as u64)
+        } else {
+            0
+        };
+        Position::Interval(crate::interval::Interval {
+            chrom: base.chrom().to_string(),
+            start,
+            stop: u64::MAX,
+            ..Default::default()
+        })
+    })
+}
+
 /// Create a new IntersectionIterator given a query (base) and a vector of other positioned iterators.
 impl<'a> IntersectionIterator<'a> {
     pub fn new(
@@ -395,6 +428,7 @@ impl<'a> IntersectionIterator<'a> {
     ) -> io::Result<Self> {
         let min_heap = BinaryHeap::new();
         let called = vec![false; other_iterators.len()];
+        let parked_chroms = vec![None; other_iterators.len()];
         Ok(IntersectionIterator {
             base_iterator,
             other_iterators,
@@ -403,6 +437,8 @@ impl<'a> IntersectionIterator<'a> {
             dequeue: VecDeque::new(),
             previous_interval: None,
             called,
+            parked_chroms,
+            min_parked_chrom: usize::MAX,
             heap_initialized: false,
             max_distance,
             n_closest,
@@ -538,30 +574,66 @@ impl<'a> IntersectionIterator<'a> {
         None
     }
 
-    fn init_heap(&mut self, base_interval: &Position) -> io::Result<()> {
-        assert!(!self.heap_initialized);
-        for (i, iter) in self.other_iterators.iter_mut().enumerate() {
-            if let Some(positioned) = iter.next_position(Some(base_interval)) {
-                let positioned = positioned?;
-                let chromosome_index = match self.chromosome_order.get(positioned.chrom()) {
-                    Some(c) => c.index,
-                    None => {
-                        let msg = format!(
-                            "invalid chromosome: {} in iterator {}",
-                            region_str(&positioned),
-                            self.other_iterators[i].name()
-                        );
-                        return Err(Error::other(msg));
-                    }
-                };
-                self.min_heap.push(ReverseOrderPosition {
-                    position: positioned,
-                    chromosome_index,
-                    id: i,
-                });
+    fn chrom_index(&self, position: &Position, file_index: usize) -> io::Result<usize> {
+        self.chromosome_order
+            .get(position.chrom())
+            .map(|chromosome| chromosome.index)
+            .ok_or_else(|| {
+                Error::other(format!(
+                    "invalid chromosome: {} in iterator {}",
+                    region_str(position),
+                    self.other_iterators[file_index].name()
+                ))
+            })
+    }
+
+    fn park_stream(&mut self, file_index: usize, chromosome_index: usize) {
+        self.parked_chroms[file_index] = Some(chromosome_index);
+        self.min_parked_chrom = self.min_parked_chrom.min(chromosome_index);
+    }
+
+    fn seek_stream(
+        &mut self,
+        file_index: usize,
+        query: &Position,
+        query_chrom_idx: usize,
+    ) -> io::Result<()> {
+        self.called[file_index] = true;
+        self.parked_chroms[file_index] = None;
+        let Some(position) = self.other_iterators[file_index].next_position(Some(query)) else {
+            self.park_stream(file_index, query_chrom_idx);
+            return Ok(());
+        };
+        let position = position?;
+        let chromosome_index = self.chrom_index(&position, file_index)?;
+        self.min_heap.push(ReverseOrderPosition {
+            position,
+            chromosome_index,
+            id: file_index,
+        });
+        Ok(())
+    }
+
+    /// Seek every stream on the first call (the first base interval is the
+    /// initial query region), and afterwards only streams parked on a
+    /// chromosome before the base.
+    fn seek_parked_streams(&mut self, query: &Position, base_chrom_idx: usize) -> io::Result<()> {
+        for file_index in 0..self.other_iterators.len() {
+            let parked_before_base =
+                matches!(self.parked_chroms[file_index], Some(parked) if parked < base_chrom_idx);
+            if self.heap_initialized && !parked_before_base {
+                continue;
             }
+            self.seek_stream(file_index, query, base_chrom_idx)?;
         }
         self.heap_initialized = true;
+        self.min_parked_chrom = self
+            .parked_chroms
+            .iter()
+            .flatten()
+            .copied()
+            .min()
+            .unwrap_or(usize::MAX);
         Ok(())
     }
 
@@ -628,8 +700,7 @@ impl<'a> IntersectionIterator<'a> {
     // reset the array that tracks which iterators have been called with Some(Positioned)
     #[inline]
     fn zero_called(&mut self) {
-        let ptr = self.called.as_mut_ptr();
-        unsafe { ptr.write_bytes(0, self.called.len()) };
+        self.called.fill(false);
     }
 
     fn pull_through_heap(
@@ -640,10 +711,12 @@ impl<'a> IntersectionIterator<'a> {
         let base_chrom_idx = base.chrom_index;
         let base_start = base.start;
         let base_stop = base.stop;
+        let needs_reactivation = !self.heap_initialized || self.min_parked_chrom < base_chrom_idx;
+
         // A queued lookahead proves that all B records that could overlap this
         // A have already passed through the start-ordered heap. Reuse it until
         // A catches up, including when a wide A is followed by a narrower one.
-        if self.n_closest <= 0 && self.max_distance <= 0 {
+        if !needs_reactivation && self.n_closest <= 0 && self.max_distance <= 0 {
             if let Some(last) = self.dequeue.back() {
                 if last.chrom_index > base_chrom_idx
                     || (last.chrom_index == base_chrom_idx && last.start >= base_stop)
@@ -652,91 +725,85 @@ impl<'a> IntersectionIterator<'a> {
                 }
             }
         }
-        // The full record is needed only for index queries; borrow it once for
-        // this pull rather than locking it for each B record and metadata read.
         let base_locked = base_interval
             .try_lock()
             .expect("failed to lock base_interval");
+        let (max_distance, n_closest) = (self.max_distance, self.n_closest);
+        let mut synthetic_query = None;
         self.zero_called();
-        if !self.heap_initialized {
-            // we wait til first iteration here to call init heap
-            // because we need the base interval.
-            self.init_heap(&base_locked)?;
+        if needs_reactivation {
+            let query = seek_query(&base_locked, &mut synthetic_query, max_distance, n_closest);
+            self.seek_parked_streams(query, base_chrom_idx)?;
         }
 
-        let other_iterators = self.other_iterators.as_mut_slice();
-
-        while let Some(ReverseOrderPosition {
-            position,
-            chromosome_index,
-            id: file_index,
-            ..
-        }) = self.min_heap.pop()
+        // A parked stream may still have records on an intervening chromosome.
+        // Keep later-chromosome lookahead in the heap until the base advances
+        // and the parked stream can be reactivated.
+        while self
+            .min_heap
+            .peek()
+            .is_some_and(|entry| entry.chromosome_index <= self.min_parked_chrom)
         {
+            let ReverseOrderPosition {
+                position,
+                chromosome_index,
+                id: file_index,
+                ..
+            } = self
+                .min_heap
+                .pop()
+                .expect("heap was just checked as non-empty");
             // must always pull into the heap.
-            let f = other_iterators
-                .get_mut(file_index)
-                .expect("expected interval iterator at file index");
-            // for a given base_interval, we make sure to call next_position with Some, only once.
-            // subsequent calls will be with None.
+            // Re-seeking within a chromosome can replay long or otherwise
+            // overlapping records that precede `position`, breaking the
+            // sorted-stream contract. Only seek when the target stream is on
+            // an earlier chromosome; within a chromosome, continue forward
+            // from the existing lookahead.
             let arg: Option<&Position> = if !self.called[file_index] {
                 self.called[file_index] = true;
-                if self.max_distance <= 0 && position.start() > base_stop {
-                    // if the position interval is after the base interval, then we can use it for the query.
-                    // NOTE: we can do other things here instead like require some distance to minimize expensive queries.
-                    Some(&base_locked)
+                if chromosome_index < base_chrom_idx {
+                    Some(seek_query(
+                        &base_locked,
+                        &mut synthetic_query,
+                        max_distance,
+                        n_closest,
+                    ))
                 } else {
                     None
                 }
             } else {
                 None
             };
-            /*
-            log::warn!(
-                "arg: {:?}, file_index: {} heap-len: {} q-len: {}",
-                arg,
-                file_index,
-                self.min_heap.len(),
-                self.dequeue.len()
-            );
-            */
-            // IMPORTANT!
-            // TODO: next_position is called with Some(interval) every time.
-            // TODO: problem. if we query, e.g. chr1:1-1000, then we already pushed on the heap intervals
-            // TODO: ... then we query e.g. chr1:900-1100 and it could appear as though we have intervals out of order.
-            // TODO: need to get all intervals from the first query and then query from 1000 to 1100. and not take any intervals
-            // TODO: ... that start before 1000.
-            if let Some(next_position) = f.next_position(arg) {
-                let next_position = next_position?;
-                let next_chromosome = match self.chromosome_order.get(next_position.chrom()) {
-                    Some(c) => c,
-                    None => {
+            match self.other_iterators[file_index].next_position(arg) {
+                Some(next_position) => {
+                    let next_position = next_position?;
+                    let next_chromosome_index = self.chrom_index(&next_position, file_index)?;
+
+                    // check that intervals within a file are in order.
+                    if !(position.start() <= next_position.start()
+                        || chromosome_index < next_chromosome_index)
+                    {
                         let msg = format!(
-                            "invalid chromosome: {} in iterator {}",
+                            "database intervals out of order ({} -> {}) in iterator: {}",
+                            region_str(&position),
                             region_str(&next_position),
-                            other_iterators[file_index].name()
+                            self.other_iterators[file_index].name()
                         );
                         return Err(Error::other(msg));
                     }
-                };
-
-                // check that intervals within a file are in order.
-                if !(position.start() <= next_position.start()
-                    || chromosome_index < next_chromosome.index)
-                {
-                    let msg = format!(
-                        "database intervals out of order ({} -> {}) in iterator: {}",
-                        region_str(&position),
-                        region_str(&next_position),
-                        other_iterators[file_index].name()
-                    );
-                    return Err(Error::other(msg));
+                    self.min_heap.push(ReverseOrderPosition {
+                        position: next_position,
+                        chromosome_index: next_chromosome_index,
+                        id: file_index,
+                    });
                 }
-                self.min_heap.push(ReverseOrderPosition {
-                    position: next_position,
-                    chromosome_index: next_chromosome.index,
-                    id: file_index,
-                });
+                None => {
+                    // Whether this stream was just queried for the base
+                    // chromosome or ignored the query and read to EOF, it has
+                    // nothing left through the base chromosome. Parking it on an
+                    // earlier chromosome would block other streams' records.
+                    self.park_stream(file_index, chromosome_index.max(base_chrom_idx));
+                }
             }
 
             // In plain overlap mode, an interval strictly before the current
@@ -796,6 +863,7 @@ mod tests {
     use super::*;
     use crate::chrom_ordering::parse_genome;
     use crate::interval::Interval;
+    use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
 
     struct Intervals {
         i: usize,
@@ -830,6 +898,266 @@ mod tests {
             let p = self.ivs.remove(0);
             Some(Ok(p))
         }
+    }
+
+    struct ReplayingIndexedIntervals {
+        records: Vec<Position>,
+        next: usize,
+        seeks: Arc<AtomicUsize>,
+    }
+
+    impl PositionedIterator for ReplayingIndexedIntervals {
+        fn name(&self) -> String {
+            String::from("replaying-index")
+        }
+
+        fn next_position(&mut self, query: Option<&Position>) -> Option<io::Result<Position>> {
+            if query.is_some() {
+                let seek = self.seeks.fetch_add(1, AtomicOrdering::Relaxed);
+                if seek > 0 {
+                    // Model an indexed region query replaying an earlier
+                    // overlapping record after a second seek on the same
+                    // chromosome.
+                    return Some(Ok(self.records[0].clone()));
+                }
+            }
+            let record = self.records.get(self.next)?.clone();
+            self.next += 1;
+            Some(Ok(record))
+        }
+    }
+
+    #[test]
+    fn same_chromosome_lookahead_does_not_reseek_index() {
+        let chrom_order = parse_genome("chr19\n".as_bytes()).unwrap();
+        let interval = |start, stop| Interval {
+            chrom: String::from("chr19"),
+            start,
+            stop,
+            ..Default::default()
+        };
+        let queries = vec![interval(100, 110), interval(200, 210)];
+        let seeks = Arc::new(AtomicUsize::new(0));
+        let targets = ReplayingIndexedIntervals {
+            records: vec![
+                Position::Interval(interval(100, 105)),
+                Position::Interval(interval(150, 160)),
+                Position::Interval(interval(205, 206)),
+            ],
+            next: 0,
+            seeks: Arc::clone(&seeks),
+        };
+        let iter = IntersectionIterator::new(
+            Box::new(Intervals::new(String::from("A"), queries)),
+            vec![Box::new(targets)],
+            &chrom_order,
+            0,
+            0,
+            false,
+        )
+        .unwrap();
+
+        let overlap_counts: Vec<_> = iter
+            .map(|result| result.unwrap().overlapping.len())
+            .collect();
+        assert_eq!(overlap_counts, vec![1, 1]);
+        assert_eq!(seeks.load(AtomicOrdering::Relaxed), 1);
+    }
+
+    struct ChromosomeScopedIntervals {
+        records: Vec<Position>,
+        active: std::collections::VecDeque<Position>,
+        queries: Arc<Mutex<Vec<(String, u64)>>>,
+    }
+
+    impl PositionedIterator for ChromosomeScopedIntervals {
+        fn name(&self) -> String {
+            String::from("chromosome-scoped-index")
+        }
+
+        fn next_position(&mut self, query: Option<&Position>) -> Option<io::Result<Position>> {
+            if let Some(query) = query {
+                self.queries
+                    .lock()
+                    .push((String::from(query.chrom()), query.start()));
+                self.active = self
+                    .records
+                    .iter()
+                    .filter(|record| {
+                        record.chrom() == query.chrom() && record.stop() > query.start()
+                    })
+                    .cloned()
+                    .collect();
+            }
+            self.active.pop_front().map(Ok)
+        }
+    }
+
+    #[test]
+    fn parked_indexed_stream_is_reactivated_on_later_chromosomes() {
+        let chrom_order = parse_genome("chr1\nchr2\nchr3\n".as_bytes()).unwrap();
+        let interval = |chrom: &str| Interval {
+            chrom: String::from(chrom),
+            start: 10,
+            stop: 20,
+            ..Default::default()
+        };
+        let queries = vec![interval("chr1"), interval("chr2"), interval("chr3")];
+        let query_log = Arc::new(Mutex::new(Vec::new()));
+        let scoped = ChromosomeScopedIntervals {
+            records: vec![
+                Position::Interval(interval("chr1")),
+                Position::Interval(interval("chr2")),
+                Position::Interval(interval("chr3")),
+            ],
+            active: std::collections::VecDeque::new(),
+            queries: Arc::clone(&query_log),
+        };
+        // This stream's chr3 lookahead ensures reactivation happens before the
+        // dequeue early-return and preserves cross-stream ordering.
+        let later = Intervals::new(String::from("later"), vec![interval("chr3")]);
+        let iter = IntersectionIterator::new(
+            Box::new(Intervals::new(String::from("A"), queries)),
+            vec![Box::new(scoped), Box::new(later)],
+            &chrom_order,
+            0,
+            0,
+            false,
+        )
+        .unwrap();
+
+        let overlap_counts: Vec<_> = iter
+            .map(|result| result.unwrap().overlapping.len())
+            .collect();
+        assert_eq!(overlap_counts, vec![1, 1, 2]);
+        assert_eq!(query_log.lock().len(), 3);
+    }
+
+    #[test]
+    fn parked_indexed_stream_skips_unqueried_chromosomes() {
+        let chrom_order = parse_genome("chr1\nchr2\nchr3\n".as_bytes()).unwrap();
+        let interval = |chrom: &str| Interval {
+            chrom: String::from(chrom),
+            start: 10,
+            stop: 20,
+            ..Default::default()
+        };
+        let query_log = Arc::new(Mutex::new(Vec::new()));
+        let scoped = ChromosomeScopedIntervals {
+            records: vec![
+                Position::Interval(interval("chr2")),
+                Position::Interval(interval("chr3")),
+            ],
+            active: std::collections::VecDeque::new(),
+            queries: Arc::clone(&query_log),
+        };
+        let iter = IntersectionIterator::new(
+            Box::new(Intervals::new(
+                String::from("A"),
+                vec![interval("chr1"), interval("chr3")],
+            )),
+            vec![Box::new(scoped)],
+            &chrom_order,
+            0,
+            0,
+            false,
+        )
+        .unwrap();
+
+        let results: Vec<_> = iter.map(|result| result.unwrap()).collect();
+        assert_eq!(results[0].overlapping.len(), 0);
+        assert_eq!(results[1].overlapping.len(), 1);
+        assert_eq!(results[1].overlapping[0].interval.lock().chrom(), "chr3");
+        let queried_chromosomes: Vec<_> = query_log
+            .lock()
+            .iter()
+            .map(|(chrom, _)| chrom.clone())
+            .collect();
+        assert_eq!(
+            queried_chromosomes,
+            vec![String::from("chr1"), String::from("chr3")]
+        );
+    }
+
+    #[test]
+    fn indexed_closest_and_distance_seek_far_enough_back() {
+        let chrom_order = parse_genome("chr1\nchr2\n".as_bytes()).unwrap();
+        let interval = |chrom: &str, start, stop| Interval {
+            chrom: String::from(chrom),
+            start,
+            stop,
+            ..Default::default()
+        };
+        for (max_distance, n_closest, target_start, target_stop, expected_seek) in
+            [(0, 1, 10, 20, 0), (200, 0, 850, 860, 800)]
+        {
+            let base_intervals = vec![interval("chr1", 1000, 1010), interval("chr2", 1000, 1010)];
+            let query_log = Arc::new(Mutex::new(Vec::new()));
+            let scoped = ChromosomeScopedIntervals {
+                records: vec![Position::Interval(interval(
+                    "chr2",
+                    target_start,
+                    target_stop,
+                ))],
+                active: std::collections::VecDeque::new(),
+                queries: Arc::clone(&query_log),
+            };
+            let iter = IntersectionIterator::new(
+                Box::new(Intervals::new(String::from("A"), base_intervals)),
+                vec![Box::new(scoped)],
+                &chrom_order,
+                max_distance,
+                n_closest,
+                false,
+            )
+            .unwrap();
+
+            let overlap_counts: Vec<_> = iter
+                .map(|result| result.unwrap().overlapping.len())
+                .collect();
+            assert_eq!(overlap_counts, vec![0, 1]);
+            let query_starts: Vec<_> = query_log.lock().iter().map(|(_, start)| *start).collect();
+            assert_eq!(query_starts, vec![expected_seek; 2]);
+        }
+    }
+
+    #[test]
+    fn unindexed_stream_eof_on_earlier_chrom_does_not_block_others() {
+        let chrom_order = parse_genome("chr1\nchr2\nchr3\n".as_bytes()).unwrap();
+        let interval = |chrom: &str, start, stop| Interval {
+            chrom: String::from(chrom),
+            start,
+            stop,
+            ..Default::default()
+        };
+        // b1 ignores index queries and reaches EOF on chr1 while the base is on
+        // chr3; it must not hold back b2's chr3 record.
+        let iter = IntersectionIterator::new(
+            Box::new(Intervals::new(
+                String::from("A"),
+                vec![interval("chr3", 10, 20)],
+            )),
+            vec![
+                Box::new(Intervals::new(
+                    String::from("b1"),
+                    vec![interval("chr1", 5, 6)],
+                )),
+                Box::new(Intervals::new(
+                    String::from("b2"),
+                    vec![interval("chr3", 10, 20)],
+                )),
+            ],
+            &chrom_order,
+            0,
+            0,
+            false,
+        )
+        .unwrap();
+
+        let overlap_counts: Vec<_> = iter
+            .map(|result| result.unwrap().overlapping.len())
+            .collect();
+        assert_eq!(overlap_counts, vec![1]);
     }
 
     #[test]
@@ -2572,6 +2900,8 @@ mod tests {
                 dequeue: VecDeque::new(),
                 previous_interval: None,
                 called: vec![],
+                parked_chroms: vec![],
+                min_parked_chrom: usize::MAX,
                 heap_initialized: false,
                 max_distance,
                 n_closest,
